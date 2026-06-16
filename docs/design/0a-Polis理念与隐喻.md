@@ -1,0 +1,80 @@
+# 0a Polis 理念与隐喻 — 为什么不止是「AgentOS」
+
+> 本篇确立 Polis 的**产品身份与概念骨架**。它不是又一个「Agent 操作系统」，
+> 而是一套**让 AI 智能体像城邦一样有组织、有公职、受治理地协作**的体系。
+> 下面把「城邦(Polis)」隐喻一一映射到系统的真实概念，作为命名、术语、设计取向的总纲。
+
+---
+
+## 1. 一句话定位
+
+**Polis 把一个目标，变成一座为它而立的「城邦」。**
+你给出意图，系统**立邦**：组建公职(角色)、安置公民(Agent)、颁布章程与法律(治理/护栏)、
+由执政官(Planner)拟定方略、按才能委任(能力路由)、在议事会(审批)监督下完成，并把一切**记于档案、明于账目**。
+
+## 2. 为什么用「城邦」，而不是「OS / 工厂 / 集群」
+
+| 常见隐喻 | 暗示 | 缺什么 |
+|---|---|---|
+| AgentOS / 操作系统 | 调度资源、跑进程 | 没有**组织、治理、问责**——agent 只是被调度的进程 |
+| Agent 工厂 / 流水线 | 把任务压成流程 | 没有**角色自治与判断**，难处理开放目标 |
+| Agent 集群 / 蜂群 | 多体并发 | 没有**章程与边界**，难审计、难追责 |
+| **Polis / 城邦** | 有公职、有法律、有议事、有档案的**自治协作体** | —— 恰好补齐：组织、治理、问责、可审计 |
+
+Polis 的差异化正是设计里最重的几块：**组织编配、能力路由、治理粘合、出处纪律、计划校验**
+（见 `docs/design/01 §2` 自研清单、`08` IP 候选）。隐喻不是装饰，而是这些能力的统一叙事。
+
+## 3. 隐喻映射（城邦 → 系统概念 → 文档）
+
+| 城邦概念 | Polis 系统概念 | 落点 | 设计文档 |
+|---|---|---|---|
+| **城邦 Polis** | Org（虚拟公司 / 工作区） | 一切以 `org_id` 行级隔离 | 02 |
+| **立邦 Founding** | 角色编配器 Provisioner（意图→建 Org） | IntentParser→PresetMatcher→Assembler→Gap→Validator | 02 §5 |
+| **公职 Office** | Role（业务角色，Agent≠Role） | role 表 | 02 |
+| **公民 Citizen** | Agent（可版本化的执行资源） | agent / agent_version | 02 |
+| **才能名册 Census** | 能力词表 Capability（受控） | capability 表 + embedding | 03 §7 |
+| **委任 Appointment** | 能力路由 Router（节点→Agent） | 记忆亲和 + 冷启动降权 | 03 §7 |
+| **执政官 Magistrate** | Planner（目标→DAG，只声明能力需求） | 五级流水线 + 模板优先 | 03 §2 |
+| **合宪审查 Review** | Plan 校验 Validator（无环/可满足/预算/危险gate） | validate() | 03 §4 |
+| **施政 Governing** | Temporal 编排（重试/人审暂停/有界重规划） | TaskWorkflow | 03 §5-6 |
+| **法律 Laws** | Guardrails 护栏 + 最小权限 + 危险动作 gate | 三道防线 | 04 §5 |
+| **议事会 Assembly** | 审批收件箱 Approval（统一 HITL） | approval 表 + Temporal signal | 06 §6 |
+| **档案馆 Archive** | 统一记忆 Memory（任务/角色/组织作用域）+ 出处 | memory + provenance | 05 |
+| **公证 Notary** | 结果信封 ResultEnvelope（事实带 sourceUrl/confidence） | result_envelope | 05 §7 |
+| **国库 Treasury** | 模型网关 + 凭证 Broker + 预算（BYO-Key 短时注入） | credential / budget | 06 |
+| **史官 Chronicle** | 可观测 Langfuse + Run Manifest（可复现） | trace_ref / run_manifest | 06 |
+
+> 命名取向：用户可见层用「城邦/公司」叙事更亲切；代码与 API 用工程术语（Org/Agent/Role/Plan…）。
+> 二者一一对应，不混用。
+
+## 4. 三条「城邦精神」对应的设计原则
+
+1. **自治但受治理**：Agent 有角色判断（不是死流程），但一切在章程(policies)、护栏、审批之下——
+   对应"危险动作不自动、生成物默认 draft 待审、有界重规划有上限"。
+2. **问责与可追溯**：每个产出可追到是谁(哪个 agent 版本)、凭什么(出处)、花了多少(成本)、按哪版计划(manifest)——
+   对应"出处贯穿全链路 + Run Manifest + 审计日志"。
+3. **邦各自立、互不越界**：每座城邦(Org)数据强隔离，凭证不串、记忆不漏——
+   对应"org_id 行级隔离 + 凭证任务级短时句柄 + 作用域受限检索"。
+
+## 5. 与「AgentOS」工作代号的关系
+
+`AgentOS` 是早期工作代号，已弃用为正式名（见 [ADR-0003](../decisions/0003-project-name-polis.md)）。
+现行设计/约束/计划文档已统一为 **Polis**；仅 `docs/legacy/` 归档保留 “AgentOS” 字样作为历史记录。概念上以本篇为准。
+
+## 6. 术语表（A14 唯一来源，全端一致）
+
+| 术语 | 定义 | 不要叫成 |
+|---|---|---|
+| 城邦 / Org | 为一个目标而立、数据隔离的虚拟公司/工作区 | 项目、群、租户(内部可叫 tenant) |
+| 角色 / Role | 业务岗位（如"采购经理"），与 Agent 解耦 | 职位混称 Agent |
+| 智能体 / Agent | 可版本化、可路由的执行资源 | 机器人、bot |
+| 计划 / Plan | 目标拆出的 DAG（节点声明能力需求，不绑 Agent） | 流程、工作流(指 Temporal 实现时再叫) |
+| 能力 / Capability | 受控词表项 `Domain.Capability`，路由的承重墙 | 技能（技能是 Skill，另指工具/手册） |
+| 技能 / Skill | 手册型(怎么做)或工具型(MCP) | 能力 |
+| 审批 / Approval | 统一人审队列（计划/危险动作/编配/返工） | 审核、确认(口语) |
+| 出处 / Provenance | 事实的来源+时效+置信，贯穿记忆与信封 | 引用(不精确) |
+
+---
+
+**一句话收束**：别人做「能跑 Agent 的系统」，Polis 做「**能托付的城邦**」——
+有人(角色)、有法(治理)、有据(出处)、有账(成本)、有史(可复现)。这是它的根，也是它的护城河。

@@ -1,0 +1,824 @@
+# AgentOS全链路数据流与执行时序图（核心架构设计）
+
+这是整个 AgentOS 最关键的一份设计文档。
+
+前面的：
+
+* Agent Runtime
+* Workflow
+* Memory
+* Skill
+* Registry
+
+都是组件。
+
+而这一篇解决的是：
+
+> **这些组件到底如何协同工作？**
+
+如果这部分设计不清楚，最终系统一定会变成：
+
+```text
+Agent调用Agent
+Agent调用Tool
+Workflow调Agent
+
+最终形成一堆相互调用的服务
+```
+
+然后无法维护。
+
+---
+
+# 一、AgentOS最终架构层次
+
+建议最终采用七层架构：
+
+```text
+┌────────────────────────────────────┐
+│           Interaction Layer         │
+│ Chat/UI/API/Voice/Webhook          │
+└────────────────────────────────────┘
+
+┌────────────────────────────────────┐
+│            Planner Layer            │
+│ Goal → Task → DAG                  │
+└────────────────────────────────────┘
+
+┌────────────────────────────────────┐
+│          Workflow Layer             │
+│ Temporal Workflow Engine           │
+└────────────────────────────────────┘
+
+┌────────────────────────────────────┐
+│          Agent Runtime              │
+│ Agent Execution Kernel             │
+└────────────────────────────────────┘
+
+┌────────────────────────────────────┐
+│          Skill Runtime              │
+│ Tool / MCP / API / Human           │
+└────────────────────────────────────┘
+
+┌────────────────────────────────────┐
+│          Memory Center              │
+│ Session/LongTerm/Shared            │
+└────────────────────────────────────┘
+
+┌────────────────────────────────────┐
+│         Infrastructure Layer        │
+│ K8S/Kafka/Redis/PG/Milvus          │
+└────────────────────────────────────┘
+```
+
+---
+
+# 二、全链路执行流程
+
+以一个典型企业任务举例：
+
+用户输入：
+
+```text
+分析最近三个月供应商交付情况，
+生成采购优化建议，
+提交采购经理审批
+```
+
+---
+
+# Step1 用户请求进入系统
+
+```text
+User
+ ↓
+API Gateway
+ ↓
+Conversation Service
+ ↓
+Planner
+```
+
+时序：
+
+```text
+User
+ |
+ | Request
+ |
+API Gateway
+ |
+ | Create Session
+ |
+Conversation Service
+ |
+ | Build Context
+ |
+Planner
+```
+
+此时：
+
+Planner收到：
+
+```json
+{
+  "goal":"分析供应商交付情况",
+  "user":"manager",
+  "workspace":"procurement"
+}
+```
+
+---
+
+# Step2 Planner生成执行计划
+
+Planner负责：
+
+```text
+Goal
+ ↓
+Task
+ ↓
+SubTask
+ ↓
+DAG
+```
+
+例如：
+
+```text
+Task1 查询ERP数据
+
+Task2 分析供应商表现
+
+Task3 生成优化建议
+
+Task4 发起审批
+```
+
+生成：
+
+```text
+ERP Query
+    ↓
+Supplier Analysis
+    ↓
+Recommendation
+    ↓
+Approval
+```
+
+Planner输出：
+
+```json
+{
+  "workflow":"purchase-analysis",
+  "dag":[
+      "erp_query",
+      "analysis",
+      "recommendation",
+      "approval"
+  ]
+}
+```
+
+---
+
+# Step3 Workflow启动
+
+Planner不执行。
+
+而是：
+
+```text
+Planner
+ ↓
+Temporal
+```
+
+时序：
+
+```text
+Planner
+   |
+   | StartWorkflow
+   |
+Temporal
+```
+
+创建：
+
+```text
+Workflow Instance
+```
+
+例如：
+
+```text
+wf_20260616001
+```
+
+---
+
+# Step4 Temporal调度节点
+
+执行第一个节点：
+
+```text
+ERP Query
+```
+
+```text
+Temporal
+ ↓
+Activity
+ ↓
+Agent Runtime
+```
+
+---
+
+# 三、Agent Runtime执行过程
+
+这是最重要的一段。
+
+---
+
+## Runtime加载Agent
+
+```text
+Agent Runtime
+ ↓
+Registry
+```
+
+读取：
+
+```text
+purchase-agent:v2.1
+```
+
+获得：
+
+```yaml
+model:
+  deepseek-r1
+
+skills:
+  - erp-query
+  - supplier-score
+
+memory:
+  procurement
+```
+
+---
+
+## Runtime加载Memory
+
+```text
+Agent Runtime
+ ↓
+Memory Center
+```
+
+读取：
+
+```text
+采购历史
+供应商历史
+审批历史
+```
+
+组装上下文：
+
+```text
+Prompt
++
+Task
++
+Memory
++
+Policy
+```
+
+---
+
+## Runtime调用LLM
+
+```text
+Agent Runtime
+ ↓
+Model Runtime
+ ↓
+LLM
+```
+
+得到：
+
+```text
+需要调用ERP查询Skill
+```
+
+---
+
+# 四、Skill Runtime执行
+
+---
+
+Runtime发起：
+
+```json
+{
+  "skill":"erp-query",
+  "args":{
+      "month":3
+  }
+}
+```
+
+---
+
+流程：
+
+```text
+Agent Runtime
+ ↓
+Skill Router
+ ↓
+Skill Executor
+ ↓
+ERP API
+```
+
+返回：
+
+```json
+{
+  "suppliers":[]
+}
+```
+
+---
+
+Skill结果回写：
+
+```text
+Memory Center
+```
+
+形成：
+
+```text
+Execution Memory
+```
+
+---
+
+# 五、Workflow状态更新
+
+Temporal收到：
+
+```text
+Task Completed
+```
+
+---
+
+状态变化：
+
+```text
+ERP Query
+    ✔
+Analysis
+```
+
+Workflow推进：
+
+```text
+Next Node
+```
+
+---
+
+# 六、多Agent协作执行
+
+第二节点：
+
+```text
+Supplier Analysis
+```
+
+对应：
+
+```text
+analysis-agent
+```
+
+---
+
+Temporal继续：
+
+```text
+Workflow
+ ↓
+Analysis Agent
+```
+
+---
+
+执行：
+
+```text
+analysis-agent
+ ↓
+Memory
+ ↓
+supplier-score skill
+ ↓
+生成分析结果
+```
+
+---
+
+结果写入：
+
+```text
+Shared Memory
+```
+
+---
+
+# 七、共享记忆流转
+
+这里是很多Agent框架缺失的。
+
+你的原架构也缺少这一层。
+
+---
+
+分析Agent产生：
+
+```text
+供应商A风险较高
+```
+
+写入：
+
+```text
+Workspace Shared Memory
+```
+
+---
+
+推荐Agent读取：
+
+```text
+Shared Memory
+```
+
+获取：
+
+```text
+供应商A风险较高
+```
+
+继续生成：
+
+```text
+建议替换供应商
+```
+
+---
+
+因此形成：
+
+```text
+Agent A
+ ↓
+Shared Memory
+ ↓
+Agent B
+```
+
+而不是：
+
+```text
+Agent A
+ ↓
+HTTP
+ ↓
+Agent B
+```
+
+---
+
+# 八、Human-in-loop流程
+
+到审批节点：
+
+```text
+Approval Task
+```
+
+Workflow进入：
+
+```text
+WAITING_SIGNAL
+```
+
+状态：
+
+```text
+Running
+ ↓
+Waiting Approval
+```
+
+---
+
+Temporal暂停：
+
+```text
+Workflow Suspend
+```
+
+---
+
+审批人操作：
+
+```text
+Approve
+```
+
+触发：
+
+```text
+Signal
+```
+
+---
+
+Workflow恢复：
+
+```text
+Temporal Resume
+```
+
+---
+
+# 九、失败恢复流程
+
+假设：
+
+```text
+ERP API故障
+```
+
+---
+
+Skill失败：
+
+```text
+Skill Runtime
+ ↓
+Error
+```
+
+---
+
+通知：
+
+```text
+Agent Runtime
+ ↓
+Temporal
+```
+
+---
+
+Temporal：
+
+```text
+Retry
+```
+
+策略：
+
+```yaml
+retry:
+  max_attempts:3
+  backoff:
+      exponential
+```
+
+---
+
+仍失败：
+
+```text
+Compensation Workflow
+```
+
+启动：
+
+```text
+Failure Agent
+```
+
+---
+
+通知：
+
+```text
+管理员
+```
+
+---
+
+# 十、全链路时序图（完整版）
+
+```text
+User
+ │
+ │ Request
+ ▼
+API Gateway
+ │
+ ▼
+Conversation Service
+ │
+ ▼
+Planner
+ │
+ │ DAG
+ ▼
+Temporal Workflow
+ │
+ ├───────────────┐
+ │               │
+ ▼               ▼
+Agent Runtime    Memory Center
+ │
+ ▼
+Registry
+ │
+ ▼
+Load Agent
+ │
+ ▼
+Model Runtime
+ │
+ ▼
+LLM
+ │
+ ▼
+Skill Runtime
+ │
+ ▼
+External System
+ │
+ ▼
+Result
+ │
+ ▼
+Memory Center
+ │
+ ▼
+Temporal
+ │
+ ▼
+Next Task
+ │
+ ▼
+Complete
+```
+
+---
+
+# 十一、你当前架构与优化架构的本质区别
+
+你当前图里面的执行流：
+
+```text
+Planner
+ ↓
+Executor
+ ↓
+Tool
+```
+
+属于：
+
+```text
+Agent Framework
+```
+
+级别。
+
+---
+
+优化后：
+
+```text
+Planner
+ ↓
+Workflow
+ ↓
+Agent Runtime
+ ↓
+Skill Runtime
+ ↓
+Memory
+```
+
+属于：
+
+```text
+Agent Operating System
+```
+
+级别。
+
+---
+
+# 十二、真正落地时的微服务拆分（推荐）
+
+如果按照企业级平台建设，我建议最终拆成 12 个核心服务：
+
+```text
+agent-gateway
+
+agent-conversation
+
+agent-planner
+
+agent-workflow
+
+agent-runtime
+
+agent-registry
+
+agent-memory
+
+agent-skill
+
+agent-model
+
+agent-policy
+
+agent-observability
+
+agent-marketplace
+```
+
+部署到 K8S 后：
+
+```text
+AgentOS Cluster
+```
+
+大约可以支撑：
+
+```text
+1000+
+Agent
+
+10000+
+Workflow
+
+100万+
+Daily Task
+```
+
+---
+
+# 最终结论
+
+从你最初上传的架构图来看，它更接近：
+
+```text
+LangGraph + Tool + Memory
+```
+
+这一代 Agent Framework。
+
+而经过前面一系列设计（Runtime、Registry、Memory、Skill、Workflow）的补全后，已经演进成：
+
+```text
+AgentOS Kernel
+```
+
+架构。
+
+下一阶段最值得深入设计的不是继续扩展模块，而是：
+
+1. 《Planner → DAG生成机制设计（AgentOS真正的大脑）》
+2. 《Capability Routing设计（Agent如何自动选择Agent）》
+3. 《AgentOS微服务拆分与K8S部署架构》
+4. 《AgentOS数据库模型设计（50+核心表）》
+5. 《AgentOS企业级权限模型（RBAC + Agent权限体系）》
+6. 《AgentOS MVP（6个月可落地版本）》
+
+这六份文档会把架构从“理论完整”推进到“可以直接组织团队开发”。

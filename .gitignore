@@ -1,0 +1,45 @@
+# ---- Python / backend ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+dist/
+build/
+*.egg-info/
+
+# ---- Node / frontend ----
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# ---- secrets / local ----
+*.pem
+*.key
+secrets/
+*.local
+.claude/settings.local.json
+
+# ---- data / db ----
+*.db
+*.sqlite
+*.sqlite3
+pgdata/
+
+# ---- OS / editor ----
+.DS_Store
+.idea/
+.vscode/
+*.swp
