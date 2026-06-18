@@ -171,3 +171,37 @@ a { color: var(--color-accent-text); text-decoration: none; }
   flex: 1; height: 36px; padding: 0 12px; border: 1px solid var(--color-border-strong);
   border-radius: 8px; font-size: 14px;
 }
+
+/* org 卡片作为链接 */
+a.org-card { display: block; text-decoration: none; color: var(--color-text); transition: border-color .15s; }
+a.org-card:hover { border-color: var(--color-primary); }
+
+/* 立邦向导 */
+.section-title { font-size: 15px; font-weight: 500; margin: 28px 0 10px; }
+.provision { display: flex; gap: 8px; flex-wrap: wrap; }
+.provision select, .provision input {
+  height: 40px; padding: 0 12px; border: 1px solid var(--color-border-strong);
+  border-radius: 8px; font-size: 14px; background: var(--color-surface); color: var(--color-text);
+}
+.provision select { flex: 2; min-width: 220px; }
+.provision input { flex: 1; min-width: 160px; }
+.provision .btn-primary { width: auto; padding: 0 20px; height: 40px; }
+.hint { color: var(--color-text-secondary); font-size: 12px; margin: 6px 0 0; }
+
+/* 花名册 */
+.back { font-size: 13px; color: var(--color-accent-text); }
+.roster { display: flex; flex-direction: column; gap: 10px; }
+.agent-row {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius); padding: 12px 16px;
+}
+.agent-row .meta { color: var(--color-text-secondary); font-size: 12px; }
+.pill { font-size: 12px; padding: 2px 9px; border-radius: 20px; }
+.pill.active { background: #e8f5e9; color: #1b5e20; }
+.pill.draft { background: #fff4e5; color: #7a3e00; }
+.role-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.role-chip {
+  background: var(--color-primary-subtle-strong); color: #283593;
+  font-size: 13px; padding: 4px 12px; border-radius: 20px;
+}

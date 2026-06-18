@@ -2,14 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, clearTokens, getAccess, type Me } from "@/lib/api";
+import Link from "next/link";
+import { api, clearTokens, getAccess, type Me, type Preset } from "@/lib/api";
 
 export default function DashboardPage() {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [name, setName] = useState("");
+  const [preset, setPreset] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [newName, setNewName] = useState("");
-  const [creating, setCreating] = useState(false);
 
   async function load() {
     try {
@@ -25,20 +28,24 @@ export default function DashboardPage() {
       return;
     }
     load();
+    api.listPresets().then(setPresets).catch(() => {});
   }, [router]);
 
-  async function createOrg(e: React.FormEvent) {
+  async function provision(e: React.FormEvent) {
     e.preventDefault();
-    if (!newName.trim()) return;
-    setCreating(true);
+    if (!name.trim() || !preset) return;
+    setBusy(true);
+    setError("");
     try {
-      await api.createOrg({ name: newName.trim() });
-      setNewName("");
+      const res = await api.provision({ name: name.trim(), preset });
+      setName("");
+      setPreset("");
       await load();
+      router.push(`/orgs/${res.org.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "创建失败");
+      setError(err instanceof Error ? err.message : "立邦失败");
     } finally {
-      setCreating(false);
+      setBusy(false);
     }
   }
 
@@ -48,7 +55,11 @@ export default function DashboardPage() {
   }
 
   if (!me) {
-    return <div className="container"><p className="muted">{error || "加载中…"}</p></div>;
+    return (
+      <div className="container">
+        <p className="muted">{error || "加载中…"}</p>
+      </div>
+    );
   }
 
   const initial = (me.user.display_name || me.user.email)[0]?.toUpperCase() ?? "U";
@@ -78,24 +89,34 @@ export default function DashboardPage() {
         {error && <p className="error">{error}</p>}
 
         {me.orgs.length === 0 ? (
-          <div className="empty">还没有公司。起个名字，开出你的第一家 AI 虚拟公司 👇</div>
+          <div className="empty">还没有公司。选一个预设，开出你的第一家 AI 虚拟公司 👇</div>
         ) : (
           <div className="org-grid">
             {me.orgs.map((o) => (
-              <div className="org-card" key={o.id}>
+              <Link className="org-card" href={`/orgs/${o.id}`} key={o.id}>
                 <div className="name">{o.name}</div>
                 <span className="badge">{o.role === "owner" ? "所有者" : o.role}</span>
-              </div>
+              </Link>
             ))}
           </div>
         )}
 
-        <form className="inline-form" onSubmit={createOrg}>
-          <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="新公司名称，如：采购分析公司" />
-          <button className="btn-primary" style={{ width: "auto", padding: "0 18px", height: 36 }} type="submit" disabled={creating}>
-            {creating ? "创建中…" : "创建公司"}
+        <div className="section-title">立邦 —— 按预设开一家虚拟公司</div>
+        <form className="provision" onSubmit={provision}>
+          <select value={preset} onChange={(e) => setPreset(e.target.value)}>
+            <option value="">选择预设…</option>
+            {presets.map((p) => (
+              <option value={p.name} key={`${p.name}@${p.version}`}>
+                {p.name}（{p.description}）
+              </option>
+            ))}
+          </select>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="公司名称" />
+          <button className="btn-primary" type="submit" disabled={busy || !preset || !name.trim()}>
+            {busy ? "立邦中…" : "立邦"}
           </button>
         </form>
+        <p className="hint">选预设后，系统按模板实例化角色与 Agent（受信，直接 active）。自然语言意图与缺口生成在后续版本接入。</p>
       </div>
     </>
   );

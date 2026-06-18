@@ -16,12 +16,18 @@ export function getAccess(): string | null {
   return typeof window === "undefined" ? null : localStorage.getItem(ACCESS);
 }
 
-async function request<T>(path: string, options: RequestInit = {}, auth = false): Promise<T> {
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  auth = false,
+  orgId?: string,
+): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (auth) {
     const token = getAccess();
     if (token) headers["Authorization"] = `Bearer ${token}`;
   }
+  if (orgId) headers["X-Org-Id"] = orgId;
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) {
@@ -44,6 +50,35 @@ export interface Me {
   user: { id: string; email: string; display_name: string | null };
   orgs: Org[];
 }
+export interface Preset {
+  name: string;
+  version: string;
+  description: string | null;
+  required_capabilities: string[] | null;
+}
+export interface Agent {
+  id: string;
+  name: string;
+  status: string;
+  source: string;
+  current_version: string | null;
+}
+export interface Role {
+  id: string;
+  name: string;
+  description: string | null;
+}
+export interface ProvisionedAgent {
+  name: string;
+  role_name: string;
+  status: string;
+  capabilities: string[];
+}
+export interface ProvisionResult {
+  org: Org;
+  preset: string;
+  agents: ProvisionedAgent[];
+}
 
 export const api = {
   register: (body: { email: string; password: string; display_name?: string }) =>
@@ -53,4 +88,9 @@ export const api = {
   me: () => request<Me>("/api/me", {}, true),
   createOrg: (body: { name: string; charter?: string }) =>
     request<Org>("/api/orgs", { method: "POST", body: JSON.stringify(body) }, true),
+  listPresets: () => request<Preset[]>("/api/catalog/presets"),
+  provision: (body: { name: string; preset?: string; keyword?: string }) =>
+    request<ProvisionResult>("/api/provision", { method: "POST", body: JSON.stringify(body) }, true),
+  agents: (orgId: string) => request<Agent[]>("/api/orgs/current/agents", {}, true, orgId),
+  roles: (orgId: string) => request<Role[]>("/api/orgs/current/roles", {}, true, orgId),
 };
