@@ -70,15 +70,15 @@ export default function DashboardPage() {
       <div className="container">
         <div className="page-head">
           <div>
-            <h1 className="page-title">我的城邦</h1>
-            <p className="muted">共 {me.orgs.length} 座 · 每座城邦数据独立、记忆独立</p>
+            <h1 className="page-title">我的公司</h1>
+            <p className="muted">共 {me.orgs.length} 家 · 每家虚拟公司数据独立、记忆独立</p>
           </div>
         </div>
 
         {error && <p className="error">{error}</p>}
 
         {me.orgs.length === 0 ? (
-          <div className="empty">还没有城邦。给它起个名字，立你的第一座城邦 👇</div>
+          <div className="empty">还没有公司。起个名字，开出你的第一家 AI 虚拟公司 👇</div>
         ) : (
           <div className="org-grid">
             {me.orgs.map((o) => (
@@ -91,9 +91,9 @@ export default function DashboardPage() {
         )}
 
         <form className="inline-form" onSubmit={createOrg}>
-          <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="新城邦名称，如：采购分析公司" />
+          <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="新公司名称，如：采购分析公司" />
           <button className="btn-primary" style={{ width: "auto", padding: "0 18px", height: 36 }} type="submit" disabled={creating}>
-            {creating ? "创建中…" : "立邦"}
+            {creating ? "创建中…" : "创建公司"}
           </button>
         </form>
       </div>
