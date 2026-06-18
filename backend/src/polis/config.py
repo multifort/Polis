@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     env: str = "dev"  # dev|staging|prod
     version: str = "0.1.0"
 
+    # 数据库（asyncpg 驱动）。真实连接串走 POLIS_DATABASE_URL（见 backend/.env）。
+    database_url: str = "postgresql+asyncpg://polis:polis@localhost:5432/polis"
+
 
 @lru_cache
 def get_settings() -> Settings:
