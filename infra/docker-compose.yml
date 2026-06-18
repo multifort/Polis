@@ -1,0 +1,77 @@
+# Polis 本地基础设施（MVP，单机）。见 docs/design/07 §3、docs/constraints/14。
+# 仅 4 个外部依赖；Polis 应用本体仍用 backend 的 `make dev` 本地跑（容器化属 E8，后置）。
+# 起栈：cd infra && cp .env.example .env && docker compose up -d   （本次不拉起）
+name: polis
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-polis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 infra/.env 设置}
+      POSTGRES_DB: ${POSTGRES_DB:-polis}
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init-db.sh:/docker-entrypoint-initdb.d/10-init-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-polis} -d ${POSTGRES_DB:-polis}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-polis}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD}
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+    ports: ["7233:7233"]
+
+  temporal-ui:
+    image: temporalio/ui:2.31.2
+    restart: unless-stopped
+    depends_on: [temporal]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports: ["8233:8080"]
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?请在 infra/.env 设置}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-polis}:${POSTGRES_PASSWORD}@postgres:5432/litellm
+    volumes:
+      - ./litellm.yaml:/app/config.yaml:ro
+    ports: ["4000:4000"]
+
+  langfuse:
+    image: langfuse/langfuse:2
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-polis}:${POSTGRES_PASSWORD}@postgres:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?请在 infra/.env 设置}
+      SALT: ${LANGFUSE_SALT:?请在 infra/.env 设置}
+      TELEMETRY_ENABLED: "false"
+    ports: ["3000:3000"]
+
+volumes:
+  pgdata:
