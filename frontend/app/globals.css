@@ -152,41 +152,61 @@ a { color: var(--color-accent-text); text-decoration: none; }
 .page-title { font-size: 18px; font-weight: 500; margin: 0; }
 .muted { color: var(--color-text-secondary); font-size: 13px; margin: 2px 0 0; }
 
-.org-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.org-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .org-card {
-  background: var(--color-surface); border: 1px solid var(--color-border);
-  border-radius: var(--radius); padding: 16px;
+  background: var(--color-surface); border: 1px solid #e9ebf3; border-radius: 14px;
+  padding: 18px; display: flex; flex-direction: column; gap: 14px;
+  box-shadow: 0 1px 3px rgba(63, 81, 181, 0.06);
+  transition: transform .15s, box-shadow .15s, border-color .15s;
+}
+.org-card:hover {
+  transform: translateY(-2px); border-color: var(--color-primary-soft);
+  box-shadow: 0 10px 26px rgba(63, 81, 181, 0.12);
+}
+.org-card .head { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+.org-icon {
+  width: 42px; height: 42px; border-radius: 11px; flex-shrink: 0;
+  background: var(--color-primary-subtle); color: var(--color-primary);
+  display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 18px;
 }
 .org-card .name { font-size: 15px; font-weight: 500; }
 .badge {
   display: inline-block; background: var(--color-primary-subtle-strong); color: #283593;
-  font-size: 12px; padding: 2px 9px; border-radius: 20px; margin-top: 8px;
+  font-size: 12px; padding: 2px 9px; border-radius: 20px; margin-top: 4px;
 }
+.card-actions { display: flex; gap: 8px; border-top: 1px solid #f1f2f7; padding-top: 12px; }
+.icon-btn {
+  background: none; border: 1px solid var(--color-border); border-radius: 8px;
+  padding: 5px 12px; font-size: 12px; color: var(--color-text-secondary); cursor: pointer;
+}
+.icon-btn:hover { border-color: var(--color-primary); color: var(--color-primary); }
+.icon-btn.danger:hover { border-color: var(--color-danger); color: var(--color-danger); }
+
 .empty {
-  background: var(--color-primary-subtle); border-radius: var(--radius);
-  padding: 28px; text-align: center; color: var(--color-text-secondary);
-}
-.inline-form { display: flex; gap: 8px; margin-top: 8px; }
-.inline-form input {
-  flex: 1; height: 36px; padding: 0 12px; border: 1px solid var(--color-border-strong);
-  border-radius: 8px; font-size: 14px;
+  background: var(--color-primary-subtle); border-radius: 14px;
+  padding: 32px; text-align: center; color: var(--color-text-secondary);
 }
 
-/* org 卡片作为链接 */
-a.org-card { display: block; text-decoration: none; color: var(--color-text); transition: border-color .15s; }
-a.org-card:hover { border-color: var(--color-primary); }
-
-/* 立邦向导 */
-.section-title { font-size: 15px; font-weight: 500; margin: 28px 0 10px; }
-.provision { display: flex; gap: 8px; flex-wrap: wrap; }
+/* 创建虚拟公司 向导卡片 */
+.section-title { font-size: 15px; font-weight: 500; margin: 28px 0 12px; }
+.wizard {
+  background: var(--color-surface); border: 1px solid #e9ebf3; border-radius: 14px;
+  padding: 20px; box-shadow: 0 1px 3px rgba(63, 81, 181, 0.06);
+}
+.wizard h3 { font-size: 15px; font-weight: 500; margin: 0 0 14px; display: flex; align-items: center; gap: 8px; }
+.wizard h3 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.provision { display: flex; gap: 10px; flex-wrap: wrap; }
 .provision select, .provision input {
-  height: 40px; padding: 0 12px; border: 1px solid var(--color-border-strong);
-  border-radius: 8px; font-size: 14px; background: var(--color-surface); color: var(--color-text);
+  height: 42px; padding: 0 14px; border: 1px solid var(--color-border-strong);
+  border-radius: 10px; font-size: 14px; background: var(--color-surface); color: var(--color-text);
 }
 .provision select { flex: 2; min-width: 220px; }
+.provision select:focus, .provision input:focus {
+  outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-subtle);
+}
 .provision input { flex: 1; min-width: 160px; }
-.provision .btn-primary { width: auto; padding: 0 20px; height: 40px; }
-.hint { color: var(--color-text-secondary); font-size: 12px; margin: 6px 0 0; }
+.provision .btn-primary { width: auto; padding: 0 22px; height: 42px; }
+.hint { color: var(--color-text-secondary); font-size: 12px; margin: 12px 0 0; }
 
 /* 花名册 */
 .back { font-size: 13px; color: var(--color-accent-text); }

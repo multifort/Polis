@@ -88,6 +88,10 @@ export const api = {
   me: () => request<Me>("/api/me", {}, true),
   createOrg: (body: { name: string; charter?: string }) =>
     request<Org>("/api/orgs", { method: "POST", body: JSON.stringify(body) }, true),
+  renameOrg: (id: string, name: string) =>
+    request<Org>(`/api/orgs/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }, true),
+  deleteOrg: (id: string) =>
+    request<null>(`/api/orgs/${id}`, { method: "DELETE" }, true),
   listPresets: () => request<Preset[]>("/api/catalog/presets"),
   provision: (body: { name: string; preset?: string; keyword?: string }) =>
     request<ProvisionResult>("/api/provision", { method: "POST", body: JSON.stringify(body) }, true),

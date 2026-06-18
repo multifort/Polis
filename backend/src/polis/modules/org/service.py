@@ -43,6 +43,10 @@ class InvalidToken(AuthError):
     pass
 
 
+class NotOwner(AuthError):
+    """需要所有者权限（T9.3 权限矩阵）。"""
+
+
 async def _issue_tokens(session: AsyncSession, user_id: uuid.UUID) -> TokenOut:
     access = create_access_token(user_id)
     refresh, expires_at = create_refresh_token(user_id)
@@ -110,3 +114,48 @@ async def create_org(session: AsyncSession, user_id: uuid.UUID, data: OrgCreateI
         detail={"name": org.name},
     )
     return OrgOut(id=org.id, name=org.name, role="owner")
+
+
+async def _require_owner(session: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID) -> str:
+    member = await repo.get_member(session, org_id, user_id)
+    if member is None or member.role != "owner":
+        raise NotOwner
+    return member.role
+
+
+async def rename_org(
+    session: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID, name: str
+) -> OrgOut:
+    role = await _require_owner(session, user_id, org_id)
+    org = await repo.get_org_by_id(session, org_id)
+    if org is None:
+        raise NotOwner
+    org.name = name
+    await session.flush()
+    await write_audit(
+        session,
+        action="org.rename",
+        actor=str(user_id),
+        org_id=org_id,
+        target=str(org_id),
+        detail={"name": name},
+    )
+    return OrgOut(id=org.id, name=org.name, role=role)
+
+
+async def delete_org(session: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID) -> None:
+    await _require_owner(session, user_id, org_id)
+    org = await repo.get_org_by_id(session, org_id)
+    if org is None:
+        raise NotOwner
+    name = org.name
+    await session.delete(org)  # 级联删除 role/agent/memory… (FK ON DELETE CASCADE)
+    await session.flush()
+    await write_audit(
+        session,
+        action="org.delete",
+        actor=str(user_id),
+        org_id=None,
+        target=str(org_id),
+        detail={"name": name},
+    )

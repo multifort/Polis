@@ -50,6 +50,10 @@ class OrgCreateIn(BaseModel):
     charter: str | None = None
 
 
+class OrgUpdateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
 class RoleOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
