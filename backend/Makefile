@@ -23,6 +23,9 @@ check: lint type test
 migrate:
 	uv run alembic upgrade head
 
+seed:
+	uv run python -m polis.seed
+
 makemigration:
 	uv run alembic revision --autogenerate -m "$(m)"
 

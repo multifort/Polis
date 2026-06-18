@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from polis.api import health
+from polis.api import catalog, health
 from polis.modules.org import api as org_api
 
 api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(org_api.router)
+api_router.include_router(catalog.router)
