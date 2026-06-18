@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class RegisterIn(BaseModel):
@@ -48,3 +48,10 @@ class MeOut(BaseModel):
 class OrgCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     charter: str | None = None
+
+
+class RoleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    name: str
+    description: str | None = None

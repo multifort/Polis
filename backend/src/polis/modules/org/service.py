@@ -14,6 +14,7 @@ from polis.core.security import (
     hash_token,
     verify_password,
 )
+from polis.modules.observability.audit import write_audit
 from polis.modules.org import repository as repo
 from polis.modules.org.schemas import (
     LoginIn,
@@ -56,7 +57,7 @@ async def register(session: AsyncSession, data: RegisterIn) -> TokenOut:
         session, data.email, hash_password(data.password), data.display_name
     )
     tokens = await _issue_tokens(session, user.id)
-    await session.commit()
+    await session.flush()
     return tokens
 
 
@@ -67,7 +68,7 @@ async def login(session: AsyncSession, data: LoginIn) -> TokenOut:
     if not verify_password(user.password_hash, data.password):
         raise InvalidCredentials()
     tokens = await _issue_tokens(session, user.id)
-    await session.commit()
+    await session.flush()
     return tokens
 
 
@@ -99,5 +100,13 @@ async def me(session: AsyncSession, user_id: uuid.UUID) -> MeOut:
 
 async def create_org(session: AsyncSession, user_id: uuid.UUID, data: OrgCreateIn) -> OrgOut:
     org = await repo.create_org_with_owner(session, data.name, data.charter, user_id)
-    await session.commit()
+    await session.flush()
+    await write_audit(
+        session,
+        action="org.create",
+        actor=str(user_id),
+        org_id=org.id,
+        target=str(org.id),
+        detail={"name": org.name},
+    )
     return OrgOut(id=org.id, name=org.name, role="owner")

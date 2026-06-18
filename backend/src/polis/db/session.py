@@ -41,7 +41,17 @@ def get_engine() -> AsyncEngine:
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
+    """每请求一个事务：成功提交、异常回滚。
+
+    这样 OrgContext 里的 `SET LOCAL ROLE polis_app` + 当前公司设置能贯穿整个请求，
+    事务结束自动复位，连接归池前不残留（避免跨租户泄漏）。service 层只 flush，不 commit。
+    """
     if _sessionmaker is None:
         raise RuntimeError("sessionmaker 未初始化（应在 lifespan 内 init_engine）")
     async with _sessionmaker() as session:
-        yield session
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

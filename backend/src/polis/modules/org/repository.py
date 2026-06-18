@@ -8,7 +8,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from polis.modules.org.models import AppUser, AuthSession, Org, OrgMember
+from polis.modules.org.models import AppUser, AuthSession, Org, OrgMember, Role
 
 
 async def get_user_by_email(session: AsyncSession, email: str) -> AppUser | None:
@@ -59,6 +59,17 @@ async def create_org_with_owner(
     session.add(OrgMember(org_id=org.id, user_id=owner_user_id, role="owner"))
     await session.flush()
     return org
+
+
+async def get_member(
+    session: AsyncSession, org_id: uuid.UUID, user_id: uuid.UUID
+) -> OrgMember | None:
+    return await session.get(OrgMember, {"org_id": org_id, "user_id": user_id})
+
+
+async def list_roles(session: AsyncSession) -> list[Role]:
+    """当前公司的角色（RLS 已按 app.current_org 过滤）。"""
+    return list((await session.scalars(select(Role).order_by(Role.name))).all())
 
 
 async def list_orgs_for_user(session: AsyncSession, user_id: uuid.UUID) -> list[tuple[Org, str]]:

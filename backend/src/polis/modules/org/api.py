@@ -8,8 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.db.session import get_session
+from polis.modules.org import repository as repo
 from polis.modules.org import service
-from polis.modules.org.deps import CurrentUserId
+from polis.modules.org.deps import CurrentOrg, CurrentUserId
+from polis.modules.org.models import Role
 from polis.modules.org.schemas import (
     LoginIn,
     MeOut,
@@ -17,6 +19,7 @@ from polis.modules.org.schemas import (
     OrgOut,
     RefreshIn,
     RegisterIn,
+    RoleOut,
     TokenOut,
 )
 
@@ -57,3 +60,9 @@ async def me(user_id: CurrentUserId, session: SessionDep) -> MeOut:
 @router.post("/orgs", response_model=OrgOut, status_code=status.HTTP_201_CREATED)
 async def create_org(data: OrgCreateIn, user_id: CurrentUserId, session: SessionDep) -> OrgOut:
     return await service.create_org(session, user_id, data)
+
+
+@router.get("/orgs/current/roles", response_model=list[RoleOut])
+async def list_current_org_roles(org: CurrentOrg, session: SessionDep) -> list[Role]:
+    # 依赖 CurrentOrg 已校验成员 + 切到 RLS 上下文；查询自动按当前公司隔离
+    return await repo.list_roles(session)
