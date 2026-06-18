@@ -44,5 +44,10 @@
 | [0004](decisions/0004-reuse-first-stack.md) | 复用优先技术栈 |
 | [0005](decisions/0005-multi-tenancy-strategy.md) | 多租户：逻辑隔离 + RLS 兜底 |
 
+## 台账
+| 文档 | 内容 |
+|---|---|
+| [技术债台账](tech-debt.md) | 有意/被迫的妥协与延后项（走捷径即登记，偿还留痕） |
+
 ## legacy/ — 早期讨论稿
 已被 `design/` 取代，留作历史追溯，不作为现行设计依据。
