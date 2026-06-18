@@ -1,0 +1,109 @@
+/* Polis 设计令牌（docs/design/constraints/10a，靛蓝色系）。组件只引令牌，禁硬编码。 */
+:root {
+  --color-bg: #f5f5f5;
+  --color-surface: #ffffff;
+  --color-text: #333333;
+  --color-text-secondary: #5c5c5c;
+  --color-primary: #3f51b5;
+  --color-primary-hover: #37459b;
+  --color-primary-soft: #757de8;
+  --color-primary-subtle: #e8eaf6;
+  --color-primary-subtle-strong: #dce1f5;
+  --color-on-primary: #ffffff;
+  --color-accent-text: #003f8f;
+  --color-border: #cccccc;
+  --color-border-strong: #9e9e9e;
+  --color-success: #2e7d32;
+  --color-danger: #d32f2f;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+}
+a { color: var(--color-accent-text); text-decoration: none; }
+
+/* 居中卡片（登录） */
+.center { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  padding: 28px;
+  width: 100%;
+  max-width: 380px;
+}
+.brand { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.logo {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: var(--color-primary); color: var(--color-on-primary);
+  display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 16px;
+}
+.brand-name { font-size: 18px; font-weight: 500; }
+.subtitle { color: var(--color-text-secondary); font-size: 13px; margin: 0 0 20px; }
+
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 13px; color: var(--color-text-secondary); margin-bottom: 6px; }
+.field input {
+  width: 100%; height: 40px; padding: 0 12px;
+  border: 1px solid var(--color-border-strong); border-radius: 8px;
+  font-size: 14px; background: var(--color-surface); color: var(--color-text);
+}
+.field input:focus { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-subtle); }
+
+.btn-primary {
+  width: 100%; height: 42px; border: none; border-radius: 8px;
+  background: var(--color-primary); color: var(--color-on-primary);
+  font-size: 14px; font-weight: 500; cursor: pointer;
+}
+.btn-primary:hover { background: var(--color-primary-hover); }
+.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-ghost {
+  border: 1px solid var(--color-primary); background: var(--color-surface);
+  color: var(--color-primary); height: 36px; padding: 0 14px; border-radius: 8px;
+  font-size: 13px; cursor: pointer;
+}
+.link-btn { background: none; border: none; color: var(--color-accent-text); cursor: pointer; font-size: 13px; padding: 0; }
+.error { color: var(--color-danger); font-size: 13px; margin: 0 0 12px; }
+.switch { text-align: center; margin-top: 16px; font-size: 13px; color: var(--color-text-secondary); }
+
+/* 看板 */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--color-surface); border-bottom: 1px solid #eee; padding: 12px 24px;
+}
+.topbar .right { display: flex; align-items: center; gap: 14px; color: var(--color-text-secondary); font-size: 13px; }
+.avatar {
+  width: 30px; height: 30px; border-radius: 50%; background: var(--color-primary-soft);
+  color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px;
+}
+.container { max-width: 880px; margin: 0 auto; padding: 24px; }
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+.page-title { font-size: 18px; font-weight: 500; margin: 0; }
+.muted { color: var(--color-text-secondary); font-size: 13px; margin: 2px 0 0; }
+
+.org-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.org-card {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius); padding: 16px;
+}
+.org-card .name { font-size: 15px; font-weight: 500; }
+.badge {
+  display: inline-block; background: var(--color-primary-subtle-strong); color: #283593;
+  font-size: 12px; padding: 2px 9px; border-radius: 20px; margin-top: 8px;
+}
+.empty {
+  background: var(--color-primary-subtle); border-radius: var(--radius);
+  padding: 28px; text-align: center; color: var(--color-text-secondary);
+}
+.inline-form { display: flex; gap: 8px; margin-top: 8px; }
+.inline-form input {
+  flex: 1; height: 36px; padding: 0 12px; border: 1px solid var(--color-border-strong);
+  border-radius: 8px; font-size: 14px;
+}

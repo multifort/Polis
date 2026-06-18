@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "polis-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "/Users/lining/workspace/polis/frontend", "dev"],
+      "port": 3000
+    }
+  ]
+}
