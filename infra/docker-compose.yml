@@ -5,7 +5,7 @@ name: polis
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg18
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-polis}
@@ -13,7 +13,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-polis}
     ports: ["5432:5432"]
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # pg18+ 数据目录约定：挂在 /var/lib/postgresql（镜像会自动放到版本子目录）
+      - pgdata:/var/lib/postgresql
       - ./postgres/init-db.sh:/docker-entrypoint-initdb.d/10-init-db.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-polis} -d ${POSTGRES_DB:-polis}"]
