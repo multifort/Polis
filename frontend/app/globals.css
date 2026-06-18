@@ -29,51 +29,114 @@ body {
 }
 a { color: var(--color-accent-text); text-decoration: none; }
 
-/* 居中卡片（登录） */
-.center { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
-.card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 14px;
-  padding: 28px;
+/* ============ 登录/注册（两栏 Hero） ============ */
+.auth-wrap {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #eef0fb 0%, #f5f6fd 45%, #ffffff 100%);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+.auth-wrap::before {
+  content: "";
+  position: absolute;
+  top: -180px;
+  right: -120px;
+  width: 620px;
+  height: 620px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(117, 125, 232, 0.14) 0%, rgba(117, 125, 232, 0) 70%);
+}
+.auth-grid {
+  position: relative;
   width: 100%;
-  max-width: 380px;
+  max-width: 1180px;
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 48px;
+  align-items: center;
 }
-.brand { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-.logo {
-  width: 32px; height: 32px; border-radius: 8px;
-  background: var(--color-primary); color: var(--color-on-primary);
-  display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 16px;
-}
-.brand-name { font-size: 18px; font-weight: 500; }
-.subtitle { color: var(--color-text-secondary); font-size: 13px; margin: 0 0 20px; }
 
-.field { margin-bottom: 14px; }
-.field label { display: block; font-size: 13px; color: var(--color-text-secondary); margin-bottom: 6px; }
+/* 左侧 Hero */
+.hero-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 40px; }
+.hero h1 { font-size: 40px; line-height: 1.25; font-weight: 600; margin: 0; letter-spacing: 1px; }
+.hero h1 .accent { color: var(--color-primary); }
+.hero-rule { width: 64px; height: 4px; border-radius: 2px; background: var(--color-primary); margin: 20px 0; }
+.hero-sub { color: var(--color-text-secondary); font-size: 15px; margin: 0 0 8px; max-width: 460px; }
+.hero-illu { margin: 8px 0 28px; max-width: 480px; }
+.hero-illu svg { width: 100%; height: auto; display: block; }
+
+.features { display: flex; gap: 28px; }
+.feature { display: flex; align-items: center; gap: 10px; }
+.feature .tile {
+  width: 38px; height: 38px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+}
+.feature .ft { font-size: 14px; font-weight: 500; color: var(--color-text); }
+.feature .fs { font-size: 12px; color: var(--color-text-secondary); }
+
+/* 右侧 登录卡 */
+.auth-card-col { display: flex; justify-content: center; }
+.auth-card {
+  background: var(--color-surface);
+  border-radius: 18px;
+  box-shadow: 0 16px 48px rgba(63, 81, 181, 0.12);
+  padding: 36px 36px 30px;
+  width: 100%;
+  max-width: 420px;
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.logo {
+  width: 36px; height: 36px; border-radius: 9px;
+  background: var(--color-primary); color: var(--color-on-primary);
+  display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 18px;
+}
+.logo.sm { width: 30px; height: 30px; border-radius: 8px; font-size: 15px; }
+.brand-name { font-size: 20px; font-weight: 600; }
+.subtitle { color: var(--color-text-secondary); font-size: 13px; margin: 8px 0 24px; }
+
+.field { margin-bottom: 18px; }
+.field label { display: block; font-size: 13px; color: var(--color-text); margin-bottom: 8px; }
 .field input {
-  width: 100%; height: 40px; padding: 0 12px;
-  border: 1px solid var(--color-border-strong); border-radius: 8px;
+  width: 100%; height: 44px; padding: 0 14px;
+  border: 1px solid var(--color-border-strong); border-radius: 10px;
   font-size: 14px; background: var(--color-surface); color: var(--color-text);
 }
+.field input::placeholder { color: #b0b0b8; }
 .field input:focus { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-subtle); }
+.pwd { position: relative; }
+.pwd input { padding-right: 44px; }
+.eye {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  width: 32px; height: 32px; border: none; background: none; cursor: pointer;
+  color: var(--color-text-secondary); display: flex; align-items: center; justify-content: center;
+}
+.eye:hover { color: var(--color-primary); }
+
+.row-between { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 22px; }
+.remember { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--color-text-secondary); cursor: pointer; }
+.remember input { width: 15px; height: 15px; accent-color: var(--color-primary); }
 
 .btn-primary {
-  width: 100%; height: 42px; border: none; border-radius: 8px;
+  width: 100%; height: 46px; border: none; border-radius: 10px;
   background: var(--color-primary); color: var(--color-on-primary);
-  font-size: 14px; font-weight: 500; cursor: pointer;
+  font-size: 15px; font-weight: 500; cursor: pointer;
 }
 .btn-primary:hover { background: var(--color-primary-hover); }
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-.btn-ghost {
-  border: 1px solid var(--color-primary); background: var(--color-surface);
-  color: var(--color-primary); height: 36px; padding: 0 14px; border-radius: 8px;
-  font-size: 13px; cursor: pointer;
-}
 .link-btn { background: none; border: none; color: var(--color-accent-text); cursor: pointer; font-size: 13px; padding: 0; }
-.error { color: var(--color-danger); font-size: 13px; margin: 0 0 12px; }
-.switch { text-align: center; margin-top: 16px; font-size: 13px; color: var(--color-text-secondary); }
+.error { color: var(--color-danger); font-size: 13px; margin: 0 0 14px; }
+.switch { text-align: center; margin-top: 18px; font-size: 13px; color: var(--color-text-secondary); }
 
-/* 看板 */
+@media (max-width: 880px) {
+  .auth-grid { grid-template-columns: 1fr; }
+  .hero { display: none; }
+}
+
+/* ============ 看板（dashboard） ============ */
 .topbar {
   display: flex; align-items: center; justify-content: space-between;
   background: var(--color-surface); border-bottom: 1px solid #eee; padding: 12px 24px;
