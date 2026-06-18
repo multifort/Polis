@@ -1,0 +1,78 @@
+# Polis 本地质量门禁（见 docs/constraints/14 E11/E14、CLAUDE.md §3）
+# 安装：uv tool install pre-commit && pre-commit install -t pre-commit -t commit-msg -t pre-push
+# Python 工具(ruff/mypy/bandit/pytest/pip-audit)走 local hook，经 uv 复用 backend/uv.lock 的版本。
+# 前置：本机需有 uv，并安装 gitleaks 二进制（brew install gitleaks 或下载 release 到 ~/.local/bin）。
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=2048"]
+
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks (secret scan, staged)
+        entry: gitleaks git --pre-commit --redact --staged
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.16.3
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+
+  - repo: local
+    hooks:
+      - id: ruff-lint
+        name: ruff (lint+fix, backend)
+        entry: bash -c 'cd backend && uv run ruff check --fix .'
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: ruff-format
+        name: ruff format (backend)
+        entry: bash -c 'cd backend && uv run ruff format .'
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: mypy
+        name: mypy (backend, strict)
+        entry: bash -c 'cd backend && uv run mypy src'
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: bandit
+        name: bandit (backend SAST)
+        entry: bash -c 'cd backend && uvx bandit -q -r src'
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: pytest
+        name: pytest (backend)
+        entry: bash -c 'cd backend && uv run pytest'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+      - id: pip-audit
+        name: pip-audit (backend deps CVE)
+        entry: bash -c 'cd backend && uv run --with pip-audit pip-audit'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
