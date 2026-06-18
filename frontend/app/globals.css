@@ -62,6 +62,7 @@ a { color: var(--color-accent-text); text-decoration: none; }
 
 /* 左侧 Hero */
 .hero-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 40px; }
+.brand-tag { font-size: 12px; color: var(--color-text-secondary); line-height: 1.2; }
 .hero h1 { font-size: 40px; line-height: 1.25; font-weight: 600; margin: 0; letter-spacing: 1px; }
 .hero h1 .accent { color: var(--color-primary); }
 .hero-rule { width: 64px; height: 4px; border-radius: 2px; background: var(--color-primary); margin: 20px 0; }

@@ -101,7 +101,10 @@ export default function AuthPage() {
         <section className="hero">
           <div className="hero-brand">
             <div className="logo">A</div>
-            <span className="brand-name">Polis</span>
+            <div>
+              <div className="brand-name">Polis</div>
+              <div className="brand-tag">虚拟智能企业平台</div>
+            </div>
           </div>
           <h1>
             欢迎使用 <span className="accent">Polis</span> 工作台
