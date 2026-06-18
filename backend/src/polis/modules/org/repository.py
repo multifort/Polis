@@ -8,7 +8,15 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from polis.modules.org.models import AppUser, AuthSession, Org, OrgMember, Role
+from polis.modules.org.models import (
+    Agent,
+    AppUser,
+    AuthSession,
+    Org,
+    OrgMember,
+    Role,
+    ScenarioPreset,
+)
 
 
 async def get_user_by_email(session: AsyncSession, email: str) -> AppUser | None:
@@ -70,6 +78,24 @@ async def get_member(
 async def list_roles(session: AsyncSession) -> list[Role]:
     """当前公司的角色（RLS 已按 app.current_org 过滤）。"""
     return list((await session.scalars(select(Role).order_by(Role.name))).all())
+
+
+async def list_agents(session: AsyncSession) -> list[Agent]:
+    """当前公司的 Agent（RLS 过滤）。"""
+    return list((await session.scalars(select(Agent).order_by(Agent.name))).all())
+
+
+async def get_preset_by_name(session: AsyncSession, name: str) -> ScenarioPreset | None:
+    preset: ScenarioPreset | None = await session.scalar(
+        select(ScenarioPreset)
+        .where(ScenarioPreset.name == name)
+        .order_by(ScenarioPreset.version.desc())
+    )
+    return preset
+
+
+async def list_presets(session: AsyncSession) -> list[ScenarioPreset]:
+    return list((await session.scalars(select(ScenarioPreset).order_by(ScenarioPreset.name))).all())
 
 
 async def list_orgs_for_user(session: AsyncSession, user_id: uuid.UUID) -> list[tuple[Org, str]]:

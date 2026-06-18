@@ -55,3 +55,40 @@ class RoleOut(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None = None
+
+
+class AgentConfig(BaseModel):
+    """Agent 版本配置（声明式，入 agent_version.config）。T2.2 校验用，M2 精简版。"""
+
+    prompt: str = Field(min_length=1)
+    capabilities: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    executor: str = "lite-agent"
+
+
+class AgentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    name: str
+    status: str
+    source: str
+    current_version: str | None = None
+
+
+class ProvisionIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)  # 公司名
+    preset: str | None = None  # 预设名（精确选）
+    keyword: str | None = None  # 关键词（确定性匹配预设）
+
+
+class ProvisionedAgentOut(BaseModel):
+    name: str
+    role_name: str
+    status: str
+    capabilities: list[str]
+
+
+class ProvisionOut(BaseModel):
+    org: OrgOut
+    preset: str
+    agents: list[ProvisionedAgentOut]
