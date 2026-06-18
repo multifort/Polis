@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://polis:polis@localhost:5432/polis"
 
     # 认证（09 §3）。生产必须用 POLIS_JWT_SECRET 覆盖，禁用默认值。
-    jwt_secret: str = "dev-insecure-change-me"
+    jwt_secret: str = "dev-only-insecure-secret-change-in-prod-0123456789"
     jwt_alg: str = "HS256"
     access_ttl_min: int = 15
     refresh_ttl_days: int = 14

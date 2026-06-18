@@ -14,7 +14,7 @@
 | [TD-004](#td-004) | 基础设施镜像用浮动 tag | Low-Med | open | 进 staging/共享环境前 |
 | [TD-005](#td-005) | bandit/pip-audit 临时安装未锁版本 | Low | open | 随 CI 或下次依赖整理 |
 | [TD-006](#td-006) | db 引擎模块级单例、无 readiness | Med | open | M1 接真实模型/集成测试时 |
-| [TD-007](#td-007) | 无 DB 集成测试(testcontainers) | Med | open | M1 首批模型落地 |
+| [TD-007](#td-007) | 无 DB 集成测试(testcontainers) | Med | **closed** | 已补，见偿还记录 |
 | [TD-008](#td-008) | 早期提交作者归属错误 | Low | accepted(won't-fix) | — |
 | [TD-009](#td-009) | 应用本体未容器化 | Low | open(设计内 E8 后置) | E8 启用时 |
 
@@ -75,4 +75,6 @@
 ---
 
 ## 偿还记录
-（暂无。偿还某项时在此追加：`TD-00X 已偿还 @<commit> <说明>`。）
+- **TD-007 已偿还**：新增 testcontainers 集成测试（`backend/tests/conftest.py` 起临时 pgvector 容器 + 跑 alembic，
+  `test_integration_identity.py` 覆盖注册/登录/me/建公司/失败态 + schema/RLS 断言）。Docker 不可用时优雅跳过，
+  并自动探测 macOS Docker Desktop 的 `DOCKER_HOST`。注：**真正的 org_id RLS 强制**仍待批次4（需非 superuser 角色）。
