@@ -152,8 +152,9 @@ export default function AuthPage() {
               <label>邮箱</label>
               <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
             </div>
-            <div className="field pwd">
+            <div className="field">
               <label>密码{mode === "register" ? "（至少 8 位）" : ""}</label>
+              <div className="pwd">
               <input
                 type={showPwd ? "text" : "password"}
                 required
@@ -169,6 +170,7 @@ export default function AuthPage() {
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
                 )}
               </button>
+              </div>
             </div>
 
             {mode === "login" && (
