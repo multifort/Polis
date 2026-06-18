@@ -20,6 +20,13 @@ Polis 是单一共享后台、对外多租户的 Web SaaS：所有城邦(Org)共
 **时机调整**：RLS 从原 V3 提前——基线随 M1 数据底座落地（T9.4），与隔离回归测试(T8.3)同期。
 schema-per-tenant / 物理分库**仅在特定大客户合规要求时**按需提供（接口不变）。
 
+### 补充（2026-06-18）：强制机制与健壮性
+- 强制不靠"带密码的登录角色"，而用 **`SET ROLE polis_app`**（NOLOGIN、非 superuser，迁移 `3ffe8c94852b`）：
+  业务连接登录后切到该角色，RLS 即对会话生效，**零密钥入库**。运维/迁移仍用 superuser（绕过 RLS）。
+- 策略用 `NULLIF(current_setting('app.current_org', true), '')::uuid`（迁移 `38f12a115426`）：
+  空串/未设 → NULL → fail-closed 0 行（修掉 `''::uuid` 报错）。
+- 隔离回归 `T8.3`（`tests/test_integration_rls.py`）已测通；应用按请求 `SET ROLE`+`current_org` 中间件随 M2 落地。
+
 ## 后果
 - 正面：单库低运维 + DB 层兜底，显著降低串租户风险；演进到 schema/物理隔离的接口可保持稳定。
 - 负面 / 代价：RLS 需规范连接角色（业务角色 vs `BYPASSRLS` 运维角色）与每请求设会话变量；迁移需为每张业务表生成策略。

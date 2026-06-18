@@ -77,4 +77,7 @@
 ## 偿还记录
 - **TD-007 已偿还**：新增 testcontainers 集成测试（`backend/tests/conftest.py` 起临时 pgvector 容器 + 跑 alembic，
   `test_integration_identity.py` 覆盖注册/登录/me/建公司/失败态 + schema/RLS 断言）。Docker 不可用时优雅跳过，
-  并自动探测 macOS Docker Desktop 的 `DOCKER_HOST`。注：**真正的 org_id RLS 强制**仍待批次4（需非 superuser 角色）。
+  并自动探测 macOS Docker Desktop 的 `DOCKER_HOST`。
+- **org_id RLS 强制已落地（M1 收尾批次）**：`polis_app`(NOLOGIN 非 superuser)角色 + `SET ROLE` 机制 +
+  `NULLIF` 健壮策略；隔离回归 `T8.3`（`tests/test_integration_rls.py`）测通 A/B 互不可见 + fail-closed。
+  应用按请求 `SET ROLE`+`current_org` 中间件随 M2(T9.2) 接线。
