@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     # 数据库（asyncpg 驱动）。真实连接串走 POLIS_DATABASE_URL（见 backend/.env）。
     database_url: str = "postgresql+asyncpg://polis:polis@localhost:5432/polis"
 
+    # 认证（09 §3）。生产必须用 POLIS_JWT_SECRET 覆盖，禁用默认值。
+    jwt_secret: str = "dev-insecure-change-me"
+    jwt_alg: str = "HS256"
+    access_ttl_min: int = 15
+    refresh_ttl_days: int = 14
+
+    # 前端跨域（CORS）
+    cors_origins: list[str] = ["http://localhost:3000"]
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -30,10 +30,20 @@ def upgrade() -> None:
         sa.Column("password_hash", sa.Text(), nullable=True),
         sa.Column("display_name", sa.Text(), nullable=True),
         sa.Column("status", sa.Text(), server_default="active", nullable=False),
-        sa.Column("last_login_at", sa.DateTime(), nullable=True),
+        sa.Column("last_login_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("id", sa.Uuid(), server_default=sa.text("gen_random_uuid()"), nullable=False),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.CheckConstraint("status IN ('active','disabled')", name=op.f("ck_app_user_status")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_app_user")),
         sa.UniqueConstraint("email", name=op.f("uq_app_user_email")),
@@ -86,9 +96,14 @@ def upgrade() -> None:
         sa.Column("refresh_hash", sa.Text(), nullable=False),
         sa.Column("user_agent", sa.Text(), nullable=True),
         sa.Column("ip", postgresql.INET(), nullable=True),
-        sa.Column("expires_at", sa.DateTime(), nullable=False),
-        sa.Column("revoked_at", sa.DateTime(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("id", sa.Uuid(), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.ForeignKeyConstraint(
             ["user_id"],
@@ -137,8 +152,18 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("id", sa.Uuid(), server_default=sa.text("gen_random_uuid()"), nullable=False),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.CheckConstraint("status IN ('active','archived')", name=op.f("ck_org_status")),
         sa.ForeignKeyConstraint(
             ["owner_user_id"], ["app_user.id"], name=op.f("fk_org_owner_user_id_app_user")
@@ -153,7 +178,7 @@ def upgrade() -> None:
         sa.Column("status", sa.Text(), server_default="pending", nullable=False),
         sa.Column("assignee", sa.Uuid(), nullable=True),
         sa.Column("decided_by", sa.Uuid(), nullable=True),
-        sa.Column("decided_at", sa.DateTime(), nullable=True),
+        sa.Column("decided_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("id", sa.Uuid(), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("org_id", sa.Uuid(), nullable=False),
         sa.CheckConstraint(
@@ -183,7 +208,9 @@ def upgrade() -> None:
         sa.Column("action", sa.Text(), nullable=True),
         sa.Column("target", sa.Text(), nullable=True),
         sa.Column("detail", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        ),
         sa.ForeignKeyConstraint(
             ["org_id"], ["org.id"], name=op.f("fk_audit_log_org_id_org"), ondelete="SET NULL"
         ),
@@ -201,9 +228,19 @@ def upgrade() -> None:
         sa.Column("importance", sa.Float(), server_default="0.5", nullable=False),
         sa.Column("confidence", sa.Float(), server_default="0.5", nullable=False),
         sa.Column("decay_rate", sa.Float(), server_default="0.01", nullable=False),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
-        sa.Column("last_accessed", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
-        sa.Column("expires_at", sa.DateTime(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "last_accessed",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("id", sa.Uuid(), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("org_id", sa.Uuid(), nullable=False),
         sa.CheckConstraint(
@@ -229,8 +266,13 @@ def upgrade() -> None:
         sa.Column("token_hash", sa.Text(), nullable=False),
         sa.Column("status", sa.Text(), server_default="pending", nullable=False),
         sa.Column("invited_by", sa.Uuid(), nullable=True),
-        sa.Column("expires_at", sa.DateTime(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("id", sa.Uuid(), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.CheckConstraint("role IN ('approver','member')", name=op.f("ck_org_invite_role")),
         sa.CheckConstraint(
@@ -269,7 +311,12 @@ def upgrade() -> None:
         sa.Column("version", sa.Text(), nullable=True),
         sa.Column("status", sa.Text(), server_default="draft", nullable=False),
         sa.Column("estimated_cost_cents", sa.BigInteger(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("id", sa.Uuid(), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("org_id", sa.Uuid(), nullable=False),
         sa.CheckConstraint(
@@ -325,8 +372,18 @@ def upgrade() -> None:
         sa.Column("current_version", sa.Text(), nullable=True),
         sa.Column("id", sa.Uuid(), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("org_id", sa.Uuid(), nullable=False),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.CheckConstraint(
             "source IN ('preset','generated','custom')", name=op.f("ck_agent_source")
         ),
@@ -346,7 +403,12 @@ def upgrade() -> None:
         sa.Column("org_id", sa.Uuid(), nullable=False),
         sa.Column("skill_id", sa.Uuid(), nullable=False),
         sa.Column("enabled_by", sa.Uuid(), nullable=True),
-        sa.Column("enabled_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "enabled_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.ForeignKeyConstraint(
             ["enabled_by"], ["app_user.id"], name=op.f("fk_org_enabled_skill_enabled_by_app_user")
         ),
@@ -386,12 +448,22 @@ def upgrade() -> None:
         sa.Column("plan_id", sa.Uuid(), nullable=True),
         sa.Column("temporal_workflow_id", sa.Text(), nullable=True),
         sa.Column("status", sa.Text(), server_default="pending", nullable=False),
-        sa.Column("started_at", sa.DateTime(), nullable=True),
-        sa.Column("finished_at", sa.DateTime(), nullable=True),
+        sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("id", sa.Uuid(), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("org_id", sa.Uuid(), nullable=False),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.CheckConstraint(
             "status IN ('pending','running','paused','done','failed')",
             name=op.f("ck_task_run_status"),
@@ -429,7 +501,12 @@ def upgrade() -> None:
         sa.Column("version", sa.Text(), nullable=False),
         sa.Column("config", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("status", sa.Text(), server_default="draft", nullable=False),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("id", sa.Uuid(), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("org_id", sa.Uuid(), nullable=False),
         sa.CheckConstraint(
@@ -459,7 +536,12 @@ def upgrade() -> None:
         sa.Column("caption", sa.Text(), nullable=True),
         sa.Column("provenance", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("meta", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("id", sa.Uuid(), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("org_id", sa.Uuid(), nullable=False),
         sa.ForeignKeyConstraint(
@@ -486,7 +568,12 @@ def upgrade() -> None:
         sa.Column("facts", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("summary", sa.Text(), nullable=True),
         sa.Column("needs_human", sa.Boolean(), server_default=sa.text("false"), nullable=False),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("id", sa.Uuid(), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("org_id", sa.Uuid(), nullable=False),
         sa.ForeignKeyConstraint(
@@ -504,7 +591,7 @@ def upgrade() -> None:
     op.create_table(
         "run_manifest",
         sa.Column("task_id", sa.Uuid(), nullable=False),
-        sa.Column("started_at", sa.DateTime(), nullable=True),
+        sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("agents_used", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("skills_used", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("models_used", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
@@ -530,7 +617,12 @@ def upgrade() -> None:
         sa.Column("latency_ms", sa.Integer(), nullable=True),
         sa.Column("cost_cents", sa.Integer(), nullable=True),
         sa.Column("status", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("id", sa.Uuid(), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("org_id", sa.Uuid(), nullable=False),
         sa.ForeignKeyConstraint(
@@ -552,7 +644,12 @@ def upgrade() -> None:
         sa.Column("task_id", sa.Uuid(), nullable=True),
         sa.Column("langfuse_trace_id", sa.Text(), nullable=True),
         sa.Column("plan_id", sa.Uuid(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("id", sa.Uuid(), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("org_id", sa.Uuid(), nullable=False),
         sa.ForeignKeyConstraint(
