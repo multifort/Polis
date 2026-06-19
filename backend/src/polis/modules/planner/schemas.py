@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -31,6 +32,20 @@ class PlanDag(BaseModel):
 class ValidationResult(BaseModel):
     ok: bool
     errors: list[str] = Field(default_factory=list)
+
+
+class PlanCreateIn(BaseModel):
+    goal: str
+
+
+class PlanResult(BaseModel):
+    id: uuid.UUID
+    goal: str
+    status: str
+    template: str
+    estimated_cost_cents: int
+    dag: PlanDag
+    routing: dict[str, str | None]  # node_id → 选中 Agent 名或 None
 
 
 # 节点成本粗估（分）：确定性占位，M6 接 LiteLLM 后用真实价目
