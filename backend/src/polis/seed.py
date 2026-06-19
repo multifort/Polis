@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 from polis.config import get_settings
 from polis.modules.model.models import ModelCatalog
 from polis.modules.org.models import ScenarioPreset
-from polis.modules.planner.models import Capability
+from polis.modules.planner.models import Capability, PlanTemplate
 
 # ---- 能力词表（采购域 + 通用），承重墙，先定（03 §7.3）----
 CAPABILITIES: list[dict[str, Any]] = [
@@ -142,6 +142,55 @@ PRESETS: list[dict[str, Any]] = [
 ]
 
 
+# ---- 计划模板（DAG 骨架，串/并结构；供 Planner 模板优先填槽，03）----
+PLAN_TEMPLATES: list[dict[str, Any]] = [
+    {
+        "name": "supplier_analysis_v1",
+        "version": "v1",
+        "dag_skeleton": {
+            "workflow_name": "supplier_analysis",
+            "goal": "",
+            "acceptance_criteria": "产出供应商交付分析报告（带出处）",
+            "budget_cents": 50000,
+            "nodes": [
+                {
+                    "id": "n1",
+                    "type": "agent",
+                    "deps": [],
+                    "required_capabilities": ["procurement.rfq"],
+                    "input_hint": "向供应商询价比价",
+                    "expected_output": "询价/比价结果",
+                },
+                {
+                    "id": "n2",
+                    "type": "agent",
+                    "deps": ["n1"],
+                    "required_capabilities": ["procurement.supplier_analysis"],
+                    "input_hint": "分析供应商交付表现与风险",
+                    "expected_output": "供应商分析",
+                },
+                {
+                    "id": "n3",
+                    "type": "agent",
+                    "deps": ["n1"],
+                    "required_capabilities": ["procurement.spend_analysis"],
+                    "input_hint": "分析采购支出与节降机会",
+                    "expected_output": "支出分析",
+                },
+                {
+                    "id": "n4",
+                    "type": "agent",
+                    "deps": ["n2", "n3"],
+                    "required_capabilities": ["report.generation"],
+                    "input_hint": "汇总为结构化报告",
+                    "expected_output": "分析报告",
+                },
+            ],
+        },
+    },
+]
+
+
 async def _upsert(
     conn: AsyncConnection, table: Any, rows: list[dict[str, Any]], conflict: list[str]
 ) -> int:
@@ -162,9 +211,10 @@ async def seed() -> dict[str, int]:
             caps = await _upsert(conn, Capability.__table__, CAPABILITIES, ["key"])
             models = await _upsert(conn, ModelCatalog.__table__, MODELS, ["id"])
             presets = await _upsert(conn, ScenarioPreset.__table__, PRESETS, ["name", "version"])
+            plans = await _upsert(conn, PlanTemplate.__table__, PLAN_TEMPLATES, ["name", "version"])
     finally:
         await engine.dispose()
-    return {"capabilities": caps, "models": models, "presets": presets}
+    return {"capabilities": caps, "models": models, "presets": presets, "plan_templates": plans}
 
 
 def main() -> None:

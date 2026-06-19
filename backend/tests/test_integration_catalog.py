@@ -13,7 +13,7 @@ def test_seed_idempotent_and_catalog(client: TestClient) -> None:
     # 跑两次，断言计数一致（幂等）
     first = asyncio.run(seed())
     second = asyncio.run(seed())
-    assert first == second == {"capabilities": 8, "models": 3, "presets": 1}
+    assert first == second == {"capabilities": 8, "models": 3, "presets": 1, "plan_templates": 1}
 
     caps = client.get("/api/catalog/capabilities").json()
     assert len(caps) == 8

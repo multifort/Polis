@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, Text, text
+from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -50,6 +50,7 @@ class PlanTemplate(UUIDPkMixin, Base):
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
 
     __table_args__ = (
+        UniqueConstraint("name", "version", name="uq_plan_template_name_version"),
         Index(
             "ix_plan_template_embedding",
             "embedding",
