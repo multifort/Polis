@@ -79,6 +79,16 @@ async def get_org_by_id(session: AsyncSession, org_id: uuid.UUID) -> Org | None:
     return await session.get(Org, org_id)
 
 
+async def list_members(session: AsyncSession, org_id: uuid.UUID) -> list[tuple[AppUser, str]]:
+    rows = await session.execute(
+        select(AppUser, OrgMember.role)
+        .join(OrgMember, OrgMember.user_id == AppUser.id)
+        .where(OrgMember.org_id == org_id)
+        .order_by(OrgMember.role, AppUser.email)
+    )
+    return [(u, role) for u, role in rows.all()]
+
+
 async def list_roles(session: AsyncSession) -> list[Role]:
     """当前公司的角色（RLS 已按 app.current_org 过滤）。"""
     return list((await session.scalars(select(Role).order_by(Role.name))).all())

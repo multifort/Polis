@@ -18,6 +18,7 @@ from polis.modules.observability.audit import write_audit
 from polis.modules.org import repository as repo
 from polis.modules.org.schemas import (
     LoginIn,
+    MemberOut,
     MeOut,
     OrgCreateIn,
     OrgOut,
@@ -98,7 +99,7 @@ async def me(session: AsyncSession, user_id: uuid.UUID) -> MeOut:
     orgs = await repo.list_orgs_for_user(session, user_id)
     return MeOut(
         user=UserOut(id=user.id, email=user.email, display_name=user.display_name),
-        orgs=[OrgOut(id=o.id, name=o.name, role=role) for o, role in orgs],
+        orgs=[OrgOut(id=o.id, name=o.name, role=role, description=o.charter) for o, role in orgs],
     )
 
 
@@ -113,7 +114,7 @@ async def create_org(session: AsyncSession, user_id: uuid.UUID, data: OrgCreateI
         target=str(org.id),
         detail={"name": org.name},
     )
-    return OrgOut(id=org.id, name=org.name, role="owner")
+    return OrgOut(id=org.id, name=org.name, role="owner", description=org.charter)
 
 
 async def _require_owner(session: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID) -> str:
@@ -123,24 +124,41 @@ async def _require_owner(session: AsyncSession, user_id: uuid.UUID, org_id: uuid
     return member.role
 
 
-async def rename_org(
-    session: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID, name: str
+async def update_org(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    org_id: uuid.UUID,
+    name: str,
+    description: str | None,
 ) -> OrgOut:
     role = await _require_owner(session, user_id, org_id)
     org = await repo.get_org_by_id(session, org_id)
     if org is None:
         raise NotOwner
     org.name = name
+    org.charter = description
     await session.flush()
     await write_audit(
         session,
-        action="org.rename",
+        action="org.update",
         actor=str(user_id),
         org_id=org_id,
         target=str(org_id),
         detail={"name": name},
     )
-    return OrgOut(id=org.id, name=org.name, role=role)
+    return OrgOut(id=org.id, name=org.name, role=role, description=org.charter)
+
+
+async def list_members(
+    session: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID
+) -> list[MemberOut]:
+    if await repo.get_member(session, org_id, user_id) is None:
+        raise NotOwner  # 非成员不可见（这里复用 NotOwner→403）
+    rows = await repo.list_members(session, org_id)
+    return [
+        MemberOut(user_id=u.id, email=u.email, display_name=u.display_name, role=role)
+        for u, role in rows
+    ]
 
 
 async def delete_org(session: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID) -> None:

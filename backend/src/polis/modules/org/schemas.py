@@ -38,6 +38,7 @@ class OrgOut(BaseModel):
     id: uuid.UUID
     name: str
     role: str
+    description: str | None = None
 
 
 class MeOut(BaseModel):
@@ -52,6 +53,7 @@ class OrgCreateIn(BaseModel):
 
 class OrgUpdateIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
 
 
 class RoleOut(BaseModel):
@@ -81,8 +83,16 @@ class AgentOut(BaseModel):
 
 class ProvisionIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)  # 公司名
+    description: str | None = Field(default=None, max_length=500)  # 公司描述（缺省取预设描述）
     preset: str | None = None  # 预设名（精确选）
     keyword: str | None = None  # 关键词（确定性匹配预设）
+
+
+class MemberOut(BaseModel):
+    user_id: uuid.UUID
+    email: str
+    display_name: str | None = None
+    role: str
 
 
 class ProvisionedAgentOut(BaseModel):

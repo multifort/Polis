@@ -17,12 +17,24 @@ def test_org_rename_delete_and_owner_guard(client: TestClient) -> None:
     owner = _auth(client)
     org_id = client.post("/api/orgs", json={"name": "待改公司"}, headers=owner).json()["id"]
 
-    # 所有者改名 → 200
-    r = client.patch(f"/api/orgs/{org_id}", json={"name": "已改公司"}, headers=owner)
+    # 所有者编辑（名+描述）→ 200，描述持久化
+    r = client.patch(
+        f"/api/orgs/{org_id}",
+        json={"name": "已改公司", "description": "做采购分析的"},
+        headers=owner,
+    )
     assert r.status_code == 200
     assert r.json()["name"] == "已改公司"
+    assert r.json()["description"] == "做采购分析的"
+    me = client.get("/api/me", headers=owner).json()
+    assert next(o for o in me["orgs"] if o["id"] == org_id)["description"] == "做采购分析的"
 
-    # 非成员（另一用户）改名/删除 → 403
+    # 成员列表：创建者为 owner
+    members = client.get(f"/api/orgs/{org_id}/members", headers=owner).json()
+    assert len(members) == 1 and members[0]["role"] == "owner"
+
+    # 非成员（另一用户）改名/删除/查成员 → 403
+    assert client.get(f"/api/orgs/{org_id}/members", headers=_auth(client)).status_code == 403
     other = _auth(client)
     assert client.patch(f"/api/orgs/{org_id}", json={"name": "X"}, headers=other).status_code == 403
     assert client.delete(f"/api/orgs/{org_id}", headers=other).status_code == 403

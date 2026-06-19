@@ -48,7 +48,8 @@ async def provision(session: AsyncSession, user_id: uuid.UUID, data: ProvisionIn
     preset = await match_preset(session, data)
     if preset is None:
         raise NoPresetMatch
-    org = await repo.create_org_with_owner(session, data.name, None, user_id)
+    charter = data.description or preset.description
+    org = await repo.create_org_with_owner(session, data.name, charter, user_id)
 
     templates: list[dict[str, Any]] = (preset.config or {}).get("agentTemplates", [])
     agents_out: list[ProvisionedAgentOut] = []
@@ -103,7 +104,7 @@ async def provision(session: AsyncSession, user_id: uuid.UUID, data: ProvisionIn
         detail={"preset": preset.name, "agents": len(agents_out)},
     )
     return ProvisionOut(
-        org=OrgOut(id=org.id, name=org.name, role="owner"),
+        org=OrgOut(id=org.id, name=org.name, role="owner", description=org.charter),
         preset=f"{preset.name}@{preset.version}",
         agents=agents_out,
     )

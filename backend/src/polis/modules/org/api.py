@@ -16,6 +16,7 @@ from polis.modules.org.models import Agent, Role
 from polis.modules.org.schemas import (
     AgentOut,
     LoginIn,
+    MemberOut,
     MeOut,
     OrgCreateIn,
     OrgOut,
@@ -68,13 +69,23 @@ async def create_org(data: OrgCreateIn, user_id: CurrentUserId, session: Session
 
 
 @router.patch("/orgs/{org_id}", response_model=OrgOut)
-async def rename_org(
+async def update_org(
     org_id: uuid.UUID, data: OrgUpdateIn, user_id: CurrentUserId, session: SessionDep
 ) -> OrgOut:
     try:
-        return await service.rename_org(session, user_id, org_id, data.name)
+        return await service.update_org(session, user_id, org_id, data.name, data.description)
     except service.NotOwner as exc:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "需所有者权限") from exc
+
+
+@router.get("/orgs/{org_id}/members", response_model=list[MemberOut])
+async def list_members(
+    org_id: uuid.UUID, user_id: CurrentUserId, session: SessionDep
+) -> list[MemberOut]:
+    try:
+        return await service.list_members(session, user_id, org_id)
+    except service.NotOwner as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "你不属于该公司") from exc
 
 
 @router.delete("/orgs/{org_id}", status_code=status.HTTP_204_NO_CONTENT)
