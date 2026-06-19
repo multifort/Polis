@@ -17,12 +17,14 @@
 | [TD-007](#td-007) | 无 DB 集成测试(testcontainers) | Med | **closed** | 已补，见偿还记录 |
 | [TD-008](#td-008) | 早期提交作者归属错误 | Low | accepted(won't-fix) | — |
 | [TD-009](#td-009) | 应用本体未容器化 | Low | open(设计内 E8 后置) | E8 启用时 |
-| [TD-010](#td-010) | 运行时 RLS 未接线（app 以 superuser 连接） | Med | open | M2 当前公司中间件(T9.2) |
-| [TD-011](#td-011) | 审计日志未写入（audit_log 表空） | Med | open | M2 / 写操作接入时 |
-| [TD-012](#td-012) | 认证缺登出/刷新轮换/会话清理 | Med | open | M2 |
+| [TD-010](#td-010) | 运行时 RLS 未接线 | Med | **closed** | 已补（M2 T9.2），见偿还记录 |
+| [TD-011](#td-011) | 审计仅覆盖 org 写操作（auth 事件未） | Med | open(部分) | 鉴权事件/成员变更接入时 |
+| [TD-012](#td-012) | 认证缺登出/刷新轮换/会话清理 | Med | open | 对外前 |
 | [TD-013](#td-013) | 安全配置生产前须收紧（CORS `*`/JWT 默认密钥/无限流/找回密码桩） | Med | open | 进 staging / 对外前 |
 | [TD-014](#td-014) | 前端 token 存 localStorage + 无静默刷新 | Low-Med | open | 前端硬化时 |
-| [TD-015](#td-015) | org 过滤 repo 基类未建 | Low | open | M2 业务数据接入时 |
+| [TD-015](#td-015) | org 过滤 repo 基类未建 | Low | open | 业务数据访问增多时 |
+| [TD-016](#td-016) | 权限矩阵未完整落地（approver/member 区分 + 成员邀请/移除） | Low-Med | open | 审批/成员管理接入时 |
+| [TD-017](#td-017) | 预设关键词匹配对中文弱（无分词/无语义） | Low | open | M6 embedding 语义匹配 |
 
 ---
 
@@ -110,11 +112,26 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 ### TD-015
 **org 过滤 repo 基类未建。** T8.1 设想"统一 org_id 注入的 repo 基类"尚未实现（当前 repo 多操作非 org 表）。
 - 影响：将来各模块各写 org 过滤易遗漏（虽有 RLS 兜底）。
-- 偿还：M2 接入组织级数据访问时，提供统一注入 `org_id` 的 repo 基类/查询封装。
+- 偿还：接入更多组织级数据访问时，提供统一注入 `org_id` 的 repo 基类/查询封装（M2 已靠 OrgContext+RLS 兜底）。
+
+### TD-016
+**权限矩阵未完整落地。** M2 已用 owner 守卫保护公司改名/删除/成员查看，`require_role` 工具已备；
+但 **approver/member 的区分**（审批权）与**成员邀请/移除**尚无对应端点（成员列表只读）。
+- 影响：三类角色目前只在"是否 owner"层面区分；审批/成员管理是后续能力。
+- 偿还：审批收件箱(M6)/成员管理接入时，落地 approver/member 权限与邀请流程（对接 09 T9.5）。
+
+### TD-017
+**预设关键词匹配对中文弱。** `provisioning.match_preset` 关键词按空格分词做子串匹配，
+中文不分词时需空格分隔或精确子串；语义检索（embedding）按 ADR-0006 留 M6。
+- 影响：中文自由关键词命中率低；当前 UI 以"选预设"为主，影响有限。
+- 偿还：M6 接 LiteLLM embedding 后改语义检索（preset.embedding 已建 hnsw 索引）。
 
 ---
 
 ## 偿还记录
+- **TD-010 已偿还**：运行时 RLS 接通——`OrgContext` 中间件每请求 `SET LOCAL ROLE polis_app`
+  + `set_config('app.current_org', …)`，组织级端点（如花名册）按公司隔离；HTTP 层隔离回归
+  `tests/test_integration_orgctx.py`（X-Org-Id A/B 互不可见 + 非成员 403 + 缺头 400）已测通。
 - **TD-006 已偿还**：引擎改 FastAPI `lifespan` 管理（`db/session.py` 不再 import 时建引擎）+ `/ready` DB 就绪探针。
 - **TD-007 已偿还**：新增 testcontainers 集成测试（`backend/tests/conftest.py` 起临时 pgvector 容器 + 跑 alembic，
   `test_integration_identity.py` 覆盖注册/登录/me/建公司/失败态 + schema/RLS 断言）。Docker 不可用时优雅跳过，
