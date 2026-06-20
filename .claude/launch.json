@@ -5,7 +5,8 @@
       "name": "polis-web",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "/Users/lining/workspace/polis/frontend", "dev"],
-      "port": 3000
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }

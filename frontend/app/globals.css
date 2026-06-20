@@ -220,6 +220,46 @@ a { color: var(--color-accent-text); text-decoration: none; }
 .pill { font-size: 12px; padding: 2px 9px; border-radius: 20px; }
 .pill.active { background: #e8f5e9; color: #1b5e20; }
 .pill.draft { background: #fff4e5; color: #7a3e00; }
+/* 运行节点状态 */
+.pill.done { background: #e8f5e9; color: #1b5e20; }
+.pill.running { background: var(--color-primary-subtle-strong); color: #283593; }
+.pill.waiting_human { background: #fff4e5; color: #7a3e00; }
+.pill.failed { background: #fdecea; color: #b3261e; }
+.pill.pending { background: var(--color-primary-subtle); color: var(--color-text-secondary); }
+
+/* ============ 计划 / DAG ============ */
+.plan-bar { display: flex; gap: 10px; align-items: center; }
+.plan-bar input {
+  flex: 1; height: 42px; padding: 0 14px; border: 1px solid var(--color-border-strong);
+  border-radius: 10px; font-size: 14px; background: var(--color-surface); color: var(--color-text);
+}
+.plan-bar input:focus { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-subtle); }
+.plan-bar .btn-primary { width: auto; padding: 0 22px; height: 42px; }
+.plan-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0 16px; }
+.dag-layer { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; position: relative; }
+.dag-layer::before {
+  content: attr(data-layer); position: absolute; left: -2px; top: -16px;
+  font-size: 11px; color: var(--color-text-secondary);
+}
+.dag-node {
+  flex: 1; min-width: 220px; max-width: 340px;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
+}
+.dag-node.dangerous { border-color: var(--color-danger); }
+.dag-node .nid { font-weight: 500; font-size: 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dag-node .ntype { font-size: 11px; color: var(--color-text-secondary); }
+.dag-node .ncaps { display: flex; flex-wrap: wrap; gap: 6px; }
+.dag-node .ncap { background: var(--color-primary-subtle); color: #283593; font-size: 11px; padding: 1px 8px; border-radius: 12px; }
+.dag-node .nroute { font-size: 12px; color: var(--color-text); }
+.dag-node .nroute .none { color: var(--color-danger); }
+.dag-node .nact { margin-top: 4px; }
+.dag-node .btn-mini {
+  border: 1px solid var(--color-primary); background: var(--color-primary); color: var(--color-on-primary);
+  font-size: 12px; padding: 3px 12px; border-radius: 8px; cursor: pointer;
+}
+.dag-node .btn-mini:hover { background: var(--color-primary-hover); }
+.notice { background: #fff4e5; color: #7a3e00; font-size: 13px; padding: 10px 14px; border-radius: 10px; margin: 0 0 14px; }
 .role-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .role-chip {
   background: var(--color-primary-subtle-strong); color: #283593;

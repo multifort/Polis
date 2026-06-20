@@ -31,10 +31,22 @@ async function request<T>(
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) {
-    const detail = (data && (data as { detail?: string }).detail) || `请求失败 (${res.status})`;
-    throw new Error(detail);
+    const d = data && (data as { detail?: unknown }).detail;
+    let detail: string;
+    if (d && typeof d === "object" && Array.isArray((d as { errors?: unknown[] }).errors)) {
+      detail = (d as { errors: string[] }).errors.join("；");
+    } else {
+      detail = (typeof d === "string" && d) || `请求失败 (${res.status})`;
+    }
+    const err = new Error(detail) as ApiError;
+    err.status = res.status;
+    throw err;
   }
   return data as T;
+}
+
+export interface ApiError extends Error {
+  status?: number;
 }
 
 export interface Tokens {
@@ -87,6 +99,47 @@ export interface ProvisionResult {
   agents: ProvisionedAgent[];
 }
 
+// ── 计划 / 运行（M3） ──────────────────────────────────────────────
+export interface PlanNode {
+  id: string;
+  type: "agent" | "skill" | "human" | "workflow" | "system";
+  deps: string[];
+  required_capabilities: string[];
+  executor: string;
+  input_hint?: string | null;
+  expected_output?: string | null;
+  dangerous: boolean;
+}
+export interface PlanDag {
+  workflow_name: string;
+  goal: string;
+  acceptance_criteria?: string | null;
+  budget_cents: number;
+  nodes: PlanNode[];
+}
+export interface PlanResult {
+  id: string;
+  goal: string;
+  status: string;
+  template: string;
+  estimated_cost_cents: number;
+  dag: PlanDag;
+  routing: Record<string, string | null>;
+}
+export interface ApproveResult {
+  task_id: string;
+  status: string;
+}
+export interface RunNodeState {
+  id: string;
+  status: string;
+  agent?: string | null;
+}
+export interface RunStatus {
+  status: string;
+  nodes: RunNodeState[];
+}
+
 export const api = {
   register: (body: { email: string; password: string; display_name?: string }) =>
     request<Tokens>("/api/auth/register", { method: "POST", body: JSON.stringify(body) }),
@@ -108,4 +161,17 @@ export const api = {
     request<ProvisionResult>("/api/provision", { method: "POST", body: JSON.stringify(body) }, true),
   agents: (orgId: string) => request<Agent[]>("/api/orgs/current/agents", {}, true, orgId),
   roles: (orgId: string) => request<Role[]>("/api/orgs/current/roles", {}, true, orgId),
+  createPlan: (orgId: string, goal: string) =>
+    request<PlanResult>("/api/plans", { method: "POST", body: JSON.stringify({ goal }) }, true, orgId),
+  approvePlan: (orgId: string, planId: string) =>
+    request<ApproveResult>(`/api/plans/${planId}/approve`, { method: "POST" }, true, orgId),
+  planRun: (orgId: string, planId: string) =>
+    request<RunStatus>(`/api/plans/${planId}/run`, {}, true, orgId),
+  signalNode: (orgId: string, planId: string, nodeId: string) =>
+    request<null>(
+      `/api/plans/${planId}/signal`,
+      { method: "POST", body: JSON.stringify({ node_id: nodeId }) },
+      true,
+      orgId,
+    ),
 };
