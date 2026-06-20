@@ -25,6 +25,8 @@
 | [TD-015](#td-015) | org 过滤 repo 基类未建 | Low | open | 业务数据访问增多时 |
 | [TD-016](#td-016) | 权限矩阵未完整落地（approver/member 区分 + 成员邀请/移除） | Low-Med | open | 审批/成员管理接入时 |
 | [TD-017](#td-017) | 预设关键词匹配对中文弱（无分词/无语义） | Low | open | M6 embedding 语义匹配 |
+| [TD-018](#td-018) | Temporal worker 沙箱 pydantic_core 延迟导入 UserWarning | Low | open | M4 工作流扩展时 |
+| [TD-019](#td-019) | 节点终态仅靠 GET /run 触发回写（无 workflow 完成回调） | Low-Med | open | M6 审批/Manifest 接线时 |
 
 ---
 
@@ -125,6 +127,18 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 中文不分词时需空格分隔或精确子串；语义检索（embedding）按 ADR-0006 留 M6。
 - 影响：中文自由关键词命中率低；当前 UI 以"选预设"为主，影响有限。
 - 偿还：M6 接 LiteLLM embedding 后改语义检索（preset.embedding 已建 hnsw 索引）。
+
+### TD-018
+**Temporal worker 启动后首个 workflow task 触发 `pydantic_core was imported after initial workflow load` UserWarning。**
+`workflow.py` 用 `workflow.unsafe.imports_passed_through()` 引入 `schemas`（PlanDag/validate），pydantic_core 在沙箱内延迟导入。
+- 影响：仅告警，workflow 执行正常、确定性不受影响（pydantic 纯函数）；M3-C 真实 Temporal 联调全程跑通。
+- 偿还：M4 扩展工作流时，在 `worker.py` 启动前预导入 pydantic（或加 passthrough_modules），消除告警。
+
+### TD-019
+**节点/任务终态仅在 `GET /run` 被调用时回写 DB（无 workflow 完成的主动回调）。**
+`finish_task_run` 在轮询 `GET /run` 发现终态时才更新 `task_run`/`plan` 状态；若前端不再轮询，DB 状态可能滞留 `running`。
+- 影响：M3 桩执行可接受（前端运行页持续轮询直到终态）；但无轮询场景下 DB 不最终一致。
+- 偿还：M6 审批/Run Manifest 接线时，由 Temporal workflow 完成钩子或 Activity 主动回写终态（含 finished_at）。
 
 ---
 
