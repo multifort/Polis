@@ -22,6 +22,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    settings.validate_for_prod()  # 生产类环境下 fail-closed 校验 JWT/CORS（TD-013）
     app = FastAPI(
         title=settings.app_name,
         version=settings.version,
