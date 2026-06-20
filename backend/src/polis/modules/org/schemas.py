@@ -63,6 +63,12 @@ class RoleOut(BaseModel):
     description: str | None = None
 
 
+class AgentAuthority(BaseModel):
+    """Agent 权限声明（最小权限，M4）。allowed_tools 之外的工具型技能不加载。"""
+
+    allowed_tools: list[str] = Field(default_factory=list)
+
+
 class AgentConfig(BaseModel):
     """Agent 版本配置（声明式，入 agent_version.config）。T2.2 校验用，M2 精简版。"""
 
@@ -70,6 +76,8 @@ class AgentConfig(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
     executor: str = "lite-agent"
+    model: str | None = None  # model_catalog.id；None 时由运行时取默认（M4）
+    authority: AgentAuthority = Field(default_factory=AgentAuthority)  # 最小权限（M4）
 
 
 class AgentOut(BaseModel):
