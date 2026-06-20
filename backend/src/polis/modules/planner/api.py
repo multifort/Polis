@@ -77,7 +77,7 @@ async def approve_plan(
     plan_id: uuid.UUID, org: ApproverOrg, user_id: CurrentUserId, session: SessionDep
 ) -> ApproveResult:
     """审批计划并启动 Temporal TaskWorkflow（仅 owner/approver）。"""
-    plan = await repo.get_plan(session, plan_id)
+    plan = await repo.get_plan(session, org.org_id, plan_id)
     if plan is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "计划不存在")
     if plan.status not in ("draft", "approved"):
@@ -96,7 +96,7 @@ async def approve_plan(
     except Exception as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "编排服务未就绪") from exc
 
-    await repo.update_plan_status(session, plan_id, "running")
+    await repo.update_plan_status(session, org.org_id, plan_id, "running")
     run = await repo.create_task_run(session, org.org_id, plan_id, workflow_id)
     await write_audit(
         session,
@@ -112,7 +112,7 @@ async def approve_plan(
 @router.get("/plans/{plan_id}/run", response_model=RunStatusResult)
 async def get_plan_run(plan_id: uuid.UUID, org: CurrentOrg, session: SessionDep) -> RunStatusResult:
     """查询 Temporal 工作流当前节点状态。"""
-    run = await repo.get_task_run_by_plan(session, plan_id)
+    run = await repo.get_task_run_by_plan(session, org.org_id, plan_id)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "该计划尚未启动")
 
@@ -143,7 +143,7 @@ async def signal_plan(
     session: SessionDep,
 ) -> None:
     """向 human 节点发送审批 signal（仅 owner/approver）。"""
-    run = await repo.get_task_run_by_plan(session, plan_id)
+    run = await repo.get_task_run_by_plan(session, org.org_id, plan_id)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "该计划尚未启动")
 

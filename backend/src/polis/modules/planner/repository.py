@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from polis.db.org_scoped import select_org_scoped
 from polis.modules.org.models import Agent, AgentCapability
 from polis.modules.planner.models import Plan, PlanTemplate, TaskRun
 
@@ -54,14 +55,18 @@ async def create_plan(
     return plan
 
 
-async def get_plan(session: AsyncSession, plan_id: uuid.UUID) -> Plan | None:
-    """按 ID 取计划（RLS 已在会话级限定 org）。"""
-    plan: Plan | None = await session.scalar(select(Plan).where(Plan.id == plan_id))
+async def get_plan(session: AsyncSession, org_id: uuid.UUID, plan_id: uuid.UUID) -> Plan | None:
+    """按 ID 取计划。RLS 已限定 org，叠加应用层 org_id 过滤做纵深防御（TD-015）。"""
+    plan: Plan | None = await session.scalar(
+        select_org_scoped(Plan, org_id).where(Plan.id == plan_id)
+    )
     return plan
 
 
-async def update_plan_status(session: AsyncSession, plan_id: uuid.UUID, new_status: str) -> None:
-    plan = await get_plan(session, plan_id)
+async def update_plan_status(
+    session: AsyncSession, org_id: uuid.UUID, plan_id: uuid.UUID, new_status: str
+) -> None:
+    plan = await get_plan(session, org_id, plan_id)
     if plan is not None:
         plan.status = new_status
         await session.flush()
@@ -84,9 +89,13 @@ async def create_task_run(
     return run
 
 
-async def get_task_run_by_plan(session: AsyncSession, plan_id: uuid.UUID) -> TaskRun | None:
+async def get_task_run_by_plan(
+    session: AsyncSession, org_id: uuid.UUID, plan_id: uuid.UUID
+) -> TaskRun | None:
     run: TaskRun | None = await session.scalar(
-        select(TaskRun).where(TaskRun.plan_id == plan_id).order_by(TaskRun.created_at.desc())
+        select_org_scoped(TaskRun, org_id)
+        .where(TaskRun.plan_id == plan_id)
+        .order_by(TaskRun.created_at.desc())
     )
     return run
 
@@ -95,5 +104,7 @@ async def finish_task_run(session: AsyncSession, run: TaskRun, new_status: str) 
     """工作流到达终态时回写 task_run + 关联 plan 的状态（保持 DB 与编排一致）。"""
     run.status = new_status
     if run.plan_id is not None:
-        await update_plan_status(session, run.plan_id, "done" if new_status == "done" else "failed")
+        await update_plan_status(
+            session, run.org_id, run.plan_id, "done" if new_status == "done" else "failed"
+        )
     await session.flush()
