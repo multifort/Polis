@@ -51,6 +51,7 @@ AI 协作提交带 `Co-Authored-By`。
 ## 5. 文档与命令
 - 设计导航：[docs/README.md](docs/README.md)｜色彩/视觉唯一来源：[docs/constraints/10a-色彩规范.md](docs/constraints/10a-色彩规范.md)
 - 研发计划与任务：[docs/plan/研发计划.md](docs/plan/研发计划.md) ｜ [docs/plan/研发任务清单.md](docs/plan/研发任务清单.md)
+- **续接/当前进度**：新 session 先读 [docs/续接指南.md](docs/续接指南.md)（里程碑进度、怎么起服务、环境踩坑、M3 下一步任务）。
 - 技术债：走捷径/留 TODO/延后工程实践时，登记 [docs/tech-debt.md](docs/tech-debt.md)（属 DoD 的一部分）；偿还后留痕。
 - 便捷命令：`/adr`（起草 ADR）、`/task`（建任务含 DoR）、`/review`（评审清单）——见 `.claude/commands/`
 - 构建/测试命令将在 M1 落地后补到此处（届时以 `backend/README` 与 `Makefile` 为准）。
