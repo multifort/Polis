@@ -27,6 +27,7 @@
 | [TD-017](#td-017) | 预设关键词匹配对中文弱（无分词/无语义） | Low | open | M6 embedding 语义匹配 |
 | [TD-018](#td-018) | Temporal worker 沙箱 pydantic_core 延迟导入 UserWarning | Low | **closed** | 已消除，见偿还记录 |
 | [TD-019](#td-019) | 节点终态仅靠 GET /run 触发回写（无 workflow 完成回调） | Low-Med | open | M6 审批/Manifest 接线时 |
+| [TD-020](#td-020) | M3 Planner 仅模板优先，全自动 LLM 拆解兜底延后 | Low | open(设计内后置) | M6 模型网关接入时 |
 
 ---
 
@@ -145,6 +146,13 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 `finish_task_run` 在轮询 `GET /run` 发现终态时才更新 `task_run`/`plan` 状态；若前端不再轮询，DB 状态可能滞留 `running`。
 - 影响：M3 桩执行可接受（前端运行页持续轮询直到终态）；但无轮询场景下 DB 不最终一致。
 - 偿还：M6 审批/Run Manifest 接线时，由 Temporal workflow 完成钩子或 Activity 主动回写终态（含 finished_at）。
+
+### TD-020
+**M3 Planner 只实现「模板优先」，T3.2 设计的「全自动拆解兜底」延后。**
+研发任务 T3.2 原为「模板优先 + 全自动拆解兜底」；当前 `planner.service.plan` 仅模板优先，
+无模板匹配时 `raise NoTemplateMatch`（404）。全自动拆解需 LLM 生成 DAG，依赖模型网关（M6）。
+- 影响：当前公司能力不匹配任何模板时无法出图（404），需先有匹配模板；与 ADR-0006 确定性路线一致，M3 演示不受影响。
+- 偿还：M6 接 LiteLLM 后补 LLM 拆解兜底（无模板→LLM 生成 DAG→过 `validate`→落库），与模板优先同构。属设计内后置（同 ADR-0006 思路），非疏漏。
 
 ---
 
