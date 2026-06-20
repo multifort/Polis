@@ -15,12 +15,46 @@ export function clearTokens() {
 export function getAccess(): string | null {
   return typeof window === "undefined" ? null : localStorage.getItem(ACCESS);
 }
+export function getRefresh(): string | null {
+  return typeof window === "undefined" ? null : localStorage.getItem(REFRESH);
+}
+
+// 静默刷新（TD-014）：access 过期(401)时用 refresh 换新一对并重试原请求一次。
+// 并发请求共享同一次刷新，避免风暴（refresh 轮换后旧 token 立即失效，见后端 TD-012）。
+let refreshing: Promise<boolean> | null = null;
+
+async function tryRefresh(): Promise<boolean> {
+  if (refreshing) return refreshing;
+  refreshing = (async () => {
+    const rt = getRefresh();
+    if (!rt) return false;
+    try {
+      const res = await fetch(`${BASE}/api/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: rt }),
+      });
+      if (!res.ok) return false;
+      const data = (await res.json()) as Tokens;
+      setTokens(data.access_token, data.refresh_token);
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  try {
+    return await refreshing;
+  } finally {
+    refreshing = null;
+  }
+}
 
 async function request<T>(
   path: string,
   options: RequestInit = {},
   auth = false,
   orgId?: string,
+  _retried = false,
 ): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (auth) {
@@ -29,6 +63,15 @@ async function request<T>(
   }
   if (orgId) headers["X-Org-Id"] = orgId;
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
+
+  // access 过期：静默刷新后重试一次（refresh 端点自身不参与，避免递归）
+  if (res.status === 401 && auth && !_retried && path !== "/api/auth/refresh") {
+    if (await tryRefresh()) {
+      return request<T>(path, options, auth, orgId, true);
+    }
+    clearTokens(); // 刷新失败 → 清登录态，页面的 getAccess 守卫会跳回登录
+  }
+
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) {
     const d = data && (data as { detail?: unknown }).detail;
@@ -145,6 +188,20 @@ export const api = {
     request<Tokens>("/api/auth/register", { method: "POST", body: JSON.stringify(body) }),
   login: (body: { email: string; password: string }) =>
     request<Tokens>("/api/auth/login", { method: "POST", body: JSON.stringify(body) }),
+  logout: async () => {
+    const rt = getRefresh();
+    if (rt) {
+      try {
+        await request<null>("/api/auth/logout", {
+          method: "POST",
+          body: JSON.stringify({ refresh_token: rt }),
+        });
+      } catch {
+        // 登出尽力而为：即使后端不可达也清本地态
+      }
+    }
+    clearTokens();
+  },
   me: () => request<Me>("/api/me", {}, true),
   createOrg: (body: { name: string; charter?: string }) =>
     request<Org>("/api/orgs", { method: "POST", body: JSON.stringify(body) }, true),
