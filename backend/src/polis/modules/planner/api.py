@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.config import get_settings
 from polis.db.session import get_session
-from polis.modules.org.deps import CurrentOrg
+from polis.modules.org.deps import CurrentOrg, OrgContext, require_role
 from polis.modules.planner import repository as repo
 from polis.modules.planner import service
 from polis.modules.planner.schemas import (
@@ -34,6 +34,8 @@ from polis.modules.planner.workflow import TASK_QUEUE, TaskWorkflow
 router = APIRouter(prefix="/api", tags=["planner"])
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+# 审批/人审是治理动作：仅 owner/approver 可批准运行计划、放行人审 gate（09 §6 权限矩阵）
+ApproverOrg = Annotated[OrgContext, Depends(require_role("owner", "approver"))]
 
 _TEMPORAL_CONNECT_TIMEOUT = 5.0
 
@@ -70,8 +72,8 @@ async def create_plan(data: PlanCreateIn, org: CurrentOrg, session: SessionDep) 
     response_model=ApproveResult,
     status_code=status.HTTP_201_CREATED,
 )
-async def approve_plan(plan_id: uuid.UUID, org: CurrentOrg, session: SessionDep) -> ApproveResult:
-    """审批计划并启动 Temporal TaskWorkflow。"""
+async def approve_plan(plan_id: uuid.UUID, org: ApproverOrg, session: SessionDep) -> ApproveResult:
+    """审批计划并启动 Temporal TaskWorkflow（仅 owner/approver）。"""
     plan = await repo.get_plan(session, plan_id)
     if plan is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "计划不存在")
@@ -123,9 +125,9 @@ async def get_plan_run(plan_id: uuid.UUID, org: CurrentOrg, session: SessionDep)
 
 @router.post("/plans/{plan_id}/signal", status_code=status.HTTP_204_NO_CONTENT)
 async def signal_plan(
-    plan_id: uuid.UUID, body: SignalIn, org: CurrentOrg, session: SessionDep
+    plan_id: uuid.UUID, body: SignalIn, org: ApproverOrg, session: SessionDep
 ) -> None:
-    """向 human 节点发送审批 signal。"""
+    """向 human 节点发送审批 signal（仅 owner/approver）。"""
     run = await repo.get_task_run_by_plan(session, plan_id)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "该计划尚未启动")
