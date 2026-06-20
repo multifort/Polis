@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 
 from polis.modules.model.gateway import ChatMessage, ModelGateway
 from polis.modules.runtime.context import ExecCtx
+from polis.modules.runtime.guardrails import Guardrails, GuardrailViolation
 from polis.modules.runtime.mcp import McpRuntime
 
 MAX_STEPS = 8
@@ -23,6 +24,8 @@ class LoopResult:
     steps: int = 0
     tool_calls_made: int = 0
     tool_outputs: list[str] = field(default_factory=list)
+    blocked: bool = False
+    blocked_reason: str | None = None
 
 
 async def run_loop(
@@ -32,6 +35,7 @@ async def run_loop(
     ctx: ExecCtx,
     *,
     max_steps: int = MAX_STEPS,
+    guard: Guardrails | None = None,
 ) -> LoopResult:
     """多轮 tool-calling 循环。模型返回工具调用→执行→回灌；返回纯文本则结束。"""
     system = agent_prompt
@@ -63,7 +67,24 @@ async def run_loop(
             ChatMessage(role="assistant", content=rsp.content or "", tool_calls=rsp.tool_calls)
         )
         for tc in rsp.tool_calls:
+            # 防线1：工具输入注入检测 → 命中则阻断该节点（由 execute 层审计 + 可选人审）
+            if guard is not None:
+                try:
+                    guard.check_tool_input(tc)
+                except GuardrailViolation as exc:
+                    return LoopResult(
+                        ok=False,
+                        soft_fail=True,
+                        blocked=True,
+                        blocked_reason=exc.reason,
+                        steps=step,
+                        tool_calls_made=tool_calls_made,
+                        tool_outputs=tool_outputs,
+                    )
             out = await runtime.call(tc)
+            # 防线1：工具回流内容过滤（外部内容操纵防护）
+            if guard is not None:
+                out = guard.sanitize(out)
             tool_calls_made += 1
             tool_outputs.append(out)
             msgs.append(ChatMessage(role="tool", content=out, tool_call_id=tc.id))
