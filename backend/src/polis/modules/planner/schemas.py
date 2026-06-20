@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -118,12 +118,18 @@ class SignalIn(BaseModel):
     node_id: str
 
 
-def plan_status_from_temporal(raw: dict[str, Any]) -> RunStatusResult:
-    """把 TaskWorkflow.status() query 结果转换为 RunStatusResult。"""
-    return RunStatusResult(
-        status="running",  # workflow 仍运行中；done/failed 由 result() 得到
-        nodes=[RunNodeState(id=n["id"], status=n["status"]) for n in raw.get("nodes", [])],
-    )
+def derive_overall_status(node_statuses: list[str]) -> str:
+    """从节点状态派生顶层运行状态：有 failed→failed；全 done→done；否则 running。
+
+    waiting_human 视为 running（人审挂起仍在运行中）。空节点列表保守返回 running。
+    """
+    if not node_statuses:
+        return "running"
+    if any(s == "failed" for s in node_statuses):
+        return "failed"
+    if all(s == "done" for s in node_statuses):
+        return "done"
+    return "running"
 
 
 def _is_acyclic(dag: PlanDag, id_set: set[str]) -> bool:

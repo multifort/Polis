@@ -27,6 +27,7 @@ from polis.modules.planner.schemas import (
     RunNodeState,
     RunStatusResult,
     SignalIn,
+    derive_overall_status,
 )
 from polis.modules.planner.workflow import TASK_QUEUE, TaskWorkflow
 
@@ -112,7 +113,12 @@ async def get_plan_run(plan_id: uuid.UUID, org: CurrentOrg, session: SessionDep)
 
     nodes_raw: list[Any] = raw.get("nodes") or []
     nodes = [RunNodeState(id=str(n["id"]), status=str(n["status"])) for n in nodes_raw]
-    return RunStatusResult(status=run.status, nodes=nodes)
+    # 顶层状态从节点派生（DB run.status 在 approve 后不会自动更新）
+    overall = derive_overall_status([n.status for n in nodes])
+    # 到达终态且 DB 仍为非终态时回写，保证 Temporal 保留期过后仍可读到正确状态
+    if overall in ("done", "failed") and run.status not in ("done", "failed"):
+        await repo.finish_task_run(session, run, overall)
+    return RunStatusResult(status=overall, nodes=nodes)
 
 
 @router.post("/plans/{plan_id}/signal", status_code=status.HTTP_204_NO_CONTENT)

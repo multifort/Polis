@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from polis.modules.planner.schemas import PlanDag, validate
+from polis.modules.planner.schemas import PlanDag, derive_overall_status, validate
 
 CAPS = {"procurement.rfq", "procurement.supplier_analysis", "report.generation"}
 
@@ -62,3 +62,27 @@ def test_over_budget_rejected() -> None:
     r = validate(dag, CAPS)
     assert not r.ok
     assert any("预算" in e for e in r.errors)
+
+
+# ── M3-C：顶层运行状态派生（GET /run 用，DB run.status 不自动更新） ──────────────
+
+
+def test_overall_done_when_all_done() -> None:
+    assert derive_overall_status(["done", "done", "done"]) == "done"
+
+
+def test_overall_failed_when_any_failed() -> None:
+    assert derive_overall_status(["done", "failed", "done"]) == "failed"
+
+
+def test_overall_running_when_in_progress() -> None:
+    assert derive_overall_status(["done", "running", "pending"]) == "running"
+
+
+def test_overall_running_when_waiting_human() -> None:
+    # 人审挂起仍算运行中（不是终态）
+    assert derive_overall_status(["done", "waiting_human"]) == "running"
+
+
+def test_overall_running_when_empty() -> None:
+    assert derive_overall_status([]) == "running"

@@ -89,3 +89,11 @@ async def get_task_run_by_plan(session: AsyncSession, plan_id: uuid.UUID) -> Tas
         select(TaskRun).where(TaskRun.plan_id == plan_id).order_by(TaskRun.created_at.desc())
     )
     return run
+
+
+async def finish_task_run(session: AsyncSession, run: TaskRun, new_status: str) -> None:
+    """工作流到达终态时回写 task_run + 关联 plan 的状态（保持 DB 与编排一致）。"""
+    run.status = new_status
+    if run.plan_id is not None:
+        await update_plan_status(session, run.plan_id, "done" if new_status == "done" else "failed")
+    await session.flush()
