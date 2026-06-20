@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.modules.org.models import Agent, AgentCapability
-from polis.modules.planner.models import Plan, PlanTemplate
+from polis.modules.planner.models import Plan, PlanTemplate, TaskRun
 
 
 async def available_capabilities(session: AsyncSession) -> set[str]:
@@ -52,3 +52,40 @@ async def create_plan(
     session.add(plan)
     await session.flush()
     return plan
+
+
+async def get_plan(session: AsyncSession, plan_id: uuid.UUID) -> Plan | None:
+    """按 ID 取计划（RLS 已在会话级限定 org）。"""
+    plan: Plan | None = await session.scalar(select(Plan).where(Plan.id == plan_id))
+    return plan
+
+
+async def update_plan_status(session: AsyncSession, plan_id: uuid.UUID, new_status: str) -> None:
+    plan = await get_plan(session, plan_id)
+    if plan is not None:
+        plan.status = new_status
+        await session.flush()
+
+
+async def create_task_run(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    plan_id: uuid.UUID,
+    temporal_workflow_id: str,
+) -> TaskRun:
+    run = TaskRun(
+        org_id=org_id,
+        plan_id=plan_id,
+        temporal_workflow_id=temporal_workflow_id,
+        status="running",
+    )
+    session.add(run)
+    await session.flush()
+    return run
+
+
+async def get_task_run_by_plan(session: AsyncSession, plan_id: uuid.UUID) -> TaskRun | None:
+    run: TaskRun | None = await session.scalar(
+        select(TaskRun).where(TaskRun.plan_id == plan_id).order_by(TaskRun.created_at.desc())
+    )
+    return run

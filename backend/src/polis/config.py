@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     access_ttl_min: int = 15
     refresh_ttl_days: int = 14
 
+    # Temporal 编排服务地址（M3-C）
+    temporal_addr: str = "localhost:7233"
+
     # 前端跨域（CORS）。dev 默认放开（用 Bearer token，非 cookie）；生产用 POLIS_CORS_ORIGINS 收紧。
     cors_origins: list[str] = ["*"]
 

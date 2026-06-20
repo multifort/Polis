@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -93,6 +93,37 @@ def validate(dag: PlanDag, available_capabilities: set[str]) -> ValidationResult
         errors.append(f"预估成本 {estimate_cost_cents(dag)} 分 超出预算 {dag.budget_cents} 分")
 
     return ValidationResult(ok=not errors, errors=errors)
+
+
+# ── 运行/审批 API 响应 ──────────────────────────────────────────────────────────
+
+
+class ApproveResult(BaseModel):
+    task_id: uuid.UUID
+    status: str  # "running"
+
+
+class RunNodeState(BaseModel):
+    id: str
+    status: str
+    agent: str | None = None
+
+
+class RunStatusResult(BaseModel):
+    status: str
+    nodes: list[RunNodeState]
+
+
+class SignalIn(BaseModel):
+    node_id: str
+
+
+def plan_status_from_temporal(raw: dict[str, Any]) -> RunStatusResult:
+    """把 TaskWorkflow.status() query 结果转换为 RunStatusResult。"""
+    return RunStatusResult(
+        status="running",  # workflow 仍运行中；done/failed 由 result() 得到
+        nodes=[RunNodeState(id=n["id"], status=n["status"]) for n in raw.get("nodes", [])],
+    )
 
 
 def _is_acyclic(dag: PlanDag, id_set: set[str]) -> bool:

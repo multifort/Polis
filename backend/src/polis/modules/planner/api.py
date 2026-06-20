@@ -1,25 +1,57 @@
-"""planner API 路由：模板优先出图（POST /api/plans）。"""
+"""planner API 路由（M3-B/C）。
+
+POST /api/plans                     → 出图（模板优先）
+POST /api/plans/{id}/approve        → 审批并启动 Temporal 工作流
+GET  /api/plans/{id}/run            → 查询运行状态（query workflow）
+POST /api/plans/{id}/signal         → 审批 human 节点（signal workflow）
+"""
 
 from __future__ import annotations
 
-from typing import Annotated
+import asyncio
+import uuid
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from polis.config import get_settings
 from polis.db.session import get_session
 from polis.modules.org.deps import CurrentOrg
+from polis.modules.planner import repository as repo
 from polis.modules.planner import service
-from polis.modules.planner.schemas import PlanCreateIn, PlanResult
+from polis.modules.planner.schemas import (
+    ApproveResult,
+    PlanCreateIn,
+    PlanResult,
+    RunNodeState,
+    RunStatusResult,
+    SignalIn,
+)
+from polis.modules.planner.workflow import TASK_QUEUE, TaskWorkflow
 
 router = APIRouter(prefix="/api", tags=["planner"])
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
+_TEMPORAL_CONNECT_TIMEOUT = 5.0
+
+
+async def _temporal_client() -> Any:
+    """连接 Temporal；超时或不可达时抛 HTTPException 503。"""
+    from temporalio.client import Client
+
+    try:
+        return await asyncio.wait_for(
+            Client.connect(get_settings().temporal_addr),
+            timeout=_TEMPORAL_CONNECT_TIMEOUT,
+        )
+    except Exception as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "编排服务未就绪") from exc
+
 
 @router.post("/plans", response_model=PlanResult, status_code=status.HTTP_201_CREATED)
 async def create_plan(data: PlanCreateIn, org: CurrentOrg, session: SessionDep) -> PlanResult:
-    # CurrentOrg 已校验成员 + 切到 RLS 上下文
     try:
         return await service.plan(session, org.org_id, data.goal)
     except service.NoTemplateMatch as exc:
@@ -30,3 +62,72 @@ async def create_plan(data: PlanCreateIn, org: CurrentOrg, session: SessionDep) 
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"errors": exc.errors}
         ) from exc
+
+
+@router.post(
+    "/plans/{plan_id}/approve",
+    response_model=ApproveResult,
+    status_code=status.HTTP_201_CREATED,
+)
+async def approve_plan(plan_id: uuid.UUID, org: CurrentOrg, session: SessionDep) -> ApproveResult:
+    """审批计划并启动 Temporal TaskWorkflow。"""
+    plan = await repo.get_plan(session, plan_id)
+    if plan is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "计划不存在")
+    if plan.status not in ("draft", "approved"):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"计划当前状态为 {plan.status!r}，无法启动")
+
+    workflow_id = f"plan-{plan_id}"
+    client = await _temporal_client()
+
+    try:
+        await client.start_workflow(
+            TaskWorkflow.run,
+            args=[plan.dag, str(org.org_id)],
+            id=workflow_id,
+            task_queue=TASK_QUEUE,
+        )
+    except Exception as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "编排服务未就绪") from exc
+
+    await repo.update_plan_status(session, plan_id, "running")
+    run = await repo.create_task_run(session, org.org_id, plan_id, workflow_id)
+    return ApproveResult(task_id=run.id, status="running")
+
+
+@router.get("/plans/{plan_id}/run", response_model=RunStatusResult)
+async def get_plan_run(plan_id: uuid.UUID, org: CurrentOrg, session: SessionDep) -> RunStatusResult:
+    """查询 Temporal 工作流当前节点状态。"""
+    run = await repo.get_task_run_by_plan(session, plan_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "该计划尚未启动")
+
+    client = await _temporal_client()
+
+    try:
+        handle = client.get_workflow_handle(run.temporal_workflow_id or "")
+        raw: dict[str, Any] = await handle.query(TaskWorkflow.status)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "编排服务未就绪") from exc
+
+    nodes_raw: list[Any] = raw.get("nodes") or []
+    nodes = [RunNodeState(id=str(n["id"]), status=str(n["status"])) for n in nodes_raw]
+    return RunStatusResult(status=run.status, nodes=nodes)
+
+
+@router.post("/plans/{plan_id}/signal", status_code=status.HTTP_204_NO_CONTENT)
+async def signal_plan(
+    plan_id: uuid.UUID, body: SignalIn, org: CurrentOrg, session: SessionDep
+) -> None:
+    """向 human 节点发送审批 signal。"""
+    run = await repo.get_task_run_by_plan(session, plan_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "该计划尚未启动")
+
+    client = await _temporal_client()
+
+    try:
+        handle = client.get_workflow_handle(run.temporal_workflow_id or "")
+        await handle.signal(TaskWorkflow.approve, body.node_id)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "编排服务未就绪") from exc

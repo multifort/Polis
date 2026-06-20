@@ -1,4 +1,4 @@
-.PHONY: install dev lint format type test check migrate makemigration downgrade
+.PHONY: install dev lint format type test check migrate makemigration downgrade worker temporal
 
 install:
 	uv sync
@@ -31,3 +31,9 @@ makemigration:
 
 downgrade:
 	uv run alembic downgrade -1
+
+worker:
+	uv run python -m polis.modules.planner.worker
+
+temporal:
+	cd ../infra && docker compose --env-file .env up -d temporal temporal-ui
