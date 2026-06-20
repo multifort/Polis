@@ -62,6 +62,7 @@ async def register(session: AsyncSession, data: RegisterIn) -> TokenOut:
         session, data.email, hash_password(data.password), data.display_name
     )
     tokens = await _issue_tokens(session, user.id)
+    await write_audit(session, action="auth.register", actor=str(user.id), target=str(user.id))
     await session.flush()
     return tokens
 
@@ -73,6 +74,7 @@ async def login(session: AsyncSession, data: LoginIn) -> TokenOut:
     if not verify_password(user.password_hash, data.password):
         raise InvalidCredentials()
     tokens = await _issue_tokens(session, user.id)
+    await write_audit(session, action="auth.login", actor=str(user.id))
     await session.flush()
     return tokens
 
@@ -89,6 +91,7 @@ async def refresh(session: AsyncSession, refresh_token: str) -> TokenOut:
         raise InvalidToken()
     user_id = uuid.UUID(payload["sub"])
     access = create_access_token(user_id)
+    await write_audit(session, action="auth.refresh", actor=str(user_id))
     return TokenOut(access_token=access, refresh_token=refresh_token)
 
 

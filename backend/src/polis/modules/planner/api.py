@@ -17,7 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.config import get_settings
 from polis.db.session import get_session
-from polis.modules.org.deps import CurrentOrg, OrgContext, require_role
+from polis.modules.observability.audit import write_audit
+from polis.modules.org.deps import CurrentOrg, CurrentUserId, OrgContext, require_role
 from polis.modules.planner import repository as repo
 from polis.modules.planner import service
 from polis.modules.planner.schemas import (
@@ -72,7 +73,9 @@ async def create_plan(data: PlanCreateIn, org: CurrentOrg, session: SessionDep) 
     response_model=ApproveResult,
     status_code=status.HTTP_201_CREATED,
 )
-async def approve_plan(plan_id: uuid.UUID, org: ApproverOrg, session: SessionDep) -> ApproveResult:
+async def approve_plan(
+    plan_id: uuid.UUID, org: ApproverOrg, user_id: CurrentUserId, session: SessionDep
+) -> ApproveResult:
     """审批计划并启动 Temporal TaskWorkflow（仅 owner/approver）。"""
     plan = await repo.get_plan(session, plan_id)
     if plan is None:
@@ -95,6 +98,14 @@ async def approve_plan(plan_id: uuid.UUID, org: ApproverOrg, session: SessionDep
 
     await repo.update_plan_status(session, plan_id, "running")
     run = await repo.create_task_run(session, org.org_id, plan_id, workflow_id)
+    await write_audit(
+        session,
+        action="plan.approve",
+        actor=str(user_id),
+        org_id=org.org_id,
+        target=str(plan_id),
+        detail={"task_id": str(run.id)},
+    )
     return ApproveResult(task_id=run.id, status="running")
 
 
@@ -125,7 +136,11 @@ async def get_plan_run(plan_id: uuid.UUID, org: CurrentOrg, session: SessionDep)
 
 @router.post("/plans/{plan_id}/signal", status_code=status.HTTP_204_NO_CONTENT)
 async def signal_plan(
-    plan_id: uuid.UUID, body: SignalIn, org: ApproverOrg, session: SessionDep
+    plan_id: uuid.UUID,
+    body: SignalIn,
+    org: ApproverOrg,
+    user_id: CurrentUserId,
+    session: SessionDep,
 ) -> None:
     """向 human 节点发送审批 signal（仅 owner/approver）。"""
     run = await repo.get_task_run_by_plan(session, plan_id)
@@ -139,3 +154,12 @@ async def signal_plan(
         await handle.signal(TaskWorkflow.approve, body.node_id)
     except Exception as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "编排服务未就绪") from exc
+
+    await write_audit(
+        session,
+        action="plan.signal",
+        actor=str(user_id),
+        org_id=org.org_id,
+        target=str(plan_id),
+        detail={"node_id": body.node_id},
+    )
