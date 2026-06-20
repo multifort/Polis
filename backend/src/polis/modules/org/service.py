@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,8 @@ from polis.modules.org.schemas import (
     TokenOut,
     UserOut,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AuthError(Exception):
@@ -90,9 +93,24 @@ async def refresh(session: AsyncSession, refresh_token: str) -> TokenOut:
     if row is None:
         raise InvalidToken()
     user_id = uuid.UUID(payload["sub"])
-    access = create_access_token(user_id)
+    # 轮换：吊销旧会话，发放全新 access+refresh（旧 refresh 复用即失效，TD-012）
+    await repo.revoke_session_by_hash(session, hash_token(refresh_token))
+    tokens = await _issue_tokens(session, user_id)
     await write_audit(session, action="auth.refresh", actor=str(user_id))
-    return TokenOut(access_token=access, refresh_token=refresh_token)
+    await session.flush()
+    return tokens
+
+
+async def logout(session: AsyncSession, refresh_token: str) -> None:
+    """吊销 refresh 会话（幂等：无效/已吊销 token 也返回成功，不泄露存在性）。"""
+    revoked = await repo.revoke_session_by_hash(session, hash_token(refresh_token))
+    if revoked:
+        try:
+            payload = decode_token(refresh_token)
+            await write_audit(session, action="auth.logout", actor=str(payload.get("sub")))
+        except Exception:  # noqa: BLE001 - 审计 actor 取不到不阻断登出
+            logger.debug("登出审计 actor 解析失败，跳过审计")
+    await session.flush()
 
 
 async def me(session: AsyncSession, user_id: uuid.UUID) -> MeOut:

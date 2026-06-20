@@ -26,6 +26,9 @@ migrate:
 seed:
 	uv run python -m polis.seed
 
+cleanup-sessions:
+	uv run python -m polis.modules.org.cleanup
+
 makemigration:
 	uv run alembic revision --autogenerate -m "$(m)"
 

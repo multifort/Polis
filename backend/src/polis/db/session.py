@@ -40,6 +40,13 @@ def get_engine() -> AsyncEngine:
     return _engine
 
 
+def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
+    """供请求外的脚本/任务（如会话清理）拿到会话工厂。"""
+    if _sessionmaker is None:
+        raise RuntimeError("sessionmaker 未初始化（应先 init_engine）")
+    return _sessionmaker
+
+
 async def get_session() -> AsyncIterator[AsyncSession]:
     """每请求一个事务：成功提交、异常回滚。
 

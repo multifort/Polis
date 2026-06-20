@@ -58,6 +58,12 @@ async def refresh(data: RefreshIn, session: SessionDep) -> TokenOut:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "刷新令牌无效") from exc
 
 
+@router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(data: RefreshIn, session: SessionDep) -> None:
+    """吊销 refresh 会话（幂等）。"""
+    await service.logout(session, data.refresh_token)
+
+
 @router.get("/me", response_model=MeOut)
 async def me(user_id: CurrentUserId, session: SessionDep) -> MeOut:
     return await service.me(session, user_id)

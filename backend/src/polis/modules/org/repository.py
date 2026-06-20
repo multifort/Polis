@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import CursorResult, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.modules.org.models import (
@@ -49,13 +50,43 @@ async def create_auth_session(
 async def get_active_session_by_hash(
     session: AsyncSession, refresh_hash: str
 ) -> AuthSession | None:
+    """未吊销且未过期的会话才算 active（TD-012：补 expires_at 校验）。"""
     row: AuthSession | None = await session.scalar(
         select(AuthSession).where(
             AuthSession.refresh_hash == refresh_hash,
             AuthSession.revoked_at.is_(None),
+            AuthSession.expires_at > func.now(),
         )
     )
     return row
+
+
+async def revoke_session_by_hash(session: AsyncSession, refresh_hash: str) -> bool:
+    """吊销指定 refresh（logout / 轮换吊销旧）。返回是否命中一条未吊销会话。"""
+    result = cast(
+        "CursorResult[Any]",
+        await session.execute(
+            update(AuthSession)
+            .where(AuthSession.refresh_hash == refresh_hash, AuthSession.revoked_at.is_(None))
+            .values(revoked_at=datetime.now(UTC))
+        ),
+    )
+    await session.flush()
+    return result.rowcount > 0
+
+
+async def cleanup_auth_sessions(session: AsyncSession) -> int:
+    """删除已过期或已吊销的会话行，防止 auth_session 膨胀（TD-012）。返回删除行数。"""
+    result = cast(
+        "CursorResult[Any]",
+        await session.execute(
+            delete(AuthSession).where(
+                or_(AuthSession.expires_at <= func.now(), AuthSession.revoked_at.is_not(None))
+            )
+        ),
+    )
+    await session.flush()
+    return result.rowcount
 
 
 async def create_org_with_owner(
