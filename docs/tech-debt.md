@@ -11,21 +11,21 @@
 | [TD-001](#td-001) | main 分支保护未启用 | Med | open | 引入第二贡献者 / V1 正式开发前 |
 | [TD-002](#td-002) | 无 CI，门禁仅本地 | Med | open(设计内 E4 后置) | 团队 >1 或进入 V2 |
 | [TD-003](#td-003) | gitleaks 非自举/跨平台 | Low | open | 随 CI(TD-002) |
-| [TD-004](#td-004) | 基础设施镜像用浮动 tag | Low-Med | open | 进 staging/共享环境前 |
-| [TD-005](#td-005) | bandit/pip-audit 临时安装未锁版本 | Low | open | 随 CI 或下次依赖整理 |
+| [TD-004](#td-004) | 基础设施镜像用浮动 tag | Low-Med | **closed** | 已固定 litellm/langfuse，见偿还记录 |
+| [TD-005](#td-005) | bandit/pip-audit 临时安装未锁版本 | Low | **closed** | 已锁入 dev 依赖，见偿还记录 |
 | [TD-006](#td-006) | db 引擎模块级单例、无 readiness | Med | **closed** | 已补，见偿还记录 |
 | [TD-007](#td-007) | 无 DB 集成测试(testcontainers) | Med | **closed** | 已补，见偿还记录 |
 | [TD-008](#td-008) | 早期提交作者归属错误 | Low | accepted(won't-fix) | — |
 | [TD-009](#td-009) | 应用本体未容器化 | Low | open(设计内 E8 后置) | E8 启用时 |
 | [TD-010](#td-010) | 运行时 RLS 未接线 | Med | **closed** | 已补（M2 T9.2），见偿还记录 |
-| [TD-011](#td-011) | 审计仅覆盖 org 写操作（auth 事件未） | Med | open(部分) | 鉴权事件/成员变更接入时 |
-| [TD-012](#td-012) | 认证缺登出/刷新轮换/会话清理 | Med | open | 对外前 |
-| [TD-013](#td-013) | 安全配置生产前须收紧（CORS `*`/JWT 默认密钥/无限流/找回密码桩） | Med | open | 进 staging / 对外前 |
-| [TD-014](#td-014) | 前端 token 存 localStorage + 无静默刷新 | Low-Med | open | 前端硬化时 |
-| [TD-015](#td-015) | org 过滤 repo 基类未建 | Low | open | 业务数据访问增多时 |
+| [TD-011](#td-011) | 审计仅覆盖 org 写操作（auth 事件未） | Med | open(部分) | 登录失败审计随限流做 |
+| [TD-012](#td-012) | 认证缺登出/刷新轮换/会话清理 | Med | **closed** | 已补，见偿还记录 |
+| [TD-013](#td-013) | 安全配置生产前须收紧（CORS `*`/JWT 默认密钥/无限流/找回密码桩） | Med | open(部分) | 限流/找回密码仍待对外前 |
+| [TD-014](#td-014) | 前端 token 存 localStorage + 无静默刷新 | Low-Med | open(部分) | localStorage→cookie 待前端硬化 |
+| [TD-015](#td-015) | org 过滤 repo 基类未建 | Low | **closed** | 已提供 select_org_scoped 助手 |
 | [TD-016](#td-016) | 权限矩阵未完整落地（approver/member 区分 + 成员邀请/移除） | Low-Med | open | 审批/成员管理接入时 |
 | [TD-017](#td-017) | 预设关键词匹配对中文弱（无分词/无语义） | Low | open | M6 embedding 语义匹配 |
-| [TD-018](#td-018) | Temporal worker 沙箱 pydantic_core 延迟导入 UserWarning | Low | open | M4 工作流扩展时 |
+| [TD-018](#td-018) | Temporal worker 沙箱 pydantic_core 延迟导入 UserWarning | Low | **closed** | 已消除，见偿还记录 |
 | [TD-019](#td-019) | 节点终态仅靠 GET /run 触发回写（无 workflow 完成回调） | Low-Med | open | M6 审批/Manifest 接线时 |
 
 ---
@@ -89,9 +89,10 @@
 - 偿还：M2 当前公司中间件(T9.2)——每请求 `SET ROLE polis_app` + `set_config('app.current_org', org, true)`，请求结束 `RESET`。
 
 ### TD-011
-**审计日志未写入。** `audit_log` 表已建（T8.1），但注册/登录/建公司等写操作**未产生审计记录**。
-- 影响：暂无操作留痕，不满足 T8.1"操作留痕"。
-- 偿还：在 service 层（或统一中间件/事件）对关键写操作写 `audit_log`；随 M2 业务写操作接入。
+**审计日志写入（部分完成）。** `audit_log` 表已建（T8.1）。
+已覆盖：org 增改删 + provision（M2）；**认证 register/login/refresh/logout + 审批 plan.approve/plan.signal**（技术债清理批次3/4）。
+- 剩余：**登录失败审计**（防暴力破解）需独立事务（失败路径回滚会丢审计），与登录限流(TD-013剩余)一并做。
+- 偿还：批次3 `write_audit` 接入认证/审批成功路径（`test_integration_audit`）；失败审计待限流。
 
 ### TD-012
 **认证缺登出/刷新轮换/会话清理。** 已有 register/login/refresh，但**无 `/api/auth/logout`**（吊销 refresh）、
@@ -100,21 +101,25 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 - 偿还：补 logout(吊销)、refresh 轮换(旋转+吊销旧)、过期 session 清理任务；M2。
 
 ### TD-013
-**安全配置生产前须收紧。** dev 便利项：CORS `allow_origins=["*"]`、JWT 默认密钥在 `config.py`（dev 占位）、
-认证端点**无限流**（暴力破解）、找回密码为**桩**（前端按钮 no-op）。
-- 影响：直接用于对外/staging 会有安全风险。
-- 偿还：CORS 收紧到具体域(env)、`POLIS_JWT_SECRET` 走 env 且足够强、加登录限流、实现找回密码；进 staging/对外前。
+**安全配置生产前须收紧（部分完成）。** dev 便利项：CORS `["*"]`、JWT 默认密钥、无限流、找回密码桩。
+- 已完成（批次2）：`Settings.validate_for_prod()` 在 `env` 非 dev/test/local 时 fail-closed 校验——
+  拒绝 JWT 默认密钥/长度<32、拒绝 CORS 通配 `*`；`create_app()` 启动调用；`test_config_prod` 覆盖。
+- 剩余：**登录限流**（暴力破解）、**找回密码**实现；进 staging/对外前做。
+- 偿还：CORS/JWT env 化已落地；限流/找回密码待对外前。
 
 ### TD-014
-**前端 token 存 localStorage + 无静默刷新。** demo 级：access/refresh 存 `localStorage`（XSS 面），
-且 api client **不自动用 refresh 续期**——access 15min 过期后用户被登出。
-- 影响：安全面 + 体验（频繁掉登录）。
-- 偿还：评估 httpOnly cookie 方案；api client 加 401→refresh→重试的静默续期；前端硬化时。
+**前端 token 存 localStorage（部分完成）。**
+- 已完成（批次5）：api client 加 401→静默 refresh→重试一次（并发去重）；刷新失败清 token 跳登录；
+  `api.logout()` 调后端吊销会话。浏览器实测坏 access+有效 refresh 自动续期成功。
+- 剩余：access/refresh 仍存 `localStorage`（XSS 面），httpOnly cookie 方案待评估。
+- 偿还：静默刷新已落地；存储方案硬化待前端安全专项。
 
 ### TD-015
-**org 过滤 repo 基类未建。** T8.1 设想"统一 org_id 注入的 repo 基类"尚未实现（当前 repo 多操作非 org 表）。
-- 影响：将来各模块各写 org 过滤易遗漏（虽有 RLS 兜底）。
-- 偿还：接入更多组织级数据访问时，提供统一注入 `org_id` 的 repo 基类/查询封装（M2 已靠 OrgContext+RLS 兜底）。
+**org 作用域查询助手（已提供）。** 原"统一 org_id 注入的 repo 基类"在 RLS-first 架构下改为更契合的**函数式助手**。
+- 已完成（批次6）：`db/org_scoped.py` 的 `select_org_scoped[T: OrgScopedMixin](model, org_id)`；
+  planner repo（get_plan/get_task_run_by_plan/update_plan_status）采用为纵深防御示范；`test_org_scoped` 覆盖。
+- 约定：请求内查询靠 RLS + 本助手做纵深防御；**请求外任务/脚本（无 RLS 上下文）必须用本助手**，否则跨租户。
+- 偿还：助手 + 示范采用 + 约定文档化完成；后续新组织级查询按约定采用。
 
 ### TD-016
 **权限矩阵未完整落地。** M2 已用 owner 守卫（service 层内联 403）保护公司改名/删除/成员查看；
@@ -130,10 +135,10 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 - 偿还：M6 接 LiteLLM embedding 后改语义检索（preset.embedding 已建 hnsw 索引）。
 
 ### TD-018
-**Temporal worker 启动后首个 workflow task 触发 `pydantic_core was imported after initial workflow load` UserWarning。**
-`workflow.py` 用 `workflow.unsafe.imports_passed_through()` 引入 `schemas`（PlanDag/validate），pydantic_core 在沙箱内延迟导入。
-- 影响：仅告警，workflow 执行正常、确定性不受影响（pydantic 纯函数）；M3-C 真实 Temporal 联调全程跑通。
-- 偿还：M4 扩展工作流时，在 `worker.py` 启动前预导入 pydantic（或加 passthrough_modules），消除告警。
+**Temporal worker 沙箱 pydantic_core 延迟导入 UserWarning（已偿还）。**
+`workflow.py` 用 `workflow.unsafe.imports_passed_through()` 引入 `schemas`（PlanDag/validate），pydantic_core 曾在沙箱内延迟导入。
+- 偿还（批次1）：在 `imports_passed_through` 块显式 `import pydantic` + `import pydantic_core`，
+  让其在 workflow 模块初始加载时即 pass through；重起 worker 跑 workflow 实测告警计数 0。
 
 ### TD-019
 **节点/任务终态仅在 `GET /run` 被调用时回写 DB（无 workflow 完成的主动回调）。**
@@ -154,3 +159,18 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 - **org_id RLS 强制已落地（M1 收尾批次）**：`polis_app`(NOLOGIN 非 superuser)角色 + `SET ROLE` 机制 +
   `NULLIF` 健壮策略；隔离回归 `T8.3`（`tests/test_integration_rls.py`）测通 A/B 互不可见 + fail-closed。
   应用按请求 `SET ROLE`+`current_org` 中间件随 M2(T9.2) 接线。
+
+### M3 后技术债清理批次（2026-06-20）
+- **TD-004 已偿还**：docker-compose 固定 litellm `main-stable→v1.89.2`、langfuse `2→2.95.11`
+  （`docker manifest inspect` 确认存在）；pgvector:pg18 保留（华为云 retag 无 registry digest）。
+- **TD-005 已偿还**：bandit/pip-audit 加入 backend dev 依赖组锁定（uv.lock），pre-commit hook
+  从 `uvx`/`--with` 临时安装改为 `uv run`（复用锁定版本）。
+- **TD-012 已偿还**：登出端点 `POST /api/auth/logout`（吊销 refresh，幂等）+ refresh 轮换（吊销旧发新）+
+  `get_active_session_by_hash` 补 `expires_at` 校验 + 会话清理 `cleanup_auth_sessions` + CLI
+  (`python -m polis.modules.org.cleanup`)；`test_integration_auth_lifecycle` 覆盖。
+- **TD-015 已偿还**：`db/org_scoped.py` 的 `select_org_scoped` 助手 + planner repo 采用为纵深防御示范；
+  `test_org_scoped` 覆盖；约定「请求外任务必须用助手」文档化。
+- **TD-011/013/014 部分偿还**：TD-011 认证/审批成功事件审计；TD-013 生产 fail-closed 校验(JWT/CORS)；
+  TD-014 前端静默刷新。三者剩余项（登录失败审计/限流/找回密码、token 存储硬化）见各自详情。
+- **TD-018 已偿还**：`workflow.py` 在 `imports_passed_through` 块显式 pass through pydantic+pydantic_core，
+  消除 Temporal 沙箱 UserWarning（实测计数 0）。
