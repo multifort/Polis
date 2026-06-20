@@ -1,6 +1,6 @@
 # Polis 本地质量门禁（见 docs/constraints/14 E11/E14、CLAUDE.md §3）
 # 安装：uv tool install pre-commit && pre-commit install -t pre-commit -t commit-msg -t pre-push
-# Python 工具(ruff/mypy/bandit/pytest/pip-audit)走 local hook，经 uv 复用 backend/uv.lock 的版本。
+# Python 工具(ruff/mypy/bandit/pytest/pip-audit)走 local hook，全部经 uv 复用 backend/uv.lock 锁定版本（含 bandit/pip-audit，TD-005）。
 # 前置：本机需有 uv，并安装 gitleaks 二进制（brew install gitleaks 或下载 release 到 ~/.local/bin）。
 default_install_hook_types: [pre-commit, commit-msg, pre-push]
 
@@ -57,7 +57,7 @@ repos:
         stages: [pre-commit]
       - id: bandit
         name: bandit (backend SAST)
-        entry: bash -c 'cd backend && uvx bandit -q -r src'
+        entry: bash -c 'cd backend && uv run bandit -q -r src'
         language: system
         types: [python]
         pass_filenames: false
@@ -71,7 +71,7 @@ repos:
         stages: [pre-push]
       - id: pip-audit
         name: pip-audit (backend deps CVE)
-        entry: bash -c 'cd backend && uv run --with pip-audit pip-audit'
+        entry: bash -c 'cd backend && uv run pip-audit'
         language: system
         pass_filenames: false
         always_run: true

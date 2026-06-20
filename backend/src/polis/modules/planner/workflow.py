@@ -15,6 +15,11 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
+    # 显式 pass through pydantic（含 C 扩展 pydantic_core），否则沙箱在首个 workflow task
+    # 内延迟加载 pydantic_core 会触发 "imported after initial workflow load" UserWarning（TD-018）。
+    import pydantic  # noqa: F401
+    import pydantic_core  # noqa: F401
+
     from polis.modules.planner.schemas import PlanDag, PlanNode, validate
 
 TASK_QUEUE = "polis-tasks"

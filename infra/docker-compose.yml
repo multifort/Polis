@@ -5,7 +5,7 @@ name: polis
 
 services:
   postgres:
-    image: pgvector/pgvector:pg18
+    image: pgvector/pgvector:pg18  # PG 主版本锁定；本地为华为云 retag 镜像无 registry digest（TD-004 备注）
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-polis}
@@ -47,7 +47,7 @@ services:
     ports: ["8233:8080"]
 
   litellm:
-    image: ghcr.io/berriai/litellm:main-stable
+    image: ghcr.io/berriai/litellm:v1.89.2  # 固定版本（TD-004，原 main-stable 为滚动 tag）
     restart: unless-stopped
     depends_on:
       postgres:
@@ -61,7 +61,7 @@ services:
     ports: ["4000:4000"]
 
   langfuse:
-    image: langfuse/langfuse:2
+    image: langfuse/langfuse:2.95.11  # 固定版本（TD-004，原 :2 为 major 浮动 tag）
     restart: unless-stopped
     depends_on:
       postgres:
