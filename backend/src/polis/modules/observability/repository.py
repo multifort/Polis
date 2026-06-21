@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.db.org_scoped import select_org_scoped
-from polis.modules.observability.models import RunManifest
+from polis.modules.observability.models import Approval, RunManifest
 
 
 async def create_run_manifest(
@@ -45,3 +45,46 @@ async def get_run_manifest(
     q = select_org_scoped(RunManifest, org_id).where(RunManifest.task_id == task_id)
     manifest: RunManifest | None = await session.scalar(q)
     return manifest
+
+
+# ── 审批收件箱（design 06 §6）──────────────────────────────────────────────────
+
+
+async def create_approval(
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID,
+    kind: str,
+    ref_id: str | None,
+    payload: dict[str, Any] | None,
+    assignee: uuid.UUID | None = None,
+) -> Approval:
+    ap = Approval(org_id=org_id, kind=kind, ref_id=ref_id, payload=payload, assignee=assignee)
+    session.add(ap)
+    await session.flush()
+    return ap
+
+
+async def list_approvals(
+    session: AsyncSession, org_id: uuid.UUID, status: str = "pending"
+) -> list[Approval]:
+    q = select_org_scoped(Approval, org_id).where(Approval.status == status)
+    return list((await session.scalars(q)).all())
+
+
+async def get_approval(
+    session: AsyncSession, org_id: uuid.UUID, approval_id: uuid.UUID
+) -> Approval | None:
+    q = select_org_scoped(Approval, org_id).where(Approval.id == approval_id)
+    ap: Approval | None = await session.scalar(q)
+    return ap
+
+
+async def decide_approval(
+    session: AsyncSession, ap: Approval, *, approve: bool, decided_by: uuid.UUID
+) -> Approval:
+    ap.status = "approved" if approve else "rejected"
+    ap.decided_by = decided_by
+    ap.decided_at = datetime.now(UTC)
+    await session.flush()
+    return ap
