@@ -105,6 +105,56 @@ def _terms(text: str) -> set[str]:
     return en | zh
 
 
+async def upsert_shared_fact(
+    session: AsyncSession,
+    gateway: ModelGateway,
+    org_id: uuid.UUID,
+    namespace: str,
+    fact: Fact,
+) -> tuple[str, Memory]:
+    """共享(org 作用域)记忆并发裁决（design 05 §6）。
+
+    近邻不存在→insert；新事实置信更高→覆盖；否则→标记 conflict（不静默硬合并，交人裁决）。
+    M5 用内容精确匹配做近邻（桩）；M6 换语义近邻 find_similar。
+    返回 (action, memory)，action ∈ inserted|overridden|conflict。
+    """
+    content = _normalize(fact.content)
+    old = await repo.find_by_content(session, org_id, "org", namespace, content)
+    if old is None:
+        embedding = (await gateway.embed([content]))[0]
+        mem = await repo.insert_memory(
+            session,
+            org_id=org_id,
+            scope="org",
+            namespace=namespace,
+            mem_type="factual",
+            content=content,
+            embedding=embedding,
+            provenance=fact.provenance,
+            importance=_score(fact),
+            confidence=fact.confidence,
+        )
+        return ("inserted", mem)
+
+    if fact.confidence > old.confidence:
+        old.content = content
+        old.confidence = fact.confidence
+        old.importance = _score(fact)
+        old.provenance = fact.provenance
+        await session.flush()
+        return ("overridden", old)
+
+    # 冲突：标记而非静默合并
+    old.provenance = {
+        **(old.provenance or {}),
+        "conflict": True,
+        "competing_content": content,
+        "competing_confidence": fact.confidence,
+    }
+    await session.flush()
+    return ("conflict", old)
+
+
 async def retrieve(
     session: AsyncSession,
     org_id: uuid.UUID,

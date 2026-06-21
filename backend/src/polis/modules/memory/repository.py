@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import func, update
+from sqlalchemy import CursorResult, func, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.db.org_scoped import select_org_scoped
@@ -78,3 +78,30 @@ async def touch_last_accessed(session: AsyncSession, ids: list[uuid.UUID]) -> No
         return
     await session.execute(update(Memory).where(Memory.id.in_(ids)).values(last_accessed=func.now()))
     await session.flush()
+
+
+async def decay_and_cleanup(session: AsyncSession) -> dict[str, int]:
+    """衰减/遗忘（design 05 §5）：importance 按 age 指数衰减 + 删低价值 event + 删过期。
+
+    全表运维任务（跨 org）。返回各类删除行数。
+    """
+    await session.execute(
+        text(
+            "UPDATE memory SET importance = importance * "
+            "exp(-decay_rate * (EXTRACT(EPOCH FROM (now() - created_at)) / 86400.0))"
+        )
+    )
+    low = cast(
+        "CursorResult[Any]",
+        await session.execute(
+            text("DELETE FROM memory WHERE importance < 0.05 AND type = 'event'")
+        ),
+    )
+    expired = cast(
+        "CursorResult[Any]",
+        await session.execute(
+            text("DELETE FROM memory WHERE expires_at IS NOT NULL AND expires_at < now()")
+        ),
+    )
+    await session.flush()
+    return {"low_value_deleted": low.rowcount, "expired_deleted": expired.rowcount}

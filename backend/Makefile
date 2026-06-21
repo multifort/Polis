@@ -29,6 +29,9 @@ seed:
 cleanup-sessions:
 	uv run python -m polis.modules.org.cleanup
 
+decay-memory:
+	uv run python -m polis.modules.memory.decay
+
 makemigration:
 	uv run alembic revision --autogenerate -m "$(m)"
 
