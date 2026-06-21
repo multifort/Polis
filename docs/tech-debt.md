@@ -28,6 +28,9 @@
 | [TD-018](#td-018) | Temporal worker 沙箱 pydantic_core 延迟导入 UserWarning | Low | **closed** | 已消除，见偿还记录 |
 | [TD-019](#td-019) | 节点终态仅靠 GET /run 触发回写（无 workflow 完成回调） | Low-Med | open | M6 审批/Manifest 接线时 |
 | [TD-020](#td-020) | M3 Planner 仅模板优先，全自动 LLM 拆解兜底延后 | Low | open(设计内后置) | M6 模型网关接入时 |
+| [TD-021](#td-021) | M4 执行内核 5 处桩待真实化（模型/凭证/记忆/护栏/MCP） | Med | open(设计内·ADR-0007) | M5/M6 |
+| [TD-022](#td-022) | run_node 真实执行路径未经 Temporal worker 端到端测试 | Low-Med | open | worker+temporal 常驻测试环境就绪时 |
+| [TD-023](#td-023) | SkillInvocation 计费/可观测为桩（latency/cost=0、聚合一条） | Low | open | M6 模型网关+Langfuse 接线时 |
 
 ---
 
@@ -153,6 +156,31 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 无模板匹配时 `raise NoTemplateMatch`（404）。全自动拆解需 LLM 生成 DAG，依赖模型网关（M6）。
 - 影响：当前公司能力不匹配任何模板时无法出图（404），需先有匹配模板；与 ADR-0006 确定性路线一致，M3 演示不受影响。
 - 偿还：M6 接 LiteLLM 后补 LLM 拆解兜底（无模板→LLM 生成 DAG→过 `validate`→落库），与模板优先同构。属设计内后置（同 ADR-0006 思路），非疏漏。
+
+### TD-021
+**M4 执行内核 5 处桩待真实化（设计内，ADR-0007）。** M4 按桩驱动路线搭全部执行内核结构，
+依赖项用对齐接口的桩，待 M5/M6 替换（调用方不动）：
+- `ModelGateway.chat` → `StubModelGateway`（脚本化/回显，不调真实 LLM）→ **M6 LiteLLM**。
+- `CredentialBroker.scoped` → 占位短时句柄（无真实 Key）→ **M6 信封加密 + 用完即焚**。
+- `MemoryCenter.retrieve` 返回空切片、`write_fact` 直写无评分去噪 → **M5 RAG 检索 + 写管线**。
+- `Guardrails` 规则版（正则注入检测/回流过滤）→ **M6 Guardrails-AI**（注入/PII/内容过滤）。
+- MCP 内置本地工具(echo/calc) → **真实外部 MCP server（browser-pilot 等）**。
+- 影响：M4 可端到端跑「单节点经 Agent→出处入库」，但无真实 LLM 自主决策/语义记忆/凭证隔离/外部工具。
+- 偿还：M5（记忆）、M6（模型/凭证/护栏）按 ADR-0007 桩边界逐处替换；切换点见续接指南 §「M5/M6 切换点」。
+
+### TD-022
+**`run_node` 真实执行路径未经 Temporal worker 端到端测试。**
+`test_workflow` 用 `stub=True` 节点测编排（串/并/human/retry/重规划，不连 DB）；
+`test_integration_execute` 直接测 `AgentRuntime.execute`（接 DB）。两者之间——
+`run_node(stub=False)→execute_node` 经真实 Temporal worker+DB 的全链路——只在手工联调验证过，无自动化测试。
+- 影响：worker 进程内 `init_engine`/session 生命周期、Activity 超时/重试与真实执行的交互无回归保护。
+- 偿还：worker+temporal+pgvector 常驻测试环境就绪后，补一条经 Temporal Client 启动→真实 execute_node→envelope 入库的端到端用例。
+
+### TD-023
+**SkillInvocation 计费/可观测为桩。** `AgentRuntime.execute` 每节点聚合写一条 `skill_invocation`，
+`latency_ms=0`、`cost_cents=0`，未按实际工具调用拆分、无真实耗时/成本。
+- 影响：调用日志可证「有执行」，但计费/性能数据不可用。
+- 偿还：M6 接 LiteLLM（真实 token 成本）+ Langfuse（trace/耗时）后，按工具调用粒度记录真实 latency/cost。
 
 ---
 
