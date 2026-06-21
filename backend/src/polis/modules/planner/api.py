@@ -87,18 +87,19 @@ async def approve_plan(
     workflow_id = f"plan-{plan_id}"
     client = await _temporal_client()
 
+    # 先建 task_run 拿 id，贯通到 workflow→节点执行（TD-028）
+    await repo.update_plan_status(session, org.org_id, plan_id, "running")
+    run = await repo.create_task_run(session, org.org_id, plan_id, workflow_id)
+
     try:
         await client.start_workflow(
             TaskWorkflow.run,
-            args=[plan.dag, str(org.org_id)],
+            args=[plan.dag, str(org.org_id), str(run.id)],
             id=workflow_id,
             task_queue=TASK_QUEUE,
         )
     except Exception as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "编排服务未就绪") from exc
-
-    await repo.update_plan_status(session, org.org_id, plan_id, "running")
-    run = await repo.create_task_run(session, org.org_id, plan_id, workflow_id)
 
     # Run Manifest：落可复现快照（plan 快照 + 模型 + agent 能力需求）—— T6.6
     dag_nodes = plan.dag.get("nodes", []) if isinstance(plan.dag, dict) else []

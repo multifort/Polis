@@ -31,13 +31,14 @@ _ACTIVITY_TIMEOUT = timedelta(minutes=5)
 
 
 @activity.defn
-async def run_node(node: dict[str, Any], org_id: str) -> dict[str, Any]:
+async def run_node(node: dict[str, Any], org_id: str, task_id: str = "") -> dict[str, Any]:
     """节点执行 Activity。
 
     - fail_once=True：首次抛错触发 Temporal retry（编排测试用）。
     - fail_always=True：永远抛非重试错，测有界重规划上限（编排测试用）。
     - stub=True：返回桩结果，不连 DB（纯编排测试用，见 test_workflow）。
     - 否则：调真实 AgentRuntime.execute_node（M4-F，经 Agent+工具+桩模型执行 + 出处入库）。
+    task_id 为 task_run.id（贯通到 envelope/调用日志/trace 便于观测按任务聚合，TD-028）。
     """
     info = activity.info()
     node_id: str = node["id"]
@@ -54,7 +55,7 @@ async def run_node(node: dict[str, Any], org_id: str) -> dict[str, Any]:
         }
     from polis.modules.runtime.agent_runtime import execute_node
 
-    return await execute_node(node, org_id)
+    return await execute_node(node, org_id, task_id or None)
 
 
 # ── 有界重规划 ─────────────────────────────────────────────────────────────────
@@ -98,9 +99,11 @@ class TaskWorkflow:
         self._approved_nodes: set[str] = set()
         # 原始 node dict（含 extra 字段如 fail_once/fail_always），传给 activity 用
         self._raw_nodes: dict[str, dict[str, Any]] = {}
+        self._task_id = ""  # task_run.id（TD-028，贯通到节点执行）
 
     @workflow.run
-    async def run(self, plan: dict[str, Any], org_id: str) -> dict[str, Any]:
+    async def run(self, plan: dict[str, Any], org_id: str, task_id: str = "") -> dict[str, Any]:
+        self._task_id = task_id
         dag = PlanDag.model_validate(plan)
         # 保留原始 node dict（Pydantic model_dump 会丢掉 extra 字段）
         self._raw_nodes = {n["id"]: n for n in plan.get("nodes", [])}
@@ -173,7 +176,7 @@ class TaskWorkflow:
         raw_node = self._raw_nodes.get(node.id, node.model_dump())
         result: dict[str, Any] = await workflow.execute_activity(
             run_node,
-            args=[raw_node, org_id],
+            args=[raw_node, org_id, self._task_id],
             start_to_close_timeout=_ACTIVITY_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=3),
         )

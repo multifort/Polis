@@ -56,12 +56,17 @@ async def execute(
     node: dict[str, Any],
     org_id: str,
     *,
+    task_id: str | None = None,
     gateway: ModelGateway,
     registry: McpRegistry,
     guard: Guardrails | None,
 ) -> dict[str, Any]:
-    """执行单节点：选 Agent → 组装 → 循环 → 出处入库 → 记忆写回 → 调用日志。"""
+    """执行单节点：选 Agent → 组装 → 循环 → 出处入库 → 记忆写回 → 调用日志。
+
+    task_id 为 task_run.id（TD-028）；写 envelope/调用日志/trace 时带上，便于观测按任务聚合。
+    """
     org_uuid = uuid.UUID(org_id)
+    task_uuid = uuid.UUID(task_id) if task_id else None
     caps = node.get("required_capabilities") or []
     agent = await _select_agent_scoped(session, org_uuid, caps)
     config = (
@@ -69,14 +74,16 @@ async def execute(
         if agent is not None
         else AgentConfig(prompt=node.get("input_hint") or "执行节点")
     )
-    task_id = str(node.get("id") or "node")
+    # 上下文/trace 聚合键：优先 task_run.id（任务级），回退 node id
+    ctx_task_key = task_id or str(node.get("id") or "node")
 
-    ctx = await context.build(session, gateway, config, node, org_uuid, task_id)
+    ctx = await context.build(session, gateway, config, node, org_uuid, ctx_task_key)
     loop = await run_loop(gateway, McpRuntime(registry), config.prompt, ctx, guard=guard)
 
     status = "done" if loop.ok else ("blocked" if loop.blocked else "failed")
     envelope = ResultEnvelope(
         org_id=org_uuid,
+        task_id=task_uuid,  # 关联 task_run（TD-028）；按任务聚合观测
         node_id=str(node.get("id") or ""),
         agent_id=(agent.id if agent is not None else None),
         status=status,
@@ -147,7 +154,9 @@ def _default_gateway() -> ModelGateway:
     return LiteLLMGateway() if get_settings().deepseek_api_key else StubModelGateway()
 
 
-async def execute_node(node: dict[str, Any], org_id: str) -> dict[str, Any]:
+async def execute_node(
+    node: dict[str, Any], org_id: str, task_id: str | None = None
+) -> dict[str, Any]:
     """Temporal Activity 入口：自建 session + 默认依赖执行单节点。"""
     init_engine()
     async with get_sessionmaker()() as session:
@@ -155,6 +164,7 @@ async def execute_node(node: dict[str, Any], org_id: str) -> dict[str, Any]:
             session,
             node,
             org_id,
+            task_id=task_id,
             gateway=_default_gateway(),
             registry=default_registry(),
             guard=Guardrails(),
