@@ -60,6 +60,25 @@ async def list_by_scope(
     return list((await session.scalars(q)).all())
 
 
+async def list_for_org(session: AsyncSession, org_id: uuid.UUID, limit: int = 100) -> list[Memory]:
+    """治理浏览：列该 org 记忆（按创建时间倒序）。"""
+    q = select_org_scoped(Memory, org_id).order_by(Memory.created_at.desc()).limit(limit)
+    return list((await session.scalars(q)).all())
+
+
+async def get_by_id(
+    session: AsyncSession, org_id: uuid.UUID, memory_id: uuid.UUID
+) -> Memory | None:
+    q = select_org_scoped(Memory, org_id).where(Memory.id == memory_id).limit(1)
+    mem: Memory | None = await session.scalar(q)
+    return mem
+
+
+async def delete_memory(session: AsyncSession, mem: Memory) -> None:
+    await session.delete(mem)
+    await session.flush()
+
+
 async def find_by_content(
     session: AsyncSession, org_id: uuid.UUID, scope: str, namespace: str, content: str
 ) -> Memory | None:
