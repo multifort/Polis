@@ -101,12 +101,12 @@ MODELS: list[dict[str, Any]] = [
     {
         "id": "text-embedding-bge",
         "provider": "local-tei",
-        "litellm_name": "openai/bge-large-zh-v1.5",  # TEI OpenAI 兼容端点
+        "litellm_name": "openai/bge-large-zh-v1.5",  # 本地 TEI，OpenAI 兼容端点
         "capabilities": ["embed"],
         "context_window": 512,
         "price_in": 0.0,
         "price_out": 0.0,
-        "connector": {"base_url": "http://localhost:8081/v1", "dim": 1024},
+        "connector": {"base_url": "http://localhost:8082/v1", "dim": 1024},
     },
 ]
 

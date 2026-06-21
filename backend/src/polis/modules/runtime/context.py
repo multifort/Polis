@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polis.modules.memory import center as memory_center
 from polis.modules.model import credential
 from polis.modules.model.credential import ScopedCredential
-from polis.modules.model.gateway import ResolvedModel, resolve_model
+from polis.modules.model.gateway import ModelGateway, ResolvedModel, resolve_model
 from polis.modules.org.schemas import AgentConfig
 from polis.modules.runtime.skills import LoadedSkills, load_skills
 
@@ -37,19 +37,23 @@ class ExecCtx:
 
 async def build(
     session: AsyncSession,
+    gateway: ModelGateway,
     config: AgentConfig,
     node: dict[str, Any],
     org_id: uuid.UUID,
     task_id: str,
 ) -> ExecCtx:
     """组装执行上下文：记忆切片 + 技能 + 模型 + 短时凭证 + 目标。"""
-    # 检索 role+org 作用域记忆（M5-C 确定性检索；agent 默认可读这两个作用域）
+    # 检索 role+org 作用域记忆。embedding 可用时走向量 RAG，否则确定性关键词（M5-C/M6-D）
+    query = node.get("input_hint") or ""
+    query_embedding = (await gateway.embed([query]))[0] if query else None
     slice_ = await memory_center.retrieve(
         session,
         org_id,
         scopes=["role", "org"],
         namespaces=None,
-        query=node.get("input_hint") or "",
+        query=query,
+        query_embedding=query_embedding,
     )
     memory_slice = slice_.to_text()
     skills = await load_skills(session, config.skills, config.authority)

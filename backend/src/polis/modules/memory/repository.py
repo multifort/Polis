@@ -60,6 +60,26 @@ async def list_by_scope(
     return list((await session.scalars(q)).all())
 
 
+async def search_by_vector(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    scopes: list[str],
+    query_embedding: list[float],
+    limit: int,
+    namespaces: list[str] | None = None,
+) -> list[Memory]:
+    """向量近邻检索（pgvector 余弦距离，仅 embedding 非空的记忆）。M6-D。"""
+    q = (
+        select_org_scoped(Memory, org_id)
+        .where(Memory.scope.in_(scopes), Memory.embedding.isnot(None))
+        .order_by(Memory.embedding.cosine_distance(query_embedding))
+        .limit(limit)
+    )
+    if namespaces:
+        q = q.where(Memory.namespace.in_(namespaces))
+    return list((await session.scalars(q)).all())
+
+
 async def list_for_org(session: AsyncSession, org_id: uuid.UUID, limit: int = 100) -> list[Memory]:
     """治理浏览：列该 org 记忆（按创建时间倒序）。"""
     q = select_org_scoped(Memory, org_id).order_by(Memory.created_at.desc()).limit(limit)

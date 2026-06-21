@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""  # 开发期系统级 Key；正式走 credential（owner 配置）
     deepseek_base_url: str = "https://api.deepseek.com"
     default_chat_model: str = "deepseek-v4-pro"  # model_catalog.id
-    embedding_base_url: str = "http://localhost:8081"  # 本地 TEI(bge-large-zh-v1.5)
+    embedding_base_url: str = "http://localhost:8082"  # 本地 TEI(bge-large-zh-v1.5, arm64)
     kms_master_key: str = ""  # 信封加密主密钥（base64 32B）；生产必填
 
     # 前端跨域（CORS）。dev 默认放开（用 Bearer token，非 cookie）；生产用 POLIS_CORS_ORIGINS 收紧。

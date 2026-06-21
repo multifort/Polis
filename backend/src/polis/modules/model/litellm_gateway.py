@@ -84,7 +84,7 @@ class LiteLLMGateway:
 
         settings = get_settings()
         resp = await litellm.aembedding(
-            model="openai/bge-large-zh-v1.5",  # 本地 TEI，OpenAI 兼容
+            model="openai/bge-large-zh-v1.5",  # 本地 TEI，OpenAI 兼容端点，1024 维
             input=texts,
             api_base=f"{settings.embedding_base_url}/v1",
             api_key="not-needed",  # TEI 不校验

@@ -162,12 +162,23 @@ async def retrieve(
     scopes: list[str],
     namespaces: list[str] | None = None,
     query: str,
+    query_embedding: list[float] | None = None,
     limit: int = 5,
 ) -> MemorySlice:
-    """确定性检索（M5-C，待 M6 切向量 RAG）。
+    """检索切片。query_embedding 可用→向量 RAG（M6-D）；否则确定性关键词（M5-C）。"""
+    # 向量 RAG 路径（pgvector 余弦近邻，仅命中有 embedding 的记忆）
+    if query_embedding is not None:
+        hits = await repo.search_by_vector(
+            session, org_id, scopes, query_embedding, limit, namespaces
+        )
+        if hits:
+            await repo.touch_last_accessed(session, [m.id for m in hits])
+            return MemorySlice(
+                summaries=[m.content for m in hits],
+                provenance=[m.provenance or {} for m in hits],
+            )
 
-    作用域权限过滤 → 关键词相关性 + importance + recency 排序 → 返回 top-K 摘要 + 出处 + touch。
-    """
+    # 确定性关键词回退
     rows = await repo.list_by_scope(session, org_id, scopes, namespaces)
     if not rows:
         return MemorySlice()

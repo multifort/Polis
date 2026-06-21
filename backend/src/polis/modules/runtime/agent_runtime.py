@@ -12,12 +12,14 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from polis.config import get_settings
 from polis.db.org_scoped import select_org_scoped
 from polis.db.session import get_sessionmaker, init_engine
 from polis.modules.memory import center as memory_center
 from polis.modules.memory.center import Fact
 from polis.modules.memory.models import ResultEnvelope
 from polis.modules.model.gateway import ModelGateway, StubModelGateway
+from polis.modules.model.litellm_gateway import LiteLLMGateway
 from polis.modules.org.models import Agent, AgentCapability, AgentVersion
 from polis.modules.org.schemas import AgentConfig
 from polis.modules.runtime import context
@@ -69,7 +71,7 @@ async def execute(
     )
     task_id = str(node.get("id") or "node")
 
-    ctx = await context.build(session, config, node, org_uuid, task_id)
+    ctx = await context.build(session, gateway, config, node, org_uuid, task_id)
     loop = await run_loop(gateway, McpRuntime(registry), config.prompt, ctx, guard=guard)
 
     status = "done" if loop.ok else ("blocked" if loop.blocked else "failed")
@@ -85,7 +87,7 @@ async def execute(
             "provenance": {
                 "agent": (agent.name if agent is not None else None),
                 "executor": config.executor,
-                "stub_model": True,  # ADR-0007：桩模型产出，非真实 LLM
+                "model": ctx.model.id,
             },
         },
         needs_human=loop.blocked,
@@ -122,7 +124,7 @@ async def execute(
                         "node_id": node.get("id"),
                         "agent": agent_name,
                         "executor": config.executor,
-                        "stub_model": True,
+                        "model": ctx.model.id,
                     },
                 )
             ],
@@ -140,15 +142,20 @@ async def execute(
     }
 
 
+def _default_gateway() -> ModelGateway:
+    """有 DeepSeek Key → 真实 LiteLLM；否则确定性桩（无 Key 环境/测试）。"""
+    return LiteLLMGateway() if get_settings().deepseek_api_key else StubModelGateway()
+
+
 async def execute_node(node: dict[str, Any], org_id: str) -> dict[str, Any]:
-    """Temporal Activity 入口：自建 session + 默认桩依赖执行单节点。"""
+    """Temporal Activity 入口：自建 session + 默认依赖执行单节点。"""
     init_engine()
     async with get_sessionmaker()() as session:
         result = await execute(
             session,
             node,
             org_id,
-            gateway=StubModelGateway(),
+            gateway=_default_gateway(),
             registry=default_registry(),
             guard=Guardrails(),
         )

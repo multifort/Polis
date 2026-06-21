@@ -47,15 +47,16 @@ services:
     ports: ["8233:8080"]
 
   text-embeddings:
-    # 本地 embedding：bge-large-zh-v1.5（1024 维，匹配 memory.embedding VECTOR(1024)；中文强）
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.7
+    # 本地 embedding：bge-large-zh-v1.5（1024 维，匹配 memory.embedding VECTOR(1024)；中文强）。
+    # arm64 镜像走华为云镜像源（官方 ghcr TEI 无 arm64 manifest，Apple Silicon 用此）。
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-latest-linuxarm64
     restart: unless-stopped
     command: ["--model-id", "BAAI/bge-large-zh-v1.5"]
     environment:
       HF_ENDPOINT: https://hf-mirror.com  # 国内加速首次模型下载（~1.3GB）
     volumes:
       - tei-cache:/data  # 缓存模型，避免重启重下
-    ports: ["8081:80"]
+    ports: ["8082:80"]
 
   litellm:
     image: ghcr.io/berriai/litellm:v1.89.2  # 固定版本（TD-004，原 main-stable 为滚动 tag）
