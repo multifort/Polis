@@ -46,6 +46,7 @@ def _node(
         "executor": "lite-agent",
         "fail_once": fail_once,
         "fail_always": fail_always,
+        "stub": True,  # 纯编排测试走桩 run_node，不连 DB（M4-F）
     }
 
 

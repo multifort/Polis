@@ -32,10 +32,12 @@ _ACTIVITY_TIMEOUT = timedelta(minutes=5)
 
 @activity.defn
 async def run_node(node: dict[str, Any], org_id: str) -> dict[str, Any]:
-    """桩执行器（M4 接真实 Agent）。
+    """节点执行 Activity。
 
-    fail_once=True：首次抛错触发 Temporal retry。
-    fail_always=True：永远抛非重试错，用于测试有界重规划上限。
+    - fail_once=True：首次抛错触发 Temporal retry（编排测试用）。
+    - fail_always=True：永远抛非重试错，测有界重规划上限（编排测试用）。
+    - stub=True：返回桩结果，不连 DB（纯编排测试用，见 test_workflow）。
+    - 否则：调真实 AgentRuntime.execute_node（M4-F，经 Agent+工具+桩模型执行 + 出处入库）。
     """
     info = activity.info()
     node_id: str = node["id"]
@@ -43,12 +45,16 @@ async def run_node(node: dict[str, Any], org_id: str) -> dict[str, Any]:
         raise ApplicationError(f"node {node_id} fail_always", non_retryable=True)
     if node.get("fail_once") and info.attempt == 1:
         raise ApplicationError(f"node {node_id} fail_once", non_retryable=False)
-    return {
-        "node_id": node_id,
-        "ok": True,
-        "agent": node.get("executor", "lite-agent"),
-        "output": f"[stub] node {node_id} done",
-    }
+    if node.get("stub"):
+        return {
+            "node_id": node_id,
+            "ok": True,
+            "agent": node.get("executor", "lite-agent"),
+            "output": f"[stub] node {node_id} done",
+        }
+    from polis.modules.runtime.agent_runtime import execute_node
+
+    return await execute_node(node, org_id)
 
 
 # ── 有界重规划 ─────────────────────────────────────────────────────────────────
