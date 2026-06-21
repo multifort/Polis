@@ -112,6 +112,11 @@ export interface Me {
   user: { id: string; email: string; display_name: string | null };
   orgs: Org[];
 }
+export interface ModelCatalogItem {
+  id: string;
+  provider?: string | null;
+  capabilities?: string[] | null;
+}
 export interface Preset {
   name: string;
   version: string;
@@ -214,6 +219,14 @@ export const api = {
   deleteOrg: (id: string) => request<null>(`/api/orgs/${id}`, { method: "DELETE" }, true),
   members: (id: string) => request<Member[]>(`/api/orgs/${id}/members`, {}, true),
   listPresets: () => request<Preset[]>("/api/catalog/presets"),
+  listModels: () => request<ModelCatalogItem[]>("/api/catalog/models"),
+  configureCredential: (orgId: string, modelId: string, apiKey: string) =>
+    request<{ model_id: string; configured: boolean }>(
+      "/api/credentials",
+      { method: "POST", body: JSON.stringify({ model_id: modelId, api_key: apiKey }) },
+      true,
+      orgId,
+    ),
   provision: (body: { name: string; description?: string; preset?: string; keyword?: string }) =>
     request<ProvisionResult>("/api/provision", { method: "POST", body: JSON.stringify(body) }, true),
   agents: (orgId: string) => request<Agent[]>("/api/orgs/current/agents", {}, true, orgId),

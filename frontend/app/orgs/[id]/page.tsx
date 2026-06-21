@@ -75,9 +75,14 @@ export default function OrgDetailPage() {
                   花名册 · {agents.length} 个 Agent · {roles.length} 个角色 · {members.length} 名成员 · 数据/记忆按公司隔离
                 </p>
               </div>
-              <Link className="btn-mini" href={`/orgs/${orgId}/plans`}>
-                任务 / 计划 →
-              </Link>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Link className="btn-mini" href={`/orgs/${orgId}/settings`}>
+                  模型配置
+                </Link>
+                <Link className="btn-mini" href={`/orgs/${orgId}/plans`}>
+                  任务 / 计划 →
+                </Link>
+              </div>
             </div>
 
             <div className="section-title">角色</div>
