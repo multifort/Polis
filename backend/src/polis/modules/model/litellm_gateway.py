@@ -62,6 +62,13 @@ def _ensure_langfuse() -> bool:
         os.environ.setdefault("LANGFUSE_PUBLIC_KEY", s.langfuse_public_key)
         os.environ.setdefault("LANGFUSE_SECRET_KEY", s.langfuse_secret_key)
         os.environ.setdefault("LANGFUSE_HOST", s.langfuse_host)
+        # 本机若有 SOCKS 代理，确保本地 langfuse(localhost) 直连，不经代理
+        _no_proxy = os.environ.get("NO_PROXY", "")
+        for h in ("localhost", "127.0.0.1"):
+            if h not in _no_proxy:
+                _no_proxy = f"{_no_proxy},{h}".lstrip(",")
+        os.environ["NO_PROXY"] = _no_proxy
+        os.environ["no_proxy"] = _no_proxy
         if "langfuse" not in (litellm.success_callback or []):
             litellm.success_callback = [*(litellm.success_callback or []), "langfuse"]
         _langfuse_ready = True

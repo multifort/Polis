@@ -18,6 +18,8 @@ dependencies = [
     "temporalio>=1.9",
     "cryptography>=49.0.0",
     "litellm>=1.89.3",
+    "langfuse<3",
+    "socksio>=1.0.0",
 ]
 
 [dependency-groups]
