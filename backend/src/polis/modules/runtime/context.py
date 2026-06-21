@@ -43,10 +43,15 @@ async def build(
     task_id: str,
 ) -> ExecCtx:
     """组装执行上下文：记忆切片 + 技能 + 模型 + 短时凭证 + 目标。"""
-    namespace = f"org:{org_id}"
-    memory_slice = await memory_center.retrieve(
-        session, org_id, namespace, node.get("input_hint") or ""
+    # 检索 role+org 作用域记忆（M5-C 确定性检索；agent 默认可读这两个作用域）
+    slice_ = await memory_center.retrieve(
+        session,
+        org_id,
+        scopes=["role", "org"],
+        namespaces=None,
+        query=node.get("input_hint") or "",
     )
+    memory_slice = slice_.to_text()
     skills = await load_skills(session, config.skills, config.authority)
     model = await resolve_model(session, config.model) if config.model else DEFAULT_STUB_MODEL
     cred = credential.scoped(org_id, model.id, task_id)

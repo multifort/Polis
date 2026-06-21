@@ -87,8 +87,51 @@ async def write_facts(
     return written
 
 
+@dataclass
+class MemorySlice:
+    """检索结果切片：注入摘要 + 出处（design 05 §4，注入摘要非全量）。"""
+
+    summaries: list[str] = field(default_factory=list)
+    provenance: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_text(self) -> str:
+        return "\n".join(f"- {s}" for s in self.summaries)
+
+
+def _terms(text: str) -> set[str]:
+    """英文词(小写) + 中文单字，作为确定性相关性的 token 集（M6 换 embedding 语义）。"""
+    en = set(re.findall(r"[a-z0-9]+", text.lower()))
+    zh = set(re.findall(r"[一-鿿]", text))
+    return en | zh
+
+
 async def retrieve(
-    session: AsyncSession, org_id: uuid.UUID, namespace: str, query: str, limit: int = 5
-) -> str:
-    """检索上下文切片（摘要）。M5-C 实现确定性检索（当前仍桩，返回空）。"""
-    return ""
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    *,
+    scopes: list[str],
+    namespaces: list[str] | None = None,
+    query: str,
+    limit: int = 5,
+) -> MemorySlice:
+    """确定性检索（M5-C，待 M6 切向量 RAG）。
+
+    作用域权限过滤 → 关键词相关性 + importance + recency 排序 → 返回 top-K 摘要 + 出处 + touch。
+    """
+    rows = await repo.list_by_scope(session, org_id, scopes, namespaces)
+    if not rows:
+        return MemorySlice()
+
+    q_terms = _terms(query)
+
+    def _relevance(mem: Memory) -> int:
+        return len(q_terms & _terms(mem.content))
+
+    # 排序键：相关性 > importance > 最近访问（recency）
+    rows.sort(key=lambda m: (_relevance(m), m.importance, m.last_accessed), reverse=True)
+    top = rows[:limit]
+    await repo.touch_last_accessed(session, [m.id for m in top])
+    return MemorySlice(
+        summaries=[m.content for m in top],
+        provenance=[m.provenance or {} for m in top],
+    )
