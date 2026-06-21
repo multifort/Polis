@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polis.db.org_scoped import select_org_scoped
 from polis.db.session import get_sessionmaker, init_engine
 from polis.modules.memory import center as memory_center
+from polis.modules.memory.center import Fact
 from polis.modules.memory.models import ResultEnvelope
 from polis.modules.model.gateway import ModelGateway, StubModelGateway
 from polis.modules.org.models import Agent, AgentCapability, AgentVersion
@@ -103,14 +104,28 @@ async def execute(
             status=status,
         )
     )
-    # 记忆写回（成功且有内容；M4 桩直写，M5 换写管线）
+    # 记忆写回（成功且有内容）：经 write 管线（抽取/评分/去噪去重/出处），M5-B
     if loop.ok and loop.content:
-        await memory_center.write_fact(
+        agent_name = agent.name if agent is not None else "default"
+        await memory_center.write_facts(
             session,
+            gateway,
             org_uuid,
-            f"org:{org_id}",
-            loop.content,
-            {"node_id": node.get("id"), "agent": (agent.name if agent is not None else None)},
+            scope="role",
+            namespace=agent_name,
+            facts=[
+                Fact(
+                    content=loop.content,
+                    confidence=0.6,
+                    importance=0.6,
+                    provenance={
+                        "node_id": node.get("id"),
+                        "agent": agent_name,
+                        "executor": config.executor,
+                        "stub_model": True,
+                    },
+                )
+            ],
         )
     await session.flush()
 
