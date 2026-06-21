@@ -7,8 +7,16 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from polis.modules.model.models import Credential
+from polis.modules.model.models import Credential, ModelCatalog
 from polis.modules.org.models import Org
+
+
+async def models_by_capability(session: AsyncSession, capability: str) -> list[ModelCatalog]:
+    """目录中具备某能力的模型（成本路由候选）。"""
+    rows = await session.scalars(
+        select(ModelCatalog).where(ModelCatalog.capabilities.contains([capability]))
+    )
+    return list(rows.all())
 
 
 async def get_org_owner(session: AsyncSession, org_id: uuid.UUID) -> uuid.UUID | None:
