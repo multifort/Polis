@@ -16,6 +16,7 @@ dependencies = [
     "pyjwt>=2.9",
     "email-validator>=2.3.0",
     "temporalio>=1.9",
+    "cryptography>=49.0.0",
 ]
 
 [dependency-groups]

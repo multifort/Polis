@@ -54,7 +54,7 @@ async def build(
     memory_slice = slice_.to_text()
     skills = await load_skills(session, config.skills, config.authority)
     model = await resolve_model(session, config.model) if config.model else DEFAULT_STUB_MODEL
-    cred = credential.scoped(org_id, model.id, task_id)
+    cred = await credential.scoped(session, org_id, model.id, task_id)
     goal = node.get("expected_output") or node.get("input_hint") or ""
     return ExecCtx(
         goal=goal, memory_slice=memory_slice, skills=skills, model=model, cred=cred, node=node
