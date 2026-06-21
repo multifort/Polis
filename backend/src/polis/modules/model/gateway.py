@@ -60,7 +60,7 @@ class ResolvedModel:
 
 @runtime_checkable
 class ModelGateway(Protocol):
-    """推理网关协议。M4 桩 / M6 LiteLLM 共用此契约。"""
+    """推理网关协议。M4/M5 桩 / M6 LiteLLM 共用此契约。"""
 
     async def chat(
         self,
@@ -69,6 +69,10 @@ class ModelGateway(Protocol):
         tools: list[ToolSpec] | None = None,
         cred: Any | None = None,
     ) -> ChatResponse: ...
+
+    async def embed(self, texts: list[str]) -> list[list[float] | None]:
+        """文本向量化。返回与 texts 等长的向量列表（M5 桩可返回 None，待 M6）。"""
+        ...
 
 
 class StubModelGateway:
@@ -93,6 +97,10 @@ class StubModelGateway:
             return self._script.pop(0)
         last_user = next((m for m in reversed(messages) if m.role == "user"), None)
         return ChatResponse(content=f"[stub] {last_user.content if last_user else ''}")
+
+    async def embed(self, texts: list[str]) -> list[list[float] | None]:
+        # 桩：不产生向量（M5 检索走确定性路径）；M6 LiteLLMGateway 返回真实 embedding
+        return [None for _ in texts]
 
 
 async def resolve_model(session: AsyncSession, model_id: str) -> ResolvedModel:

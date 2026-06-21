@@ -42,3 +42,9 @@ def test_stub_falls_back_after_script_exhausted() -> None:
     # 脚本耗尽后回落默认
     rsp = asyncio.run(gw.chat(_MODEL, [ChatMessage(role="user", content="b")]))
     assert rsp.content == "[stub] b"
+
+
+def test_stub_embed_returns_none_per_text() -> None:
+    gw = StubModelGateway()
+    out = asyncio.run(gw.embed(["a", "b", "c"]))
+    assert out == [None, None, None]  # 桩无向量，待 M6
