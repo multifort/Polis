@@ -49,13 +49,14 @@ services:
   text-embeddings:
     # 本地 embedding：bge-large-zh-v1.5（1024 维，匹配 memory.embedding VECTOR(1024)；中文强）。
     # arm64 镜像走华为云镜像源（官方 ghcr TEI 无 arm64 manifest，Apple Silicon 用此）。
+    # 模型预下载到 ./tei-models 挂载（hf-mirror 不返回 etag，TEI 在线下载会失败，故离线挂载）。
+    # 预下载：HF_ENDPOINT=https://hf-mirror.com huggingface-cli download BAAI/bge-large-zh-v1.5 \
+    #   --local-dir infra/tei-models/bge-large-zh-v1.5
     image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-latest-linuxarm64
     restart: unless-stopped
-    command: ["--model-id", "BAAI/bge-large-zh-v1.5"]
-    environment:
-      HF_ENDPOINT: https://hf-mirror.com  # 国内加速首次模型下载（~1.3GB）
+    command: ["--model-id", "/data/models/bge-large-zh-v1.5"]
     volumes:
-      - tei-cache:/data  # 缓存模型，避免重启重下
+      - ./tei-models:/data/models:ro  # 预下载的模型（离线加载）
     ports: ["8082:80"]
 
   litellm:
@@ -88,4 +89,3 @@ services:
 
 volumes:
   pgdata:
-  tei-cache:
