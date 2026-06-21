@@ -45,6 +45,29 @@ def _tool_to_dict(t: ToolSpec) -> dict[str, Any]:
     }
 
 
+_langfuse_ready = False
+
+
+def _ensure_langfuse() -> bool:
+    """按需启用 litellm 的 Langfuse 上报（幂等）。返回是否启用。"""
+    global _langfuse_ready
+    s = get_settings()
+    if not s.langfuse_enabled or not s.langfuse_public_key:
+        return False
+    if not _langfuse_ready:
+        import os
+
+        import litellm
+
+        os.environ.setdefault("LANGFUSE_PUBLIC_KEY", s.langfuse_public_key)
+        os.environ.setdefault("LANGFUSE_SECRET_KEY", s.langfuse_secret_key)
+        os.environ.setdefault("LANGFUSE_HOST", s.langfuse_host)
+        if "langfuse" not in (litellm.success_callback or []):
+            litellm.success_callback = [*(litellm.success_callback or []), "langfuse"]
+        _langfuse_ready = True
+    return True
+
+
 class LiteLLMGateway:
     """真实推理网关（M6）。"""
 
@@ -61,12 +84,21 @@ class LiteLLMGateway:
         api_key = (cred.value if cred is not None and cred.value else None) or (
             settings.deepseek_api_key or None
         )
+        # Langfuse 上报：按任务聚合 trace（同一 task 的多次 chat 归一条 trace）
+        metadata: dict[str, Any] | None = None
+        if _ensure_langfuse() and cred is not None and getattr(cred, "task_id", None):
+            metadata = {
+                "trace_id": cred.task_id,
+                "session_id": cred.task_id,
+                "tags": ["polis"],
+            }
         resp = await litellm.acompletion(
             model=model.litellm_name,
             messages=[_msg_to_dict(m) for m in messages],
             tools=[_tool_to_dict(t) for t in tools] if tools else None,
             api_key=api_key,
             api_base=settings.deepseek_base_url or None,
+            metadata=metadata,
         )
         msg = resp.choices[0].message
         tool_calls = [

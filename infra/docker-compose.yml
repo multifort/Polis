@@ -81,11 +81,21 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-polis}:${POSTGRES_PASSWORD}@postgres:5432/langfuse
-      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_URL: http://localhost:3001  # 端口 3001 避让前端 dev(3000)
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?请在 infra/.env 设置}
       SALT: ${LANGFUSE_SALT:?请在 infra/.env 设置}
       TELEMETRY_ENABLED: "false"
-    ports: ["3000:3000"]
+      # headless 初始化（开箱即用，无需手动登录建 project；Polis 用同一对 keys 自动接入）
+      LANGFUSE_INIT_ORG_ID: polis
+      LANGFUSE_INIT_ORG_NAME: Polis
+      LANGFUSE_INIT_PROJECT_ID: polis-dev
+      LANGFUSE_INIT_PROJECT_NAME: "Polis Dev"
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PUBLIC_KEY:?请在 infra/.env 设置}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_SECRET_KEY:?请在 infra/.env 设置}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@polis.local}
+      LANGFUSE_INIT_USER_NAME: "Polis Admin"
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:?请在 infra/.env 设置}
+    ports: ["3001:3000"]
 
 volumes:
   pgdata:

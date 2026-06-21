@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     embedding_base_url: str = "http://localhost:8082"  # 本地 TEI(bge-large-zh-v1.5, arm64)
     kms_master_key: str = ""  # 信封加密主密钥（base64 32B）；生产必填
 
+    # Langfuse 可观测（M6-H）。Polis 自建可观测页面用，Langfuse 只做采集后端。
+    langfuse_enabled: bool = False
+    langfuse_host: str = "http://localhost:3001"
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+
     # 前端跨域（CORS）。dev 默认放开（用 Bearer token，非 cookie）；生产用 POLIS_CORS_ORIGINS 收紧。
     cors_origins: list[str] = ["*"]
 

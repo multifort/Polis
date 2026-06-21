@@ -49,6 +49,7 @@ def test_msg_and_tool_serialization() -> None:
 def _install_fake_litellm(message: Any) -> None:
     """注入假 litellm 模块，acompletion 返回给定 message。"""
     fake = types.ModuleType("litellm")
+    fake.success_callback = []  # type: ignore[attr-defined]  _ensure_langfuse 会读/写它
 
     async def _acompletion(**kwargs: Any) -> Any:
         choice = types.SimpleNamespace(message=message)
