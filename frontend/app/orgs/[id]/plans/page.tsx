@@ -7,6 +7,7 @@ import {
   api,
   getAccess,
   type ApiError,
+  type Observability,
   type PlanNode,
   type PlanResult,
   type RunStatus,
@@ -56,6 +57,8 @@ export default function PlansPage() {
   const [run, setRun] = useState<RunStatus | null>(null);
   const [approving, setApproving] = useState(false);
   const [notice, setNotice] = useState(""); // 503 等降级提示
+  const [obs, setObs] = useState<Observability | null>(null);
+  const [obsLoading, setObsLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -137,6 +140,20 @@ export default function PlansPage() {
       await poll();
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "审批失败");
+    }
+  }
+
+  async function loadObs() {
+    if (!plan) return;
+    setObsLoading(true);
+    setNotice("");
+    try {
+      setObs(await api.planObservability(orgId, plan.id));
+    } catch (err) {
+      const status = (err as ApiError).status;
+      setNotice(status === 404 ? "该计划尚未启动，暂无观测数据" : "加载观测失败");
+    } finally {
+      setObsLoading(false);
     }
   }
 
@@ -245,6 +262,71 @@ export default function PlansPage() {
                 })}
               </div>
             ))}
+
+            {/* 运行观测（H-3）：任务级聚合 — 模型/节点产出/LLM 调用明细 */}
+            {run && (
+              <>
+                <div className="section-title" style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  运行观测
+                  <button className="btn-mini" onClick={loadObs} disabled={obsLoading}>
+                    {obsLoading ? "加载中…" : obs ? "刷新" : "查看"}
+                  </button>
+                </div>
+                {obs && (
+                  <div className="obs">
+                    <div className="plan-meta">
+                      {obs.manifest?.models_used && (
+                        <span className="role-chip">
+                          模型 {Object.values(obs.manifest.models_used).join(", ")}
+                        </span>
+                      )}
+                      <span className="role-chip">{obs.nodes.length} 个节点产出</span>
+                      <span className="role-chip">{obs.llm_calls.length} 次 LLM 调用</span>
+                    </div>
+
+                    {obs.nodes.map((n) => (
+                      <div className="dag-node" key={n.node_id} style={{ maxWidth: "100%" }}>
+                        <div className="nid">
+                          <span>{n.node_id}</span>
+                          <span className={`pill ${n.status}`}>
+                            {STATUS_LABEL[n.status] ?? n.status}
+                          </span>
+                        </div>
+                        {n.summary && <div className="nroute">{n.summary}</div>}
+                        {n.provenance?.agent != null && (
+                          <div className="ntype">
+                            Agent：{String(n.provenance.agent)}
+                            {n.provenance.model != null ? ` · 模型 ${String(n.provenance.model)}` : ""}
+                          </div>
+                        )}
+                        {n.needs_human && <span className="pill waiting_human">需人审</span>}
+                      </div>
+                    ))}
+
+                    {obs.llm_calls.length > 0 && (
+                      <>
+                        <div className="section-title">LLM 调用明细（Langfuse）</div>
+                        {obs.llm_calls.map((c, i) => (
+                          <div className="dag-node" key={i} style={{ maxWidth: "100%" }}>
+                            <div className="nid">
+                              <span>{c.name || "generation"}</span>
+                              <span className="ntype">
+                                {c.model}
+                                {c.total_tokens != null ? ` · ${c.total_tokens} tokens` : ""}
+                              </span>
+                            </div>
+                            {c.output && <div className="nroute">{c.output}</div>}
+                          </div>
+                        ))}
+                      </>
+                    )}
+                    {obs.llm_calls.length === 0 && (
+                      <p className="hint">暂无 LLM 调用明细（Langfuse 未启用或本次无真实模型调用）。</p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </>
         )}
       </div>

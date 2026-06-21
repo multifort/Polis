@@ -188,6 +188,33 @@ export interface RunStatus {
   nodes: RunNodeState[];
 }
 
+// ── 运行观测（M6 H-3）──────────────────────────────────────────────
+export interface ObsNode {
+  node_id: string;
+  status: string;
+  summary: string | null;
+  needs_human: boolean;
+  provenance: Record<string, unknown> | null;
+}
+export interface ObsLLMCall {
+  name: string | null;
+  model: string | null;
+  input: string | null;
+  output: string | null;
+  total_tokens: number | null;
+}
+export interface Observability {
+  task_id: string;
+  status: string;
+  manifest: {
+    plan_version: string | null;
+    models_used: Record<string, unknown> | null;
+    agents_used: Record<string, unknown> | null;
+  } | null;
+  nodes: ObsNode[];
+  llm_calls: ObsLLMCall[];
+}
+
 export const api = {
   register: (body: { email: string; password: string; display_name?: string }) =>
     request<Tokens>("/api/auth/register", { method: "POST", body: JSON.stringify(body) }),
@@ -237,6 +264,8 @@ export const api = {
     request<ApproveResult>(`/api/plans/${planId}/approve`, { method: "POST" }, true, orgId),
   planRun: (orgId: string, planId: string) =>
     request<RunStatus>(`/api/plans/${planId}/run`, {}, true, orgId),
+  planObservability: (orgId: string, planId: string) =>
+    request<Observability>(`/api/plans/${planId}/observability`, {}, true, orgId),
   signalNode: (orgId: string, planId: string, nodeId: string) =>
     request<null>(
       `/api/plans/${planId}/signal`,

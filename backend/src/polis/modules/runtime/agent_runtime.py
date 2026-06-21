@@ -22,6 +22,7 @@ from polis.modules.model.gateway import ModelGateway, StubModelGateway
 from polis.modules.model.litellm_gateway import LiteLLMGateway
 from polis.modules.org.models import Agent, AgentCapability, AgentVersion
 from polis.modules.org.schemas import AgentConfig
+from polis.modules.planner import models as _planner_models  # noqa: F401  注册 task_run 等 FK 目标
 from polis.modules.runtime import context
 from polis.modules.runtime.agent import run_loop
 from polis.modules.runtime.guardrails import Guardrails

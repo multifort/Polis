@@ -12,17 +12,13 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from polis.config import get_settings
 from polis.modules.memory import center as memory_center
 from polis.modules.model import credential
 from polis.modules.model.credential import ScopedCredential
 from polis.modules.model.gateway import ModelGateway, ResolvedModel, resolve_model
 from polis.modules.org.schemas import AgentConfig
 from polis.modules.runtime.skills import LoadedSkills, load_skills
-
-# model 未指定时的桩默认模型（M6 接 LiteLLM 后改为按 catalog 默认/成本择优）
-DEFAULT_STUB_MODEL = ResolvedModel(
-    id="stub-default", provider="stub", litellm_name=None, context_window=8192
-)
 
 
 @dataclass
@@ -57,7 +53,8 @@ async def build(
     )
     memory_slice = slice_.to_text()
     skills = await load_skills(session, config.skills, config.authority)
-    model = await resolve_model(session, config.model) if config.model else DEFAULT_STUB_MODEL
+    # agent 未指定 model 时回退到系统默认 chat 模型（M6：真实模型，非桩）
+    model = await resolve_model(session, config.model or get_settings().default_chat_model)
     cred = await credential.scoped(session, org_id, model.id, task_id)
     goal = node.get("expected_output") or node.get("input_hint") or ""
     return ExecCtx(
