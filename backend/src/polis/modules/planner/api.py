@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.config import get_settings
 from polis.db.session import get_session
+from polis.modules.observability import langfuse_client
 from polis.modules.observability import repository as obs_repo
 from polis.modules.observability.audit import write_audit
 from polis.modules.org.deps import CurrentOrg, CurrentUserId, OrgContext, require_role
@@ -181,6 +182,43 @@ async def signal_plan(
         target=str(plan_id),
         detail={"node_id": body.node_id},
     )
+
+
+@router.get("/plans/{plan_id}/observability")
+async def get_plan_observability(
+    plan_id: uuid.UUID, org: CurrentOrg, session: SessionDep
+) -> dict[str, Any]:
+    """运行观测聚合（H-2）：任务状态 + manifest + 节点产出(出处) + LLM 调用明细(Langfuse)。"""
+    run = await repo.get_task_run_by_plan(session, org.org_id, plan_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "该计划尚未启动")
+    manifest = await obs_repo.get_run_manifest(session, org.org_id, run.id)
+    envelopes = await obs_repo.get_envelopes_by_task(session, org.org_id, run.id)
+    llm_calls = await langfuse_client.fetch_generations(str(run.id))
+    return {
+        "task_id": str(run.id),
+        "status": run.status,
+        "manifest": (
+            {
+                "plan_version": manifest.plan_version,
+                "models_used": manifest.models_used,
+                "agents_used": manifest.agents_used,
+            }
+            if manifest is not None
+            else None
+        ),
+        "nodes": [
+            {
+                "node_id": e.node_id,
+                "status": e.status,
+                "summary": e.summary,
+                "needs_human": e.needs_human,
+                "provenance": (e.facts or {}).get("provenance") if e.facts else None,
+            }
+            for e in envelopes
+        ],
+        "llm_calls": llm_calls,
+    }
 
 
 @router.get("/plans/{plan_id}/manifest")

@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.db.org_scoped import select_org_scoped
+from polis.modules.memory.models import ResultEnvelope
 from polis.modules.observability.models import Approval, RunManifest
 
 
@@ -48,6 +49,18 @@ async def get_run_manifest(
 
 
 # ── 审批收件箱（design 06 §6）──────────────────────────────────────────────────
+
+
+async def get_envelopes_by_task(
+    session: AsyncSession, org_id: uuid.UUID, task_id: uuid.UUID
+) -> list[ResultEnvelope]:
+    """任务的节点产出（result_envelope，按时间正序）。观测页用（TD-028 后可按任务聚合）。"""
+    q = (
+        select_org_scoped(ResultEnvelope, org_id)
+        .where(ResultEnvelope.task_id == task_id)
+        .order_by(ResultEnvelope.created_at)
+    )
+    return list((await session.scalars(q)).all())
 
 
 async def create_approval(
