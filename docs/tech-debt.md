@@ -31,7 +31,10 @@
 | [TD-021](#td-021) | M4 执行内核 5 处桩待真实化（模型/凭证/记忆/护栏/MCP） | Med | open(设计内·ADR-0007) | M5/M6 |
 | [TD-022](#td-022) | run_node 真实执行路径未经 Temporal worker 端到端测试 | Low-Med | open | worker+temporal 常驻测试环境就绪时 |
 | [TD-023](#td-023) | SkillInvocation 计费/可观测为桩（latency/cost=0、聚合一条） | Low | open | M6 模型网关+Langfuse 接线时 |
-| [TD-024](#td-024) | M5 记忆用确定性检索/去重，embedding/向量RAG/reranker/语义近邻延后 | Med | open(设计内后置) | M6 模型网关接入时 |
+| [TD-024](#td-024) | M5 记忆用确定性检索/去重，embedding/向量RAG/reranker/语义近邻延后 | Med | **部分偿还(M6)** | reranker/语义去重待续 |
+| [TD-025](#td-025) | Langfuse 可观测未接线（trace_ref/成本看板，需 keys） | Low-Med | open | 提供 Langfuse keys 后 |
+| [TD-026](#td-026) | M6 仍有桩：Guardrails 规则版/MCP 内置工具/单模型(无主模型·Agent选型) | Low-Med | open | Guardrails-AI/真实MCP/多模型第二步 |
+| [TD-027](#td-027) | TEI 模型须预下载离线挂载（hf-mirror 不返回 etag，在线下载失败） | Low | open(运维已知) | 换可返回 etag 的源 / 自建镜像 |
 
 ---
 
@@ -194,6 +197,26 @@ M5 写入/检索/衰减/共享并发/治理均真实落地，但依赖 embedding
 - 去重 `find_by_content` / 共享并发 `find_similar` 用内容精确匹配，非语义近邻。
 - 影响：跨表述/近义的检索与去重召回弱；M5 演示（写回→再检索闭环）在关键词重叠下可用。
 - 偿还：M6 接 LiteLLM embed/reranker——write 自动填充 embedding、retrieve 切向量 RAG、去重/近邻切语义。
+- **进展(M6)**：embed 已接本地 TEI(bge,1024)，write 自动填充 embedding、retrieve 切向量 RAG（M6-D）；
+  剩 **LiteLLM reranker** 与 **语义去重/近邻**（find_by_content/find_similar 仍内容精确匹配）待续。
+
+### TD-025
+**Langfuse 可观测未接线。** design 06 §3 的全链路 Trace 回放 + 成本看板 + 评估看板未接（需 Langfuse keys）。
+- 影响：无可视化 trace/成本大盘；基础 token/成本可从 LiteLLM `response.usage` 取，不阻断功能。
+- 偿还：用户提供 Langfuse public/secret key（自托管建 project 或云）后，ModelGateway.chat 加 metadata.langfuse 上报 + 写 `trace_ref`。
+
+### TD-026
+**M6 仍有桩/简化项。**
+- Guardrails 为规则版（正则注入检测），非 Guardrails-AI（注入/PII/内容过滤全量）。
+- MCP 仅内置本地工具(echo/calc)，无真实外部 server（browser-pilot 等）。
+- 模型配置为「单模型」：无 org 主模型字段、无按 Agent 选模型（AgentConfig.model 已有字段但前端未暴露）。
+- 偿还：Guardrails-AI 接入；MCP 真实 server；多模型第二步（org.primary_model_id + Agent 选型 + cost_aware_pick 路由）。
+
+### TD-027
+**TEI embedding 模型须预下载离线挂载。** hf-mirror 反代不返回 `etag` header，TEI rust 下载器在线下载失败；
+改为本机 `huggingface-cli download` 到 `infra/tei-models/` 挂载（`--model-id /data/models/...`）。
+- 影响：换机/新环境需先预下载模型（~1.2G），非「compose up 即用」。
+- 偿还：换可返回 etag 的镜像源 / 自建含模型的镜像 / 或用支持 hf-mirror 的下载方式。
 
 ---
 
