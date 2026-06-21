@@ -32,7 +32,8 @@
 | [TD-022](#td-022) | run_node 真实执行路径未经 Temporal worker 端到端测试 | Low-Med | open | worker+temporal 常驻测试环境就绪时 |
 | [TD-023](#td-023) | SkillInvocation 计费/可观测为桩（latency/cost=0、聚合一条） | Low | open | M6 模型网关+Langfuse 接线时 |
 | [TD-024](#td-024) | M5 记忆用确定性检索/去重，embedding/向量RAG/reranker/语义近邻延后 | Med | **部分偿还(M6)** | reranker/语义去重待续 |
-| [TD-025](#td-025) | Langfuse 可观测未接线（trace_ref/成本看板，需 keys） | Low-Med | open | 提供 Langfuse keys 后 |
+| [TD-025](#td-025) | Langfuse 采集已通(H-1)；自建观测页(H-2/H-3) + trace_ref 落库待做 | Low-Med | open(部分) | 下个 session H-2/H-3 |
+| [TD-028](#td-028) | execute 写 result_envelope 未关联 task_run.id（观测难按任务聚合） | Med | open | H-2 观测聚合前补接线 |
 | [TD-026](#td-026) | M6 仍有桩：Guardrails 规则版/MCP 内置工具/单模型(无主模型·Agent选型) | Low-Med | open | Guardrails-AI/真实MCP/多模型第二步 |
 | [TD-027](#td-027) | TEI 模型须预下载离线挂载（hf-mirror 不返回 etag，在线下载失败） | Low | open(运维已知) | 换可返回 etag 的源 / 自建镜像 |
 
@@ -201,9 +202,22 @@ M5 写入/检索/衰减/共享并发/治理均真实落地，但依赖 embedding
   剩 **LiteLLM reranker** 与 **语义去重/近邻**（find_by_content/find_similar 仍内容精确匹配）待续。
 
 ### TD-025
-**Langfuse 可观测未接线。** design 06 §3 的全链路 Trace 回放 + 成本看板 + 评估看板未接（需 Langfuse keys）。
-- 影响：无可视化 trace/成本大盘；基础 token/成本可从 LiteLLM `response.usage` 取，不阻断功能。
-- 偿还：用户提供 Langfuse public/secret key（自托管建 project 或云）后，ModelGateway.chat 加 metadata.langfuse 上报 + 写 `trace_ref`。
+**Langfuse：采集已通(H-1)，自建观测页(H-2/H-3) + trace_ref 落库待做。**
+- 已完成（H-1）：Langfuse v2 容器 headless 开箱即用（预置 keys，端口 3001，零手动配置）；
+  LiteLLMGateway 经 litellm callback 自动上报 trace（实测真实 chat→Langfuse 收到 trace，按 task_id 聚合）。
+- 待做（下个 session，用户明确要"自建产品化页面"）：
+  - H-2 后端聚合 API（GET /api/plans/{id}/observability：manifest + 节点产出 + 调用日志 + Langfuse trace 明细）。
+  - H-3 前端「运行观测」页（Polis 风格，不暴露 Langfuse UI）。
+  - `trace_ref` 表落库（langfuse_trace_id 关联 plan/task）。
+- 偿还：见续接指南「下个 session 优先」段；先补 TD-028 接线。
+
+### TD-028
+**`execute` 写 `result_envelope` 未关联 `task_run.id`。** M4 的 `AgentRuntime.execute` 写 envelope 时
+`task_id` 留空（按 org+node_id 存）；`execute_node(node, org_id)` 未接收 task_run id；Langfuse trace 的
+session_id 也用 node id。
+- 影响：可观测页难按"任务"精确聚合节点产出/LLM 调用；run_manifest（已关联 task_id）与 envelope 对不上。
+- 偿还：把 `task_run.id` 从 `approve`（已建 task_run）经 workflow 传到 `run_node→execute_node→execute`，
+  写 envelope/skill_invocation/trace 时带 task_id。H-2 观测聚合前先补。
 
 ### TD-026
 **M6 仍有桩/简化项。**
