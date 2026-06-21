@@ -14,7 +14,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from polis.config import get_settings
 from polis.db.session import get_session
+from polis.modules.model.gateway import StubModelGateway, resolve_model
+from polis.modules.model.litellm_gateway import LiteLLMGateway
+from polis.modules.observability import evaluator
 from polis.modules.observability import repository as repo
 from polis.modules.observability.audit import write_audit
 from polis.modules.org.deps import CurrentOrg, CurrentUserId, OrgContext, require_role
@@ -98,6 +102,38 @@ async def decide_approval(
         await _try_signal(ap.payload["workflow_id"], ap.payload["node_id"])
 
     return ApprovalOut.model_validate(ap)
+
+
+class EvalRunIn(BaseModel):
+    output: str
+    acceptance_criteria: str | None = None
+    expected_fields: list[str] | None = None
+
+
+class EvalRunOut(BaseModel):
+    passed: bool
+    assertions_ok: bool
+    judge_score: float
+
+
+@router.post("/eval/run", response_model=EvalRunOut)
+async def eval_run(data: EvalRunIn, org: CurrentOrg, session: SessionDep) -> EvalRunOut:
+    """评测一条产出（断言 + LLM-judge）。judge 用系统默认模型（有 Key→真实，否则桩）。"""
+    settings = get_settings()
+    model = await resolve_model(session, settings.default_chat_model)
+    gateway = LiteLLMGateway() if settings.deepseek_api_key else StubModelGateway()
+    result = await evaluator.score(
+        gateway,
+        model,
+        data.output,
+        expected_fields=data.expected_fields,
+        acceptance_criteria=data.acceptance_criteria,
+    )
+    return EvalRunOut(
+        passed=result.passed,
+        assertions_ok=result.assertions_ok,
+        judge_score=result.judge_score,
+    )
 
 
 async def _try_signal(workflow_id: str, node_id: str) -> None:
