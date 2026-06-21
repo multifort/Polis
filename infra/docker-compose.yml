@@ -46,6 +46,17 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
     ports: ["8233:8080"]
 
+  text-embeddings:
+    # 本地 embedding：bge-large-zh-v1.5（1024 维，匹配 memory.embedding VECTOR(1024)；中文强）
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.7
+    restart: unless-stopped
+    command: ["--model-id", "BAAI/bge-large-zh-v1.5"]
+    environment:
+      HF_ENDPOINT: https://hf-mirror.com  # 国内加速首次模型下载（~1.3GB）
+    volumes:
+      - tei-cache:/data  # 缓存模型，避免重启重下
+    ports: ["8081:80"]
+
   litellm:
     image: ghcr.io/berriai/litellm:v1.89.2  # 固定版本（TD-004，原 main-stable 为滚动 tag）
     restart: unless-stopped
@@ -76,3 +87,4 @@ services:
 
 volumes:
   pgdata:
+  tei-cache:

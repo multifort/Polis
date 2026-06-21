@@ -72,13 +72,22 @@ CAPABILITIES: list[dict[str, Any]] = [
 # ---- 模型目录（系统托管，无密钥；BYO-Key 运行时注入，06）----
 MODELS: list[dict[str, Any]] = [
     {
-        "id": "deepseek-chat",
+        "id": "deepseek-v4-pro",
         "provider": "deepseek",
-        "litellm_name": "deepseek/deepseek-chat",
+        "litellm_name": "deepseek/deepseek-v4-pro",
         "capabilities": ["text-gen"],
         "context_window": 65536,
-        "price_in": 0.00014,
-        "price_out": 0.00028,
+        "price_in": 0.0005,
+        "price_out": 0.001,
+    },
+    {
+        "id": "deepseek-v4-flash",
+        "provider": "deepseek",
+        "litellm_name": "deepseek/deepseek-v4-flash",
+        "capabilities": ["text-gen"],
+        "context_window": 65536,
+        "price_in": 0.0001,
+        "price_out": 0.0002,
     },
     {
         "id": "claude-opus",
@@ -91,12 +100,13 @@ MODELS: list[dict[str, Any]] = [
     },
     {
         "id": "text-embedding-bge",
-        "provider": "siliconflow",
-        "litellm_name": "siliconflow/BAAI/bge-large-zh-v1.5",
+        "provider": "local-tei",
+        "litellm_name": "openai/bge-large-zh-v1.5",  # TEI OpenAI 兼容端点
         "capabilities": ["embed"],
         "context_window": 512,
         "price_in": 0.0,
         "price_out": 0.0,
+        "connector": {"base_url": "http://localhost:8081/v1", "dim": 1024},
     },
 ]
 

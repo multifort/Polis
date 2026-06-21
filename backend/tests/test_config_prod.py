@@ -14,6 +14,7 @@ def _settings(**kw: object) -> Settings:
         "env": "prod",
         "jwt_secret": _STRONG,
         "cors_origins": ["https://a.com"],
+        "kms_master_key": _STRONG,
     }
     base.update(kw)
     return Settings(**base)  # type: ignore[arg-type]
@@ -42,6 +43,11 @@ def test_prod_short_jwt_rejected() -> None:
 def test_prod_wildcard_cors_rejected() -> None:
     with pytest.raises(RuntimeError, match="CORS"):
         _settings(cors_origins=["*"]).validate_for_prod()
+
+
+def test_prod_missing_kms_rejected() -> None:
+    with pytest.raises(RuntimeError, match="KMS_MASTER_KEY"):
+        _settings(kms_master_key="").validate_for_prod()
 
 
 def test_prod_reports_multiple_problems() -> None:
