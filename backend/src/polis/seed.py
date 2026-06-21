@@ -106,7 +106,8 @@ MODELS: list[dict[str, Any]] = [
         "context_window": 512,
         "price_in": 0.0,
         "price_out": 0.0,
-        "connector": {"base_url": "http://localhost:8082/v1", "dim": 1024},
+        # base_url 运行时由 POLIS_EMBEDDING_BASE_URL 决定，不写进 DB；仅声明维度
+        "connector": {"dim": 1024},
     },
 ]
 

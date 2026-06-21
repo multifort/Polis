@@ -34,6 +34,7 @@
 | [TD-024](#td-024) | M5 记忆用确定性检索/去重，embedding/向量RAG/reranker/语义近邻延后 | Med | **部分偿还(M6)** | reranker/语义去重待续 |
 | [TD-025](#td-025) | Langfuse 采集已通(H-1)；自建观测页(H-2/H-3) + trace_ref 落库待做 | Low-Med | open(部分) | 下个 session H-2/H-3 |
 | [TD-028](#td-028) | execute 写 result_envelope 未关联 task_run.id（观测难按任务聚合） | Med | open | H-2 观测聚合前补接线 |
+| [TD-029](#td-029) | 部署：组件地址 dev 默认 localhost，生产需 env 覆盖 + 容器化用 service name | Low-Med | open | 应用容器化(TD-009)/进 staging 前 |
 | [TD-026](#td-026) | M6 仍有桩：Guardrails 规则版/MCP 内置工具/单模型(无主模型·Agent选型) | Low-Med | open | Guardrails-AI/真实MCP/多模型第二步 |
 | [TD-027](#td-027) | TEI 模型须预下载离线挂载（hf-mirror 不返回 etag，在线下载失败） | Low | open(运维已知) | 换可返回 etag 的源 / 自建镜像 |
 
@@ -218,6 +219,15 @@ session_id 也用 node id。
 - 影响：可观测页难按"任务"精确聚合节点产出/LLM 调用；run_manifest（已关联 task_id）与 envelope 对不上。
 - 偿还：把 `task_run.id` 从 `approve`（已建 task_run）经 workflow 传到 `run_node→execute_node→execute`，
   写 envelope/skill_invocation/trace 时带 task_id。H-2 观测聚合前先补。
+
+### TD-029
+**部署：组件地址用 dev 默认 localhost，生产需 env 覆盖。** 现状是 12-factor（`config.py` 默认值 + `POLIS_*` env 可覆盖），
+架构正确，但部署时须显式配置：
+- `POLIS_DATABASE_URL` / `POLIS_TEMPORAL_ADDR` / `POLIS_EMBEDDING_BASE_URL` / `POLIS_LANGFUSE_HOST` 指向真实地址。
+- 应用容器化（TD-009）后，env 用容器网络 **service name**（`postgres:5432` / `temporal:7233` /
+  `text-embeddings:80` / `langfuse:3000`），而非 localhost。
+- 已修：`seed.py` 不再把 `connector.base_url=localhost` 写进 model_catalog（改为运行时由 `POLIS_EMBEDDING_BASE_URL` 决定）。
+- 偿还：进 staging / 应用容器化时，提供生产 env 清单 + compose `app` 服务示例（service name）+ 可选 `.env.production` 模板。
 
 ### TD-026
 **M6 仍有桩/简化项。**
