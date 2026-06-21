@@ -31,6 +31,7 @@
 | [TD-021](#td-021) | M4 执行内核 5 处桩待真实化（模型/凭证/记忆/护栏/MCP） | Med | open(设计内·ADR-0007) | M5/M6 |
 | [TD-022](#td-022) | run_node 真实执行路径未经 Temporal worker 端到端测试 | Low-Med | open | worker+temporal 常驻测试环境就绪时 |
 | [TD-023](#td-023) | SkillInvocation 计费/可观测为桩（latency/cost=0、聚合一条） | Low | open | M6 模型网关+Langfuse 接线时 |
+| [TD-024](#td-024) | M5 记忆用确定性检索/去重，embedding/向量RAG/reranker/语义近邻延后 | Med | open(设计内后置) | M6 模型网关接入时 |
 
 ---
 
@@ -166,7 +167,9 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 - `Guardrails` 规则版（正则注入检测/回流过滤）→ **M6 Guardrails-AI**（注入/PII/内容过滤）。
 - MCP 内置本地工具(echo/calc) → **真实外部 MCP server（browser-pilot 等）**。
 - 影响：M4 可端到端跑「单节点经 Agent→出处入库」，但无真实 LLM 自主决策/语义记忆/凭证隔离/外部工具。
-- 偿还：M5（记忆）、M6（模型/凭证/护栏）按 ADR-0007 桩边界逐处替换；切换点见续接指南 §「M5/M6 切换点」。
+- 偿还：M5（记忆）、M6（模型/凭证/护栏）按 ADR-0007 桩边界逐处替换；切换点见续接指南 §「M6 切换点」。
+- **进展（M5）**：「记忆」处已从空桩换为**确定性真实实现**（写入/检索/衰减/共享并发裁决/治理 API），
+  仅 embedding/向量检索/语义近邻仍为确定性桩（见 TD-024）。其余 4 处（模型 chat/凭证/护栏/MCP）仍待 M6。
 
 ### TD-022
 **`run_node` 真实执行路径未经 Temporal worker 端到端测试。**
@@ -181,6 +184,16 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 `latency_ms=0`、`cost_cents=0`，未按实际工具调用拆分、无真实耗时/成本。
 - 影响：调用日志可证「有执行」，但计费/性能数据不可用。
 - 偿还：M6 接 LiteLLM（真实 token 成本）+ Langfuse（trace/耗时）后，按工具调用粒度记录真实 latency/cost。
+
+### TD-024
+**M5 记忆为确定性实现，语义能力延后 M6（设计内，复用 ADR-0006/0007）。**
+M5 写入/检索/衰减/共享并发/治理均真实落地，但依赖 embedding 的部分用确定性桩：
+- `ModelGateway.embed` 桩返 None → `memory.embedding` 列写入为 NULL（hnsw 索引暂无数据）。
+- 检索 `retrieve` 用关键词 token 重叠（中文按单字，弱，同 TD-017）+ importance/recency，非向量 `<=>`。
+- rerank 为确定性加权排序，非 LiteLLM reranker。
+- 去重 `find_by_content` / 共享并发 `find_similar` 用内容精确匹配，非语义近邻。
+- 影响：跨表述/近义的检索与去重召回弱；M5 演示（写回→再检索闭环）在关键词重叠下可用。
+- 偿还：M6 接 LiteLLM embed/reranker——write 自动填充 embedding、retrieve 切向量 RAG、去重/近邻切语义。
 
 ---
 
