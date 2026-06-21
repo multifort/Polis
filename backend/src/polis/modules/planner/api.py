@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.config import get_settings
 from polis.db.session import get_session
+from polis.modules.observability import repository as obs_repo
 from polis.modules.observability.audit import write_audit
 from polis.modules.org.deps import CurrentOrg, CurrentUserId, OrgContext, require_role
 from polis.modules.planner import repository as repo
@@ -98,6 +99,22 @@ async def approve_plan(
 
     await repo.update_plan_status(session, org.org_id, plan_id, "running")
     run = await repo.create_task_run(session, org.org_id, plan_id, workflow_id)
+
+    # Run Manifest：落可复现快照（plan 快照 + 模型 + agent 能力需求）—— T6.6
+    dag_nodes = plan.dag.get("nodes", []) if isinstance(plan.dag, dict) else []
+    await obs_repo.create_run_manifest(
+        session,
+        task_id=run.id,
+        org_id=org.org_id,
+        plan_snapshot=plan.dag,
+        plan_version=plan.version,
+        models_used={"chat": get_settings().default_chat_model},
+        agents_used={
+            n["id"]: n.get("required_capabilities", [])
+            for n in dag_nodes
+            if n.get("type") == "agent"
+        },
+    )
     await write_audit(
         session,
         action="plan.approve",
@@ -163,3 +180,24 @@ async def signal_plan(
         target=str(plan_id),
         detail={"node_id": body.node_id},
     )
+
+
+@router.get("/plans/{plan_id}/manifest")
+async def get_plan_manifest(
+    plan_id: uuid.UUID, org: CurrentOrg, session: SessionDep
+) -> dict[str, Any]:
+    """取任务运行的可复现快照（Run Manifest，T6.6）。"""
+    run = await repo.get_task_run_by_plan(session, org.org_id, plan_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "该计划尚未启动")
+    mf = await obs_repo.get_run_manifest(session, org.org_id, run.id)
+    if mf is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "无运行快照")
+    return {
+        "task_id": str(mf.task_id),
+        "started_at": mf.started_at.isoformat() if mf.started_at else None,
+        "plan_version": mf.plan_version,
+        "models_used": mf.models_used,
+        "agents_used": mf.agents_used,
+        "plan_snapshot": mf.plan_snapshot,
+    }
