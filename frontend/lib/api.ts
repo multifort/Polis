@@ -129,6 +129,10 @@ export interface Agent {
   status: string;
   source: string;
   current_version: string | null;
+  role?: string | null;
+  description?: string | null;
+  capabilities?: string[];
+  model?: string | null;
 }
 export interface Role {
   id: string;
@@ -194,6 +198,7 @@ export interface ObsNode {
   status: string;
   summary: string | null;
   needs_human: boolean;
+  created_at: string | null;
   provenance: Record<string, unknown> | null;
 }
 export interface ObsLLMCall {
@@ -201,11 +206,32 @@ export interface ObsLLMCall {
   model: string | null;
   input: string | null;
   output: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
   total_tokens: number | null;
+  cost: number | null;
+}
+export interface ObsTotals {
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cost: number;
+}
+export interface ObsModelUsage {
+  model: string;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cost: number;
 }
 export interface Observability {
   task_id: string;
   status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_seconds: number | null;
   manifest: {
     plan_version: string | null;
     models_used: Record<string, unknown> | null;
@@ -213,6 +239,8 @@ export interface Observability {
   } | null;
   nodes: ObsNode[];
   llm_calls: ObsLLMCall[];
+  totals: ObsTotals;
+  by_model: ObsModelUsage[];
 }
 
 export const api = {

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,7 @@ from polis.db.session import get_session
 from polis.modules.org import provisioning, service
 from polis.modules.org import repository as repo
 from polis.modules.org.deps import CurrentOrg, CurrentUserId
-from polis.modules.org.models import Agent, Role
+from polis.modules.org.models import Role
 from polis.modules.org.schemas import (
     AgentOut,
     LoginIn,
@@ -109,8 +109,9 @@ async def list_current_org_roles(org: CurrentOrg, session: SessionDep) -> list[R
 
 
 @router.get("/orgs/current/agents", response_model=list[AgentOut])
-async def list_current_org_agents(org: CurrentOrg, session: SessionDep) -> list[Agent]:
-    return await repo.list_agents(session)
+async def list_current_org_agents(org: CurrentOrg, session: SessionDep) -> list[dict[str, Any]]:
+    # 含角色名/描述(promptSkeleton)/能力/模型，供前端节点卡与「Agent 详情」模态展示。
+    return await repo.list_agents_detailed(session)
 
 
 @router.post("/provision", response_model=ProvisionOut, status_code=status.HTTP_201_CREATED)

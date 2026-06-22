@@ -87,6 +87,10 @@ class AgentOut(BaseModel):
     status: str
     source: str
     current_version: str | None = None
+    role: str | None = None
+    description: str | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    model: str | None = None
 
 
 class ProvisionIn(BaseModel):

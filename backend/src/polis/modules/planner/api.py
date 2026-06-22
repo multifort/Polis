@@ -13,6 +13,7 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.config import get_settings
@@ -195,9 +196,18 @@ async def get_plan_observability(
     manifest = await obs_repo.get_run_manifest(session, org.org_id, run.id)
     envelopes = await obs_repo.get_envelopes_by_task(session, org.org_id, run.id)
     llm_calls = await langfuse_client.fetch_generations(str(run.id))
+    await _fill_actual_cost(session, llm_calls)
+    # started/finished_at 可能未回写（TD-019）→ 用节点产出时间兜底，保证「总耗时」可算。
+    env_times = [e.created_at for e in envelopes if e.created_at is not None]
+    started = run.started_at or run.created_at or (min(env_times) if env_times else None)
+    finished = run.finished_at or (max(env_times) if env_times else None)
+    duration = (finished - started).total_seconds() if started and finished else None
     return {
         "task_id": str(run.id),
         "status": run.status,
+        "started_at": started.isoformat() if started is not None else None,
+        "finished_at": finished.isoformat() if finished is not None else None,
+        "duration_seconds": duration,
         "manifest": (
             {
                 "plan_version": manifest.plan_version,
@@ -213,12 +223,64 @@ async def get_plan_observability(
                 "status": e.status,
                 "summary": e.summary,
                 "needs_human": e.needs_human,
+                "created_at": e.created_at.isoformat() if e.created_at is not None else None,
                 "provenance": (e.facts or {}).get("provenance") if e.facts else None,
             }
             for e in envelopes
         ],
         "llm_calls": llm_calls,
+        **_aggregate_usage(llm_calls),
     }
+
+
+async def _fill_actual_cost(session: AsyncSession, calls: list[dict[str, Any]]) -> None:
+    """按 model_catalog 价格(元/1K token)算每次调用的**实际成本**(元)，覆盖 langfuse 的 cost。
+
+    langfuse 对自研模型无定价表 → cost 恒为 null；用我们自己的目录价算，保证执行后展示实时费用。
+    """
+    from polis.modules.model.models import ModelCatalog
+
+    rows = (await session.scalars(select(ModelCatalog))).all()
+    prices = {r.id: (float(r.price_in or 0), float(r.price_out or 0)) for r in rows}
+    for c in calls:
+        pin, pout = prices.get(c.get("model") or "", (0.0, 0.0))
+        it = c.get("input_tokens") or 0
+        ot = c.get("output_tokens") or 0
+        c["cost"] = round((it / 1000) * pin + (ot / 1000) * pout, 6)
+
+
+def _aggregate_usage(calls: list[dict[str, Any]]) -> dict[str, Any]:
+    """对标 Langfuse Dashboard：每次 LLM 调用聚合成总计 + 按模型分组（token/成本/次数）。"""
+    totals: dict[str, Any] = {
+        "calls": len(calls),
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cost": 0.0,
+    }
+    by_model: dict[str, dict[str, Any]] = {}
+    for c in calls:
+        model = c.get("model") or "unknown"
+        slot = by_model.setdefault(
+            model,
+            {
+                "model": model,
+                "calls": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+                "cost": 0.0,
+            },
+        )
+        slot["calls"] += 1
+        for key in ("input_tokens", "output_tokens", "total_tokens"):
+            v = c.get(key) or 0
+            slot[key] += v
+            totals[key] += v
+        cost = c.get("cost") or 0.0
+        slot["cost"] += cost
+        totals["cost"] += cost
+    return {"totals": totals, "by_model": list(by_model.values())}
 
 
 @router.get("/plans/{plan_id}/manifest")

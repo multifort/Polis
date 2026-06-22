@@ -130,6 +130,46 @@ async def list_agents(session: AsyncSession) -> list[Agent]:
     return list((await session.scalars(select(Agent).order_by(Agent.name))).all())
 
 
+async def list_agents_detailed(session: AsyncSession) -> list[dict[str, Any]]:
+    """当前公司 Agent + 角色名 + 版本配置（描述/能力/模型），供前端「Agent 详情」展示。
+
+    描述取自 agent_version.config.prompt（promptSkeleton，说明该 Agent 职责）；
+    能力/模型同取 config；角色名 join role（其 description 在预设实例化时可能为空）。
+    """
+    from polis.modules.org.models import AgentVersion
+
+    rows = (
+        await session.execute(
+            select(Agent, Role.name, Role.description, AgentVersion.config)
+            .outerjoin(Role, Agent.role_id == Role.id)
+            .outerjoin(
+                AgentVersion,
+                (AgentVersion.agent_id == Agent.id)
+                & (AgentVersion.version == Agent.current_version),
+            )
+            .order_by(Agent.name)
+        )
+    ).all()
+
+    out: list[dict[str, Any]] = []
+    for agent, role_name, role_desc, config in rows:
+        cfg = config or {}
+        out.append(
+            {
+                "id": agent.id,
+                "name": agent.name,
+                "status": agent.status,
+                "source": agent.source,
+                "current_version": agent.current_version,
+                "role": role_name,
+                "description": cfg.get("prompt") or role_desc,
+                "capabilities": cfg.get("capabilities") or [],
+                "model": cfg.get("model"),
+            }
+        )
+    return out
+
+
 async def get_preset_by_name(session: AsyncSession, name: str) -> ScenarioPreset | None:
     preset: ScenarioPreset | None = await session.scalar(
         select(ScenarioPreset)

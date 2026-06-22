@@ -21,8 +21,29 @@ def _trim(v: Any, limit: int = 500) -> str:
     return s if len(s) <= limit else s[:limit] + "…"
 
 
+def _num(*vals: Any) -> float | None:
+    """取第一个可转 float 的非空值（兼容 langfuse 多种字段命名）。"""
+    for v in vals:
+        if v is None:
+            continue
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _int(*vals: Any) -> int | None:
+    n = _num(*vals)
+    return int(n) if n is not None else None
+
+
 async def fetch_generations(trace_id: str) -> list[dict[str, Any]]:
-    """拉某 trace 的 GENERATION 观测（每次 LLM 调用）。返回 [{name,model,input,output,usage}]。"""
+    """拉某 trace 的 GENERATION 观测（每次 LLM 调用）。
+
+    返回 [{name,model,input,output,input_tokens,output_tokens,total_tokens,cost}]。
+    cost 透传 langfuse calculatedTotalCost（USD 数值）；token 取 usage 的 input/output/total。
+    """
     s = get_settings()
     if not s.langfuse_enabled or not s.langfuse_public_key:
         return []
@@ -50,7 +71,10 @@ async def fetch_generations(trace_id: str) -> list[dict[str, Any]]:
                 "model": o.get("model"),
                 "input": _trim(o.get("input")),
                 "output": _trim(o.get("output")),
-                "total_tokens": usage.get("total") or usage.get("totalTokens"),
+                "input_tokens": _int(usage.get("input"), usage.get("promptTokens")),
+                "output_tokens": _int(usage.get("output"), usage.get("completionTokens")),
+                "total_tokens": _int(usage.get("total"), usage.get("totalTokens")),
+                "cost": _num(o.get("calculatedTotalCost"), o.get("totalCost")),
             }
         )
     return calls
