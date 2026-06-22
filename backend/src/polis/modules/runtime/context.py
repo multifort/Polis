@@ -38,10 +38,16 @@ async def build(
     node: dict[str, Any],
     org_id: uuid.UUID,
     task_id: str,
+    goal: str | None = None,
 ) -> ExecCtx:
-    """组装执行上下文：记忆切片 + 技能 + 模型 + 短时凭证 + 目标。"""
+    """组装执行上下文：记忆切片 + 技能 + 模型 + 短时凭证 + 目标。
+
+    goal 为**用户意图**（F3：贯通后让产出锚定目标），优先于节点静态 expected_output；
+    检索记忆时也并入 goal，召回更贴合本次任务。
+    """
     # 检索 role+org 作用域记忆。embedding 可用时走向量 RAG，否则确定性关键词（M5-C/M6-D）
-    query = node.get("input_hint") or ""
+    node_hint = node.get("input_hint") or ""
+    query = f"{goal} {node_hint}".strip() if goal else node_hint
     query_embedding = (await gateway.embed([query]))[0] if query else None
     slice_ = await memory_center.retrieve(
         session,
@@ -56,7 +62,8 @@ async def build(
     # agent 未指定 model 时回退到系统默认 chat 模型（M6：真实模型，非桩）
     model = await resolve_model(session, config.model or get_settings().default_chat_model)
     cred = await credential.scoped(session, org_id, model.id, task_id)
-    goal = node.get("expected_output") or node.get("input_hint") or ""
+    # 目标优先用用户意图；回退节点静态 expected_output/input_hint
+    eff_goal = goal or node.get("expected_output") or node.get("input_hint") or ""
     return ExecCtx(
-        goal=goal, memory_slice=memory_slice, skills=skills, model=model, cred=cred, node=node
+        goal=eff_goal, memory_slice=memory_slice, skills=skills, model=model, cred=cred, node=node
     )

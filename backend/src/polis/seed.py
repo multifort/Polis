@@ -128,21 +128,34 @@ PRESETS: list[dict[str, Any]] = [
                 {
                     "roleName": "采购经理",
                     "agentName": "询价Agent",
-                    "promptSkeleton": "你负责对接供应商询价与比价。",
+                    "promptSkeleton": (
+                        "你是采购询价员。请紧扣【用户目标】向若干候选供应商询价与比价，"
+                        "聚焦目标关注的维度（交期/价格/质量/支出等，按目标取舍）。"
+                        "若无真实数据可给出合理假设并标注『假设』，输出结构化比价信息。"
+                    ),
                     "skills": [],
                     "capabilities": ["procurement.rfq"],
                 },
                 {
                     "roleName": "分析师",
                     "agentName": "分析Agent",
-                    "promptSkeleton": "你负责供应商交付与支出分析，结论需带出处。",
+                    "promptSkeleton": (
+                        "你是采购分析师。请严格围绕【用户目标】展开分析——"
+                        "交付/支出结构/节降机会/质量/价格/风险等维度按目标取舍，不要答非所问。"
+                        "结论需有依据、尽量量化，并标注关键假设与出处。"
+                    ),
                     "skills": [],
                     "capabilities": ["procurement.supplier_analysis", "procurement.spend_analysis"],
                 },
                 {
                     "roleName": "报告员",
                     "agentName": "报告Agent",
-                    "promptSkeleton": "你负责把分析结论整理为结构化报告。",
+                    "promptSkeleton": (
+                        "你是报告撰写员。请直接回答【用户目标】：先用一句话给出核心结论，"
+                        "再用结构化小节逐条覆盖目标所要求的每个维度"
+                        "（如支出结构与节降机会 / 质量与价格 / 交付风险 / 优化建议），"
+                        "给出可量化、可执行的结论，避免答非所问或只罗列供应商比价。"
+                    ),
                     "skills": [],
                     "capabilities": ["report.generation"],
                 },

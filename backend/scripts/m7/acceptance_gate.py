@@ -36,9 +36,15 @@ GOALS_PATH = Path(__file__).with_name("goals.json")
 class Gate:
     def __init__(self, base: str, email: str, password: str) -> None:
         self.base = base.rstrip("/")
+        self.email = email
+        self.password = password
         self.client = httpx.Client(base_url=self.base, trust_env=False, timeout=30.0)
         self.token = self._login(email, password)
         self.org_id: str = ""
+
+    def relogin(self) -> None:
+        """access JWT 短时（~15min）；长跑前每个目标前刷新，避免中途 401。"""
+        self.token = self._login(self.email, self.password)
 
     def _h(self) -> dict[str, str]:
         h = {"Authorization": f"Bearer {self.token}"}
@@ -151,6 +157,7 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
     durs: list[float] = []
 
     for i, g in enumerate(goals, 1):
+        gate.relogin()  # 刷新短时 access JWT，避免长跑中途过期
         goal = g["goal"]
         row: dict[str, Any] = {"goal": goal}
         code, plan = gate.create_plan(goal)

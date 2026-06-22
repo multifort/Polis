@@ -31,7 +31,9 @@ _ACTIVITY_TIMEOUT = timedelta(minutes=5)
 
 
 @activity.defn
-async def run_node(node: dict[str, Any], org_id: str, task_id: str = "") -> dict[str, Any]:
+async def run_node(
+    node: dict[str, Any], org_id: str, task_id: str = "", goal: str = ""
+) -> dict[str, Any]:
     """节点执行 Activity。
 
     - fail_once=True：首次抛错触发 Temporal retry（编排测试用）。
@@ -55,7 +57,7 @@ async def run_node(node: dict[str, Any], org_id: str, task_id: str = "") -> dict
         }
     from polis.modules.runtime.agent_runtime import execute_node
 
-    return await execute_node(node, org_id, task_id or None)
+    return await execute_node(node, org_id, task_id or None, goal=goal or None)
 
 
 # ── 有界重规划 ─────────────────────────────────────────────────────────────────
@@ -100,11 +102,13 @@ class TaskWorkflow:
         # 原始 node dict（含 extra 字段如 fail_once/fail_always），传给 activity 用
         self._raw_nodes: dict[str, dict[str, Any]] = {}
         self._task_id = ""  # task_run.id（TD-028，贯通到节点执行）
+        self._goal = ""  # 用户意图（F3：贯通到 Agent 上下文，让产出锚定目标）
 
     @workflow.run
     async def run(self, plan: dict[str, Any], org_id: str, task_id: str = "") -> dict[str, Any]:
         self._task_id = task_id
         dag = PlanDag.model_validate(plan)
+        self._goal = str(plan.get("goal") or dag.goal or "")
         # 保留原始 node dict（Pydantic model_dump 会丢掉 extra 字段）
         self._raw_nodes = {n["id"]: n for n in plan.get("nodes", [])}
         # 出图时已过 validate；此处从 DAG 自身推导可用能力集供重规划校验用
@@ -176,7 +180,7 @@ class TaskWorkflow:
         raw_node = self._raw_nodes.get(node.id, node.model_dump())
         result: dict[str, Any] = await workflow.execute_activity(
             run_node,
-            args=[raw_node, org_id, self._task_id],
+            args=[raw_node, org_id, self._task_id, self._goal],
             start_to_close_timeout=_ACTIVITY_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=3),
         )

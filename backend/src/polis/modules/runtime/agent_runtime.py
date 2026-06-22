@@ -58,6 +58,7 @@ async def execute(
     org_id: str,
     *,
     task_id: str | None = None,
+    goal: str | None = None,
     gateway: ModelGateway,
     registry: McpRegistry,
     guard: Guardrails | None,
@@ -78,7 +79,7 @@ async def execute(
     # 上下文/trace 聚合键：优先 task_run.id（任务级），回退 node id
     ctx_task_key = task_id or str(node.get("id") or "node")
 
-    ctx = await context.build(session, gateway, config, node, org_uuid, ctx_task_key)
+    ctx = await context.build(session, gateway, config, node, org_uuid, ctx_task_key, goal=goal)
     loop = await run_loop(gateway, McpRuntime(registry), config.prompt, ctx, guard=guard)
 
     status = "done" if loop.ok else ("blocked" if loop.blocked else "failed")
@@ -156,7 +157,7 @@ def _default_gateway() -> ModelGateway:
 
 
 async def execute_node(
-    node: dict[str, Any], org_id: str, task_id: str | None = None
+    node: dict[str, Any], org_id: str, task_id: str | None = None, goal: str | None = None
 ) -> dict[str, Any]:
     """Temporal Activity 入口：自建 session + 默认依赖执行单节点。"""
     init_engine()
@@ -166,6 +167,7 @@ async def execute_node(
             node,
             org_id,
             task_id=task_id,
+            goal=goal,
             gateway=_default_gateway(),
             registry=default_registry(),
             guard=Guardrails(),
