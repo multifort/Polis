@@ -1,0 +1,83 @@
+{
+  "_note": "M7 验收门目标集（采购场景变体）。V1 范围只验采购分析一条线（supplier_analysis_v1）。",
+  "_fields": {
+    "goal": "下发给 Planner 的意图",
+    "expect_template": "期望命中的计划模板（DAG 可用率判定参考）",
+    "acceptance": "人审通过率判定用的验收标准（喂给 Evaluator LLM-judge）",
+    "expect_caps": "期望被路由覆盖的能力（路由命中率判定：被选 Agent 能力须覆盖节点能力）"
+  },
+  "goals": [
+    {
+      "goal": "分析供应商交付表现与风险",
+      "expect_template": "supplier_analysis_v1",
+      "acceptance": "给出三家供应商的交付表现对比、风险评估与明确采购建议，结论需有依据。",
+      "expect_caps": ["procurement.rfq", "procurement.supplier_analysis", "procurement.spend_analysis", "report.generation"]
+    },
+    {
+      "goal": "评估三家供应商的交付风险并给出建议",
+      "expect_template": "supplier_analysis_v1",
+      "acceptance": "对每家供应商给出交付风险等级与理由，并给出推荐选择。",
+      "expect_caps": ["procurement.supplier_analysis", "report.generation"]
+    },
+    {
+      "goal": "对比供应商报价并给出采购建议",
+      "expect_template": "supplier_analysis_v1",
+      "acceptance": "包含比价表与综合成本分析，给出明确的采购决策建议。",
+      "expect_caps": ["procurement.rfq", "report.generation"]
+    },
+    {
+      "goal": "分析采购支出结构与节降机会",
+      "expect_template": "supplier_analysis_v1",
+      "acceptance": "给出支出结构拆解与可量化的节降机会。",
+      "expect_caps": ["procurement.spend_analysis", "report.generation"]
+    },
+    {
+      "goal": "供应商交付稳定性分析",
+      "expect_template": "supplier_analysis_v1",
+      "acceptance": "评估供应商交付稳定性并给出改进方向。",
+      "expect_caps": ["procurement.supplier_analysis", "report.generation"]
+    },
+    {
+      "goal": "采购询价并比价三家供应商",
+      "expect_template": "supplier_analysis_v1",
+      "acceptance": "完成询价并给出三家比价结果与推荐。",
+      "expect_caps": ["procurement.rfq", "report.generation"]
+    },
+    {
+      "goal": "生成供应商绩效分析报告",
+      "expect_template": "supplier_analysis_v1",
+      "acceptance": "产出结构化的供应商绩效报告（含表格/结论）。",
+      "expect_caps": ["procurement.supplier_analysis", "report.generation"]
+    },
+    {
+      "goal": "评估供应商交付与成本风险",
+      "expect_template": "supplier_analysis_v1",
+      "acceptance": "同时覆盖交付风险与成本风险，给出综合判断。",
+      "expect_caps": ["procurement.supplier_analysis", "procurement.spend_analysis", "report.generation"]
+    },
+    {
+      "goal": "分析本季度采购支出并提出优化",
+      "expect_template": "supplier_analysis_v1",
+      "acceptance": "给出本季度支出分析与可执行的优化建议。",
+      "expect_caps": ["procurement.spend_analysis", "report.generation"]
+    },
+    {
+      "goal": "供应商风险评估与交付分析",
+      "expect_template": "supplier_analysis_v1",
+      "acceptance": "给出风险评估矩阵与交付分析结论。",
+      "expect_caps": ["procurement.supplier_analysis", "report.generation"]
+    },
+    {
+      "goal": "采购供应商综合分析",
+      "expect_template": "supplier_analysis_v1",
+      "acceptance": "覆盖询价、交付、支出三方面并形成综合报告。",
+      "expect_caps": ["procurement.rfq", "procurement.supplier_analysis", "procurement.spend_analysis", "report.generation"]
+    },
+    {
+      "goal": "分析供应商交付质量与价格",
+      "expect_template": "supplier_analysis_v1",
+      "acceptance": "对比供应商交付质量与价格，给出性价比建议。",
+      "expect_caps": ["procurement.rfq", "procurement.supplier_analysis", "report.generation"]
+    }
+  ]
+}
