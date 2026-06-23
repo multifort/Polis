@@ -48,6 +48,9 @@ class PlanTemplate(UUIDPkMixin, Base):
     version: Mapped[str] = mapped_column(Text)
     dag_skeleton: Mapped[dict[str, Any]] = mapped_column(JSONB)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
+    # V2-R1 可见性：public=全 org 可见（默认/平台内置）；private=仅属主 org
+    visibility: Mapped[str] = mapped_column(Text, server_default="public")
+    owner_org_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("org.id"))
 
     __table_args__ = (
         UniqueConstraint("name", "version", name="uq_plan_template_name_version"),

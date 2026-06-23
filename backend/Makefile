@@ -26,6 +26,9 @@ migrate:
 seed:
 	uv run python -m polis.seed
 
+embed-backfill:
+	uv run python -m polis.modules.model.embed_backfill
+
 cleanup-sessions:
 	uv run python -m polis.modules.org.cleanup
 

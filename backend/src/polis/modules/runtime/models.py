@@ -9,9 +9,11 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     CheckConstraint,
     ForeignKey,
+    Index,
     Integer,
     Text,
     UniqueConstraint,
@@ -36,11 +38,20 @@ class Skill(UUIDPkMixin, Base):
     capability: Mapped[str | None] = mapped_column(Text)
     owner: Mapped[str | None] = mapped_column(Text)
     owner_org_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("org.id"))
+    # V2-R1：可见性（public=全 org 可见/默认）+ embedding（语义检索）
+    visibility: Mapped[str] = mapped_column(Text, server_default="public")
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
 
     __table_args__ = (
         CheckConstraint("kind IN ('manual','tool')", name="kind"),
         CheckConstraint("trust IN ('official','verified','community','private')", name="trust"),
         CheckConstraint("status IN ('draft','published','deprecated')", name="status"),
+        Index(
+            "ix_skill_embedding",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
     )
 
 
