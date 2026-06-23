@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.db.org_scoped import select_org_scoped
 from polis.modules.org.models import Agent, AgentCapability
-from polis.modules.planner.models import Plan, PlanTemplate, TaskRun
+from polis.modules.planner.models import Plan, PlanTemplate, Task, TaskRun
 
 
 async def available_capabilities(session: AsyncSession) -> set[str]:
@@ -77,9 +77,11 @@ async def create_task_run(
     org_id: uuid.UUID,
     plan_id: uuid.UUID,
     temporal_workflow_id: str,
+    task_id: uuid.UUID | None = None,
 ) -> TaskRun:
     run = TaskRun(
         org_id=org_id,
+        task_id=task_id,  # V2-P1：关联可复用任务（nullable，兼容直接出图的旧/临时运行）
         plan_id=plan_id,
         temporal_workflow_id=temporal_workflow_id,
         status="running",
@@ -87,6 +89,55 @@ async def create_task_run(
     session.add(run)
     await session.flush()
     return run
+
+
+# ── 任务实体（V2-P1）──────────────────────────────────────────────────────────
+
+
+async def create_task(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    *,
+    name: str,
+    goal: str,
+    scenario_ref: str | None = None,
+    input_schema: dict[str, Any] | None = None,
+    inputs: dict[str, Any] | None = None,
+    created_by: uuid.UUID | None = None,
+) -> Task:
+    task = Task(
+        org_id=org_id,
+        name=name,
+        goal=goal,
+        scenario_ref=scenario_ref,
+        input_schema=input_schema,
+        inputs=inputs,
+        created_by=created_by,
+    )
+    session.add(task)
+    await session.flush()
+    return task
+
+
+async def list_tasks(session: AsyncSession, org_id: uuid.UUID) -> list[Task]:
+    q = select_org_scoped(Task, org_id).order_by(Task.created_at.desc())
+    return list((await session.scalars(q)).all())
+
+
+async def get_task(session: AsyncSession, org_id: uuid.UUID, task_id: uuid.UUID) -> Task | None:
+    t: Task | None = await session.scalar(select_org_scoped(Task, org_id).where(Task.id == task_id))
+    return t
+
+
+async def list_task_runs(
+    session: AsyncSession, org_id: uuid.UUID, task_id: uuid.UUID
+) -> list[TaskRun]:
+    q = (
+        select_org_scoped(TaskRun, org_id)
+        .where(TaskRun.task_id == task_id)
+        .order_by(TaskRun.created_at.desc())
+    )
+    return list((await session.scalars(q)).all())
 
 
 async def get_task_run_by_plan(

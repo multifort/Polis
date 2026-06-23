@@ -81,11 +81,27 @@ class Plan(UUIDPkMixin, OrgScopedMixin, Base):
     )
 
 
+class Task(UUIDPkMixin, OrgScopedMixin, Base):
+    """可复用工作项（V2-P1）：name/goal + 场景引用 + 输入；一个 task 多次运行(task_run)。"""
+
+    __tablename__ = "task"
+
+    name: Mapped[str] = mapped_column(Text)
+    scenario_ref: Mapped[str | None] = mapped_column(Text)  # plan_template 名（nullable）
+    goal: Mapped[str] = mapped_column(Text)
+    input_schema: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    inputs: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("app_user.id"))
+    status: Mapped[str] = mapped_column(Text, server_default="active")
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+
+
 class TaskRun(UUIDPkMixin, OrgScopedMixin, TimestampMixin, Base):
     """任务运行锚点：承载 task_id，关联 plan 与 Temporal 工作流（0b §2 修订 C）。"""
 
     __tablename__ = "task_run"
 
+    task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("task.id"))  # V2-P1：1 任务:N 运行
     plan_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("plan.id"))
     temporal_workflow_id: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, server_default="pending")

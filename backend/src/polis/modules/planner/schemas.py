@@ -118,6 +118,32 @@ class SignalIn(BaseModel):
     node_id: str
 
 
+# ── 任务实体（V2-P1）──────────────────────────────────────────────────────────
+
+
+class TaskCreateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    goal: str = Field(min_length=1)
+    scenario_ref: str | None = None
+    input_schema: dict[str, object] | None = None
+    inputs: dict[str, object] | None = None
+
+
+class TaskOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    goal: str
+    scenario_ref: str | None = None
+    status: str
+
+
+class TaskRunOut(BaseModel):
+    id: uuid.UUID
+    task_id: uuid.UUID | None = None
+    plan_id: uuid.UUID | None = None
+    status: str
+
+
 def derive_overall_status(node_statuses: list[str]) -> str:
     """从节点状态派生顶层运行状态：有 failed→failed；全 done→done；否则 running。
 

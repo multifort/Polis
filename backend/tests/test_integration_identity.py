@@ -84,7 +84,7 @@ def test_schema_and_rls(pg_url: str) -> None:
             rls = conn.execute(
                 text("SELECT count(*) FROM pg_class WHERE relrowsecurity AND relkind='r'")
             ).scalar_one()
-        assert tables >= 27  # 27 业务表 + alembic_version
-        assert rls == 14  # 0b §3 组织级数据表
+        assert tables >= 27  # 27 业务表 + alembic_version（+ V2 新增 task 等）
+        assert rls == 15  # 0b §3 组织级数据表（V2-P1 新增 task → 14+1）
     finally:
         engine.dispose()

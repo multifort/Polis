@@ -31,6 +31,9 @@ from polis.modules.planner.schemas import (
     RunNodeState,
     RunStatusResult,
     SignalIn,
+    TaskCreateIn,
+    TaskOut,
+    TaskRunOut,
     derive_overall_status,
 )
 from polis.modules.planner.workflow import TASK_QUEUE, TaskWorkflow
@@ -71,6 +74,56 @@ async def create_plan(data: PlanCreateIn, org: CurrentOrg, session: SessionDep) 
         ) from exc
 
 
+async def _start_plan(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    plan: Any,
+    user_id: uuid.UUID,
+    task_id: uuid.UUID | None = None,
+) -> Any:
+    """启动一个 plan 的 Temporal 工作流：建 task_run（贯通 task_id，TD-028）+ Run Manifest + 审计。
+
+    approve_plan（直接出图后审批）与 run_task（任务驱动）共用。Temporal 不可达 → 503。
+    """
+    workflow_id = f"plan-{plan.id}"
+    client = await _temporal_client()
+    await repo.update_plan_status(session, org_id, plan.id, "running")
+    run = await repo.create_task_run(session, org_id, plan.id, workflow_id, task_id=task_id)
+    try:
+        await client.start_workflow(
+            TaskWorkflow.run,
+            args=[plan.dag, str(org_id), str(run.id)],
+            id=workflow_id,
+            task_queue=TASK_QUEUE,
+        )
+    except Exception as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "编排服务未就绪") from exc
+
+    dag_nodes = plan.dag.get("nodes", []) if isinstance(plan.dag, dict) else []
+    await obs_repo.create_run_manifest(
+        session,
+        task_id=run.id,
+        org_id=org_id,
+        plan_snapshot=plan.dag,
+        plan_version=plan.version,
+        models_used={"chat": get_settings().default_chat_model},
+        agents_used={
+            n["id"]: n.get("required_capabilities", [])
+            for n in dag_nodes
+            if n.get("type") == "agent"
+        },
+    )
+    await write_audit(
+        session,
+        action="plan.approve",
+        actor=str(user_id),
+        org_id=org_id,
+        target=str(plan.id),
+        detail={"task_id": str(run.id), "task": str(task_id) if task_id else None},
+    )
+    return run
+
+
 @router.post(
     "/plans/{plan_id}/approve",
     response_model=ApproveResult,
@@ -85,47 +138,72 @@ async def approve_plan(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "计划不存在")
     if plan.status not in ("draft", "approved"):
         raise HTTPException(status.HTTP_409_CONFLICT, f"计划当前状态为 {plan.status!r}，无法启动")
+    run = await _start_plan(session, org.org_id, plan, user_id)
+    return ApproveResult(task_id=run.id, status="running")
 
-    workflow_id = f"plan-{plan_id}"
-    client = await _temporal_client()
 
-    # 先建 task_run 拿 id，贯通到 workflow→节点执行（TD-028）
-    await repo.update_plan_status(session, org.org_id, plan_id, "running")
-    run = await repo.create_task_run(session, org.org_id, plan_id, workflow_id)
+# ── 任务实体（V2-P1）：可复用工作项 + 多次执行记录 ──────────────────────────────
 
+
+@router.post("/tasks", response_model=TaskOut, status_code=status.HTTP_201_CREATED)
+async def create_task(
+    data: TaskCreateIn, org: CurrentOrg, user_id: CurrentUserId, session: SessionDep
+) -> TaskOut:
+    """新建一个可复用任务（保存，不立即运行）。"""
+    task = await repo.create_task(
+        session,
+        org.org_id,
+        name=data.name,
+        goal=data.goal,
+        scenario_ref=data.scenario_ref,
+        input_schema=data.input_schema,
+        inputs=data.inputs,
+        created_by=user_id,
+    )
+    return TaskOut.model_validate(task, from_attributes=True)
+
+
+@router.get("/tasks", response_model=list[TaskOut])
+async def list_tasks(org: CurrentOrg, session: SessionDep) -> list[TaskOut]:
+    rows = await repo.list_tasks(session, org.org_id)
+    return [TaskOut.model_validate(t, from_attributes=True) for t in rows]
+
+
+@router.get("/tasks/{task_id}/runs", response_model=list[TaskRunOut])
+async def list_task_runs(
+    task_id: uuid.UUID, org: CurrentOrg, session: SessionDep
+) -> list[TaskRunOut]:
+    """某任务的历次执行记录（1 任务:N 运行）。"""
+    if await repo.get_task(session, org.org_id, task_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务不存在")
+    rows = await repo.list_task_runs(session, org.org_id, task_id)
+    return [TaskRunOut.model_validate(r, from_attributes=True) for r in rows]
+
+
+@router.post(
+    "/tasks/{task_id}/run", response_model=ApproveResult, status_code=status.HTTP_201_CREATED
+)
+async def run_task(
+    task_id: uuid.UUID, org: ApproverOrg, user_id: CurrentUserId, session: SessionDep
+) -> ApproveResult:
+    """运行一个任务：出图（检索/生成）→ 快照 plan → 启动编排，记一条执行记录（owner/approver）。"""
+    task = await repo.get_task(session, org.org_id, task_id)
+    if task is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务不存在")
     try:
-        await client.start_workflow(
-            TaskWorkflow.run,
-            args=[plan.dag, str(org.org_id), str(run.id)],
-            id=workflow_id,
-            task_queue=TASK_QUEUE,
-        )
-    except Exception as exc:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "编排服务未就绪") from exc
-
-    # Run Manifest：落可复现快照（plan 快照 + 模型 + agent 能力需求）—— T6.6
-    dag_nodes = plan.dag.get("nodes", []) if isinstance(plan.dag, dict) else []
-    await obs_repo.create_run_manifest(
-        session,
-        task_id=run.id,
-        org_id=org.org_id,
-        plan_snapshot=plan.dag,
-        plan_version=plan.version,
-        models_used={"chat": get_settings().default_chat_model},
-        agents_used={
-            n["id"]: n.get("required_capabilities", [])
-            for n in dag_nodes
-            if n.get("type") == "agent"
-        },
-    )
-    await write_audit(
-        session,
-        action="plan.approve",
-        actor=str(user_id),
-        org_id=org.org_id,
-        target=str(plan_id),
-        detail={"task_id": str(run.id)},
-    )
+        plan_result = await service.plan(session, org.org_id, task.goal)
+    except service.NoTemplateMatch as exc:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "没有可用的计划模板（当前公司能力不足以匹配任何模板）"
+        ) from exc
+    except service.PlanInvalid as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"errors": exc.errors}
+        ) from exc
+    plan = await repo.get_plan(session, org.org_id, plan_result.id)
+    if plan is None:  # 理论不会（刚建）
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "计划快照丢失")
+    run = await _start_plan(session, org.org_id, plan, user_id, task_id=task.id)
     return ApproveResult(task_id=run.id, status="running")
 
 

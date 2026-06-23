@@ -1,0 +1,75 @@
+"""集成测试（V2-P1）：任务实体——可复用任务 + 执行记录关联（task_run.task_id）。"""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+from typing import TYPE_CHECKING, Any, cast
+
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from polis.config import get_settings
+from polis.modules.planner import repository as repo
+from polis.seed import seed
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
+
+
+def _auth(c: Any, email: str) -> dict[str, str]:
+    r = c.post("/api/auth/register", json={"email": email, "password": "secret123"})
+    assert r.status_code == 201, r.text
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def test_task_crud_and_run_link(client: TestClient) -> None:
+    c = cast(Any, client)
+    asyncio.run(seed())
+    auth = _auth(c, f"task_{uuid.uuid4().hex[:8]}@polis.dev")
+    org_id = c.post(
+        "/api/provision", json={"name": "采购公司", "preset": "采购分析公司"}, headers=auth
+    ).json()["org"]["id"]
+    h = {**auth, "X-Org-Id": org_id}
+
+    # ① 建任务（保存，不运行）
+    r = c.post(
+        "/api/tasks",
+        json={"name": "供应商交付分析", "goal": "分析供应商交付"},
+        headers=h,
+    )
+    assert r.status_code == 201, r.text
+    task = r.json()
+    assert task["name"] == "供应商交付分析" and task["goal"] == "分析供应商交付"
+    task_id = task["id"]
+
+    # ② 列表含该任务
+    lst = c.get("/api/tasks", headers=h).json()
+    assert any(t["id"] == task_id for t in lst)
+
+    # ③ 执行记录初始为空
+    runs = c.get(f"/api/tasks/{task_id}/runs", headers=h)
+    assert runs.status_code == 200 and runs.json() == []
+
+    # ④ 不存在任务 → 404
+    assert c.get(f"/api/tasks/{uuid.uuid4()}/runs", headers=h).status_code == 404
+
+    # ⑤ task_run.task_id 关联（直连 DB 验证，绕过 Temporal）
+    async def _link() -> None:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                oid = uuid.UUID(org_id)
+                plan = await repo.create_plan(
+                    s, org_id=oid, goal="g", dag={"nodes": []}, version="v1", estimated_cost_cents=1
+                )
+                run = await repo.create_task_run(
+                    s, oid, plan.id, "wf-test", task_id=uuid.UUID(task_id)
+                )
+                await s.flush()
+                assert run.task_id == uuid.UUID(task_id)
+                linked = await repo.list_task_runs(s, oid, uuid.UUID(task_id))
+                assert any(x.id == run.id for x in linked)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_link())
