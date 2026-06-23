@@ -226,6 +226,21 @@ export interface ObsModelUsage {
   total_tokens: number;
   cost: number;
 }
+// ── 任务实体（V2-P1）──────────────────────────────────────────────
+export interface Task {
+  id: string;
+  name: string;
+  goal: string;
+  scenario_ref?: string | null;
+  status: string;
+}
+export interface TaskRunRow {
+  id: string;
+  task_id?: string | null;
+  plan_id?: string | null;
+  status: string;
+}
+
 export interface Observability {
   task_id: string;
   status: string;
@@ -301,4 +316,12 @@ export const api = {
       true,
       orgId,
     ),
+  // ── 任务实体（V2-P1）──
+  createTask: (orgId: string, body: { name: string; goal: string; scenario_ref?: string }) =>
+    request<Task>("/api/tasks", { method: "POST", body: JSON.stringify(body) }, true, orgId),
+  listTasks: (orgId: string) => request<Task[]>("/api/tasks", {}, true, orgId),
+  runTask: (orgId: string, taskId: string) =>
+    request<ApproveResult>(`/api/tasks/${taskId}/run`, { method: "POST" }, true, orgId),
+  taskRuns: (orgId: string, taskId: string) =>
+    request<TaskRunRow[]>(`/api/tasks/${taskId}/runs`, {}, true, orgId),
 };

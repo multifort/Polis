@@ -557,3 +557,26 @@ a { color: var(--color-accent-text); text-decoration: none; }
 .md th, .md td { border: 1px solid #e9ebf3; padding: 6px 10px; text-align: left; }
 .md th { background: #fafbff; font-weight: 600; }
 .md blockquote { border-left: 3px solid var(--color-primary-subtle-strong); margin: 8px 0; padding: 2px 12px; color: var(--color-text-secondary); }
+
+/* ============ V2-P1 任务页 ============ */
+.task-create { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+.task-create input {
+  flex: 1; min-width: 200px; height: 42px; padding: 0 14px;
+  border: 1px solid var(--color-border-strong); border-radius: 10px; font-size: 14px;
+  background: var(--color-surface); color: var(--color-text);
+}
+.task-create input:focus { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-subtle); }
+.task-create .btn-primary { width: auto; padding: 0 22px; height: 42px; }
+
+.task-list { display: flex; flex-direction: column; gap: 12px; }
+.task-card { background: var(--color-surface); border: 1px solid #e9ebf3; border-radius: 14px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(63,81,181,.06); }
+.task-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.task-meta { display: flex; flex-direction: column; gap: 3px; cursor: pointer; min-width: 0; }
+.task-name { font-size: 15px; font-weight: 600; color: var(--color-text); }
+.task-goal { font-size: 13px; color: var(--color-text-secondary); }
+.task-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.task-runs { margin-top: 12px; border-top: 1px solid #f1f2f7; padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.run-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.run-idx { font-weight: 600; color: var(--color-text-secondary); width: 32px; }
+.run-id { color: var(--color-text-secondary); font-size: 12px; }
+.run-row .link-btn { margin-left: auto; }

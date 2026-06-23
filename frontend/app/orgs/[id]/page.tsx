@@ -79,8 +79,11 @@ export default function OrgDetailPage() {
                 <Link className="btn-mini" href={`/orgs/${orgId}/settings`}>
                   模型配置
                 </Link>
+                <Link className="btn-mini" href={`/orgs/${orgId}/tasks`}>
+                  任务 →
+                </Link>
                 <Link className="btn-mini" href={`/orgs/${orgId}/plans`}>
-                  任务 / 计划 →
+                  临时出图 →
                 </Link>
               </div>
             </div>
