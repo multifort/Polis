@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from polis.modules.model.gateway import ChatMessage, ModelGateway
+from polis.modules.model.gateway import ChatMessage, ModelGateway, ToolSpec
 from polis.modules.runtime.context import ExecCtx
 from polis.modules.runtime.guardrails import Guardrails, GuardrailViolation
 from polis.modules.runtime.mcp import McpRuntime
@@ -36,6 +36,7 @@ async def run_loop(
     *,
     max_steps: int = MAX_STEPS,
     guard: Guardrails | None = None,
+    extra_specs: list[ToolSpec] | None = None,
 ) -> LoopResult:
     """多轮 tool-calling 循环。模型返回工具调用→执行→回灌；返回纯文本则结束。"""
     system = agent_prompt
@@ -44,11 +45,13 @@ async def run_loop(
     if ctx.goal:
         system += f"\n\n目标：{ctx.goal}"
     user = ctx.node.get("input_hint") or ""
+    if ctx.deps_brief:  # V2-B1：直接依赖的上游产出摘要，确定性注入（修 F3）
+        user += "\n\n" + ctx.deps_brief
     if ctx.memory_slice:
         user += "\n\n" + ctx.memory_slice
 
     msgs = [ChatMessage(role="system", content=system), ChatMessage(role="user", content=user)]
-    specs = [b.spec for b in ctx.skills.tools]
+    specs = [b.spec for b in ctx.skills.tools] + (extra_specs or [])
     tool_calls_made = 0
     tool_outputs: list[str] = []
 

@@ -29,6 +29,7 @@ class ExecCtx:
     model: ResolvedModel
     cred: ScopedCredential
     node: dict[str, Any]
+    deps_brief: str = ""  # 直接依赖的上游产出摘要（V2-B1 黑板，默认注入下游）
 
 
 async def build(

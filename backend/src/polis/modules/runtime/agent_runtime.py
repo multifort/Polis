@@ -23,7 +23,7 @@ from polis.modules.model.litellm_gateway import LiteLLMGateway
 from polis.modules.org.models import Agent, AgentCapability, AgentVersion
 from polis.modules.org.schemas import AgentConfig
 from polis.modules.planner import models as _planner_models  # noqa: F401  注册 task_run 等 FK 目标
-from polis.modules.runtime import context
+from polis.modules.runtime import blackboard, context
 from polis.modules.runtime.agent import run_loop
 from polis.modules.runtime.guardrails import Guardrails
 from polis.modules.runtime.mcp import McpRegistry, McpRuntime, default_registry
@@ -80,7 +80,16 @@ async def execute(
     ctx_task_key = task_id or str(node.get("id") or "node")
 
     ctx = await context.build(session, gateway, config, node, org_uuid, ctx_task_key, goal=goal)
-    loop = await run_loop(gateway, McpRuntime(registry), config.prompt, ctx, guard=guard)
+    # V2-B1 任务黑板：默认注入直接依赖的上游产出摘要（确定可靠，修 F3）；
+    # 全文按需——把 read_node_output 工具暴露给 Agent（确定性取数、LLM 决策）。
+    ctx.deps_brief = await blackboard.dep_briefs(
+        session, org_uuid, task_uuid, node.get("deps") or []
+    )
+    blackboard.register_blackboard_tools(registry)
+    runtime = McpRuntime(registry, ctx=blackboard.ToolCtx(session, org_uuid, task_uuid))
+    loop = await run_loop(
+        gateway, runtime, config.prompt, ctx, guard=guard, extra_specs=blackboard.blackboard_specs()
+    )
 
     status = "done" if loop.ok else ("blocked" if loop.blocked else "failed")
     envelope = ResultEnvelope(
@@ -89,7 +98,9 @@ async def execute(
         node_id=str(node.get("id") or ""),
         agent_id=(agent.id if agent is not None else None),
         status=status,
-        summary=loop.content,
+        summary=blackboard.summarize(loop.content),  # 短摘要（默认注入下游，便宜）
+        content=loop.content,  # 全文（黑板，供 read_node_output 懒加载）
+        tokens=blackboard.rough_tokens(loop.content),
         facts={
             "output": loop.content,
             "tool_outputs": loop.tool_outputs,

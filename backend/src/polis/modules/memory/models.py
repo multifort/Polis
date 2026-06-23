@@ -16,6 +16,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     Text,
     text,
 )
@@ -65,6 +66,8 @@ class ResultEnvelope(UUIDPkMixin, OrgScopedMixin, Base):
     artifacts: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     facts: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     summary: Mapped[str | None] = mapped_column(Text)
+    content: Mapped[str | None] = mapped_column(Text)  # 全文（V2-B1 黑板，懒加载）
+    tokens: Mapped[int | None] = mapped_column(Integer)  # 产出 token 估算（预算）
     needs_human: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
