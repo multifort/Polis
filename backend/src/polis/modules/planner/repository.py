@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -140,6 +141,15 @@ async def list_task_runs(
     return list((await session.scalars(q)).all())
 
 
+async def get_task_run(
+    session: AsyncSession, org_id: uuid.UUID, run_id: uuid.UUID
+) -> TaskRun | None:
+    run: TaskRun | None = await session.scalar(
+        select_org_scoped(TaskRun, org_id).where(TaskRun.id == run_id)
+    )
+    return run
+
+
 async def get_task_run_by_plan(
     session: AsyncSession, org_id: uuid.UUID, plan_id: uuid.UUID
 ) -> TaskRun | None:
@@ -154,6 +164,7 @@ async def get_task_run_by_plan(
 async def finish_task_run(session: AsyncSession, run: TaskRun, new_status: str) -> None:
     """工作流到达终态时回写 task_run + 关联 plan 的状态（保持 DB 与编排一致）。"""
     run.status = new_status
+    run.finished_at = datetime.now(UTC)
     if run.plan_id is not None:
         # done/needs_review 原样回写（plan CHECK 已含），其余归 failed
         plan_status = new_status if new_status in ("done", "needs_review") else "failed"

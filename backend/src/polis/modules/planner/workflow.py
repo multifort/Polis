@@ -93,6 +93,27 @@ async def evaluate_node(output: str, acceptance_criteria: str) -> dict[str, Any]
     return {"passed": r.passed, "judge": r.judge_score}
 
 
+@activity.defn
+async def finalize_run(run_id: str, org_id: str, overall: str) -> None:
+    """终态回写 Activity：工作流跑完后把 task_run/plan 写成终态。
+
+    回写不再依赖客户端轮询 GET /run（任务页只读 DB/产出，从不轮询 → 旧实现会让状态卡在
+    running，见 TD-031）。由工作流自身在结束时驱动，保证 DB 与编排一致。幂等：已是终态则跳过。
+    """
+    import uuid
+
+    from polis.db.session import get_sessionmaker, init_engine
+    from polis.modules.planner import repository as repo
+
+    _terminal = ("done", "failed", "needs_review")
+    init_engine()
+    async with get_sessionmaker()() as session:
+        run = await repo.get_task_run(session, uuid.UUID(org_id), uuid.UUID(run_id))
+        if run is not None and run.status not in _terminal:
+            await repo.finish_task_run(session, run, overall)
+            await session.commit()
+
+
 # ── 有界重规划 ─────────────────────────────────────────────────────────────────
 
 
@@ -135,6 +156,7 @@ class TaskWorkflow:
         # 原始 node dict（含 extra 字段如 fail_once/fail_always），传给 activity 用
         self._raw_nodes: dict[str, dict[str, Any]] = {}
         self._task_id = ""  # task_run.id（TD-028，贯通到节点执行）
+        self._org_id = ""  # 终态回写用（TD-031）
         self._goal = ""  # 用户意图（F3：贯通到 Agent 上下文，让产出锚定目标）
         self._acceptance = ""  # 验收标准（V2-S1 质量门）
         self._quality: dict[str, float] = {}  # 关键节点 judge 分数（观测用）
@@ -142,6 +164,7 @@ class TaskWorkflow:
     @workflow.run
     async def run(self, plan: dict[str, Any], org_id: str, task_id: str = "") -> dict[str, Any]:
         self._task_id = task_id
+        self._org_id = org_id
         dag = PlanDag.model_validate(plan)
         self._goal = str(plan.get("goal") or dag.goal or "")
         self._acceptance = str(dag.acceptance_criteria or "")
@@ -185,6 +208,14 @@ class TaskWorkflow:
                         break
 
         overall = derive_overall_status(list(self._node_status.values()))
+        # 终态回写 DB（不依赖任何客户端轮询，TD-031）。task_id 为空＝纯编排桩测，跳过 DB。
+        if self._task_id and self._org_id:
+            await workflow.execute_activity(
+                finalize_run,
+                args=[self._task_id, self._org_id, overall],
+                start_to_close_timeout=_QUALITY_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=5),
+            )
         return {
             "status": overall,
             "nodes": [{"id": k, "status": v} for k, v in self._node_status.items()],
