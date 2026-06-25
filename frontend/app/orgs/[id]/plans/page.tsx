@@ -44,6 +44,8 @@ const STATUS_LABEL: Record<string, string> = {
   done: "已完成",
   waiting_human: "待人审",
   failed: "失败",
+  needs_review: "待复核", // 顶层：关键节点质量未过（V2-S1）
+  needs_rework: "待返工", // 节点级：质量门未过
 };
 
 // ── SVG 流程图布局 ──────────────────────────────────────────────

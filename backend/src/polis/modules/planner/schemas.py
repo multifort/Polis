@@ -153,6 +153,8 @@ def derive_overall_status(node_statuses: list[str]) -> str:
         return "running"
     if any(s == "failed" for s in node_statuses):
         return "failed"
+    if any(s == "needs_rework" for s in node_statuses):  # V2-S1：关键节点质量不达标
+        return "needs_review"
     if all(s == "done" for s in node_statuses):
         return "done"
     return "running"

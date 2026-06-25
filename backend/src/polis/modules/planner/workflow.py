@@ -20,11 +20,20 @@ with workflow.unsafe.imports_passed_through():
     import pydantic  # noqa: F401
     import pydantic_core  # noqa: F401
 
-    from polis.modules.planner.schemas import PlanDag, PlanNode, validate
+    from polis.modules.planner.schemas import PlanDag, PlanNode, derive_overall_status, validate
 
 TASK_QUEUE = "polis-tasks"
 MAX_REPLANS = 3
 _ACTIVITY_TIMEOUT = timedelta(minutes=5)
+_QUALITY_TIMEOUT = timedelta(minutes=2)
+
+
+def _is_key_node(node: dict[str, Any]) -> bool:
+    """关键节点（V2-S1 质量门只评关键节点）：显式 evaluate=True，或能力含 report/generation。"""
+    if node.get("evaluate") is True:
+        return True
+    caps = node.get("required_capabilities") or []
+    return any(("report" in c or "generation" in c) for c in caps)
 
 
 # ── Activity ──────────────────────────────────────────────────────────────────
@@ -58,6 +67,30 @@ async def run_node(
     from polis.modules.runtime.agent_runtime import execute_node
 
     return await execute_node(node, org_id, task_id or None, goal=goal or None)
+
+
+@activity.defn
+async def evaluate_node(output: str, acceptance_criteria: str) -> dict[str, Any]:
+    """质量门 Activity（V2-S1）：对关键节点产出做 Evaluator 评分（断言 + LLM-judge）。
+
+    无验收标准/空产出 → 视为通过；有 Key 用真实 LiteLLM judge，否则确定性桩。返回 {passed, judge}。
+    """
+    if not acceptance_criteria or not output:
+        return {"passed": True, "judge": 1.0}
+
+    from polis.config import get_settings
+    from polis.db.session import get_sessionmaker, init_engine
+    from polis.modules.model.gateway import StubModelGateway, resolve_model
+    from polis.modules.model.litellm_gateway import LiteLLMGateway
+    from polis.modules.observability import evaluator
+
+    settings = get_settings()
+    init_engine()
+    async with get_sessionmaker()() as session:
+        model = await resolve_model(session, settings.default_chat_model)
+    gateway = LiteLLMGateway() if settings.deepseek_api_key else StubModelGateway()
+    r = await evaluator.score(gateway, model, output, acceptance_criteria=acceptance_criteria)
+    return {"passed": r.passed, "judge": r.judge_score}
 
 
 # ── 有界重规划 ─────────────────────────────────────────────────────────────────
@@ -103,12 +136,15 @@ class TaskWorkflow:
         self._raw_nodes: dict[str, dict[str, Any]] = {}
         self._task_id = ""  # task_run.id（TD-028，贯通到节点执行）
         self._goal = ""  # 用户意图（F3：贯通到 Agent 上下文，让产出锚定目标）
+        self._acceptance = ""  # 验收标准（V2-S1 质量门）
+        self._quality: dict[str, float] = {}  # 关键节点 judge 分数（观测用）
 
     @workflow.run
     async def run(self, plan: dict[str, Any], org_id: str, task_id: str = "") -> dict[str, Any]:
         self._task_id = task_id
         dag = PlanDag.model_validate(plan)
         self._goal = str(plan.get("goal") or dag.goal or "")
+        self._acceptance = str(dag.acceptance_criteria or "")
         # 保留原始 node dict（Pydantic model_dump 会丢掉 extra 字段）
         self._raw_nodes = {n["id"]: n for n in plan.get("nodes", [])}
         # 出图时已过 validate；此处从 DAG 自身推导可用能力集供重规划校验用
@@ -121,7 +157,8 @@ class TaskWorkflow:
             ready = [
                 n
                 for n in dag.nodes
-                if self._node_status.get(n.id) not in ("done", "failed")
+                # needs_rework 在 S1 不再调度（S2 接自动纠错）；done/failed 终态不重跑
+                if self._node_status.get(n.id) not in ("done", "failed", "needs_rework")
                 and all(self._node_status.get(d) == "done" for d in n.deps)
             ]
             if not ready:
@@ -147,10 +184,11 @@ class TaskWorkflow:
                         abort = True
                         break
 
-        overall = "done" if all(s == "done" for s in self._node_status.values()) else "failed"
+        overall = derive_overall_status(list(self._node_status.values()))
         return {
             "status": overall,
             "nodes": [{"id": k, "status": v} for k, v in self._node_status.items()],
+            "quality": self._quality,
         }
 
     @workflow.signal
@@ -184,5 +222,24 @@ class TaskWorkflow:
             start_to_close_timeout=_ACTIVITY_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+
+        # ── V2-S1 关键节点质量门 ──
+        if raw_node.get("force_rework"):  # 测试钩子：强制不达标
+            self._node_status[node.id] = "needs_rework"
+            self._quality[node.id] = 0.0
+            return result
+        if not raw_node.get("stub") and _is_key_node(raw_node) and self._acceptance:
+            ev: dict[str, Any] = await workflow.execute_activity(
+                evaluate_node,
+                args=[str(result.get("output") or ""), self._acceptance],
+                start_to_close_timeout=_QUALITY_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+            self._quality[node.id] = float(ev.get("judge") or 0.0)
+            if not ev.get("passed"):
+                # 不达标 → needs_rework（S1 不再调度；S2 接自动纠错/局部重规划）
+                self._node_status[node.id] = "needs_rework"
+                return result
+
         self._node_status[node.id] = "done"
         return result

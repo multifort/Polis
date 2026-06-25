@@ -155,7 +155,7 @@ async def finish_task_run(session: AsyncSession, run: TaskRun, new_status: str) 
     """工作流到达终态时回写 task_run + 关联 plan 的状态（保持 DB 与编排一致）。"""
     run.status = new_status
     if run.plan_id is not None:
-        await update_plan_status(
-            session, run.org_id, run.plan_id, "done" if new_status == "done" else "failed"
-        )
+        # done/needs_review 原样回写（plan CHECK 已含），其余归 failed
+        plan_status = new_status if new_status in ("done", "needs_review") else "failed"
+        await update_plan_status(session, run.org_id, run.plan_id, plan_status)
     await session.flush()

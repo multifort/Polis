@@ -227,7 +227,8 @@ async def get_plan_run(plan_id: uuid.UUID, org: CurrentOrg, session: SessionDep)
     # 顶层状态从节点派生（DB run.status 在 approve 后不会自动更新）
     overall = derive_overall_status([n.status for n in nodes])
     # 到达终态且 DB 仍为非终态时回写，保证 Temporal 保留期过后仍可读到正确状态
-    if overall in ("done", "failed") and run.status not in ("done", "failed"):
+    _terminal = ("done", "failed", "needs_review")  # needs_review：质量门未过（V2-S1）
+    if overall in _terminal and run.status not in _terminal:
         await repo.finish_task_run(session, run, overall)
     return RunStatusResult(status=overall, nodes=nodes)
 

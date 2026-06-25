@@ -580,3 +580,7 @@ a { color: var(--color-accent-text); text-decoration: none; }
 .run-idx { font-weight: 600; color: var(--color-text-secondary); width: 32px; }
 .run-id { color: var(--color-text-secondary); font-size: 12px; }
 .run-row .link-btn { margin-left: auto; }
+
+/* V2-S1 质量门状态 */
+.pill.needs_review, .pill.needs_rework { background: #fff4e5; color: #7a3e00; }
+.flow-node.needs_rework, .dag-node2.needs_rework, .obs-node.needs_rework { border-left-color: #ef8b1f; }

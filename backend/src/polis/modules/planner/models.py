@@ -77,7 +77,10 @@ class Plan(UUIDPkMixin, OrgScopedMixin, Base):
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
     __table_args__ = (
-        CheckConstraint("status IN ('draft','approved','running','done','failed')", name="status"),
+        CheckConstraint(
+            "status IN ('draft','approved','running','done','failed','needs_review')",
+            name="status",
+        ),
     )
 
 
@@ -109,5 +112,8 @@ class TaskRun(UUIDPkMixin, OrgScopedMixin, TimestampMixin, Base):
     finished_at: Mapped[datetime | None]
 
     __table_args__ = (
-        CheckConstraint("status IN ('pending','running','paused','done','failed')", name="status"),
+        CheckConstraint(
+            "status IN ('pending','running','paused','done','failed','needs_review')",
+            name="status",
+        ),
     )

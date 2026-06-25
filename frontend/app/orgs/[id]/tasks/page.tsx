@@ -21,6 +21,8 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "失败",
   paused: "暂停",
   active: "可用",
+  needs_review: "待复核",
+  needs_rework: "待返工",
 };
 const fmtCost = (y: number | null | undefined) => (y == null ? "—" : `¥${y.toFixed(4)}`);
 const fmtNum = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString());

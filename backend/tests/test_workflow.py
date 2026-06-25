@@ -36,6 +36,7 @@ def _node(
     ntype: str = "agent",
     fail_once: bool = False,
     fail_always: bool = False,
+    force_rework: bool = False,
     cap: str = "test.cap",
 ) -> dict[str, Any]:
     return {
@@ -46,6 +47,7 @@ def _node(
         "executor": "lite-agent",
         "fail_once": fail_once,
         "fail_always": fail_always,
+        "force_rework": force_rework,  # V2-S1 质量门测试钩子：强制不达标
         "stub": True,  # 纯编排测试走桩 run_node，不连 DB（M4-F）
     }
 
@@ -209,5 +211,45 @@ def test_replan_limit_exceeded() -> None:
         assert result["status"] == "failed"
         statuses = {n["id"]: n["status"] for n in result["nodes"]}
         assert all(s == "failed" for s in statuses.values()), statuses
+
+    asyncio.run(_run())
+
+
+def test_quality_gate_needs_review() -> None:
+    """V2-S1 质量门：终端节点产出不达标 → 该节点 needs_rework、顶层 needs_review；其余 done。"""
+    _skip_if_unavailable()
+
+    async def _run() -> None:
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        from polis.modules.planner.workflow import evaluate_node
+
+        plan = _plan(
+            [
+                _node("n1"),
+                _node("n2", deps=["n1"]),
+                _node("n4", deps=["n2"], force_rework=True),  # 关键节点质量不达标
+            ]
+        )
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:  # noqa: SIM117
+            async with Worker(
+                env.client,
+                task_queue=TASK_QUEUE,
+                workflows=[TaskWorkflow],
+                activities=[run_node, evaluate_node],
+            ):
+                result: dict[str, Any] = await env.client.execute_workflow(
+                    TaskWorkflow.run,
+                    args=[plan, str(uuid.uuid4())],
+                    id=f"test-quality-gate-{uuid.uuid4().hex}",
+                    task_queue=TASK_QUEUE,
+                )
+
+        statuses = {n["id"]: n["status"] for n in result["nodes"]}
+        assert result["status"] == "needs_review", result["status"]
+        assert statuses["n4"] == "needs_rework", statuses
+        assert statuses["n1"] == "done" and statuses["n2"] == "done", statuses
 
     asyncio.run(_run())
