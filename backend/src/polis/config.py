@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     # 模型接入（M6）。密钥走 env / credential 信封加密，永不入库。
     deepseek_api_key: str = ""  # 开发期系统级 Key；正式走 credential（owner 配置）
     deepseek_base_url: str = "https://api.deepseek.com"
-    default_chat_model: str = "deepseek-v4-pro"  # model_catalog.id
+    default_chat_model: str = "deepseek-v4-flash"  # model_catalog.id（同一 DeepSeek Key）
     embedding_base_url: str = "http://localhost:8082"  # 本地 TEI(bge-large-zh-v1.5, arm64)
     kms_master_key: str = ""  # 信封加密主密钥（base64 32B）；生产必填
 
