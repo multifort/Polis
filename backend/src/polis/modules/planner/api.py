@@ -300,12 +300,14 @@ async def get_plan_observability(
             {
                 "node_id": e.node_id,
                 "status": e.status,
-                "summary": e.summary,
+                "summary": e.summary,  # 短摘要（折叠态/默认注入用）
+                "content": e.content or e.summary,  # 全文（展示用；旧行回退 summary）
                 "needs_human": e.needs_human,
                 "created_at": e.created_at.isoformat() if e.created_at is not None else None,
                 "provenance": (e.facts or {}).get("provenance") if e.facts else None,
             }
-            for e in envelopes
+            # 按 node_id 稳定排序（并行节点 created_at 会乱序），n4 等终端节点在后
+            for e in sorted(envelopes, key=lambda x: x.node_id or "")
         ],
         "llm_calls": llm_calls,
         **_aggregate_usage(llm_calls),

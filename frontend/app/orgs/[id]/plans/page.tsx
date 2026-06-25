@@ -480,8 +480,10 @@ export default function PlansPage() {
                               )}
                             </summary>
                             <div className="md">
-                              {n.summary ? (
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{n.summary}</ReactMarkdown>
+                              {(n.content ?? n.summary) ? (
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                  {n.content ?? n.summary}
+                                </ReactMarkdown>
                               ) : (
                                 <p className="hint">（无产出文本）</p>
                               )}
@@ -651,8 +653,10 @@ function LogModal({
                   {fmtTime(n.created_at) && <span className="otime">⏱ {fmtTime(n.created_at)}</span>}
                 </div>
                 <div className="md">
-                  {n.summary ? (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{n.summary}</ReactMarkdown>
+                  {(n.content ?? n.summary) ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {n.content ?? n.summary}
+                    </ReactMarkdown>
                   ) : (
                     <p className="hint">（无产出文本）</p>
                   )}

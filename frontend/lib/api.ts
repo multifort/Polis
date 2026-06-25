@@ -197,6 +197,7 @@ export interface ObsNode {
   node_id: string;
   status: string;
   summary: string | null;
+  content: string | null; // 全文（展示用）
   needs_human: boolean;
   created_at: string | null;
   provenance: Record<string, unknown> | null;

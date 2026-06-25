@@ -252,8 +252,10 @@ export default function TasksPage() {
                         </span>
                       </summary>
                       <div className="md">
-                        {n.summary ? (
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{n.summary}</ReactMarkdown>
+                        {(n.content ?? n.summary) ? (
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {n.content ?? n.summary}
+                          </ReactMarkdown>
                         ) : (
                           <p className="hint">（无产出文本）</p>
                         )}
