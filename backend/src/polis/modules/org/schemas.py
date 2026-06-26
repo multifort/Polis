@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -78,6 +79,7 @@ class AgentConfig(BaseModel):
     executor: str = "lite-agent"
     model: str | None = None  # model_catalog.id；None 时由运行时取默认（M4）
     authority: AgentAuthority = Field(default_factory=AgentAuthority)  # 最小权限（M4）
+    provenance: dict[str, Any] | None = None  # 生成出处（V2-A3 拼装记录：来自哪些 Skill）
 
 
 class AgentOut(BaseModel):

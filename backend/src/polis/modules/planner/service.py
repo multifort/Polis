@@ -17,9 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polis.config import get_settings
 from polis.modules.model.gateway import ModelGateway, resolve_model
 from polis.modules.planner import repository as repo
+from polis.modules.planner.composer import route_or_compose
 from polis.modules.planner.errors import NoTemplateMatch, PlanInvalid
 from polis.modules.planner.models import PlanTemplate
-from polis.modules.planner.router import select_agent
 from polis.modules.planner.schemas import PlanDag, PlanResult, estimate_cost_cents, validate
 
 logger = logging.getLogger(__name__)
@@ -111,7 +111,7 @@ async def plan(
     gateway: ModelGateway | None = None,
 ) -> PlanResult:
     # ① 当前公司可用能力集（所有 active Agent 的能力并集）
-    available = await repo.available_capabilities(session)
+    available = await repo.available_capabilities(session, org_id)
     if not available:
         # 无 active 能力 → 模板/生成都无从满足 → 404（design §14.6 错误矩阵）
         raise NoTemplateMatch
@@ -142,12 +142,8 @@ async def plan(
     if not vr.ok:
         raise PlanInvalid(vr.errors)
 
-    # ④ 对每个 agent 节点（且有能力需求）做确定性路由
-    routing: dict[str, str | None] = {}
-    for node in dag.nodes:
-        if node.type == "agent" and node.required_capabilities:
-            agent = await select_agent(session, node.required_capabilities)
-            routing[node.id] = agent.name if agent is not None else None
+    # ④ 路由/编配（§5.2）：现有 Agent 检索命中即用；无则拼已审 Skill 成 Agent（A3）
+    routing = await route_or_compose(session, org_id, dag)
 
     # ⑤ 持久化
     cost = estimate_cost_cents(dag)

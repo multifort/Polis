@@ -9,19 +9,31 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from polis.db.org_scoped import select_org_scoped
+from polis.db.org_scoped import select_org_scoped, visible_clause
 from polis.modules.org.models import Agent, AgentCapability
 from polis.modules.planner.models import Plan, PlanTemplate, Task, TaskRun
+from polis.modules.runtime.models import Skill
 
 
-async def available_capabilities(session: AsyncSession) -> set[str]:
-    """当前公司（RLS 限定）所有 active Agent 的能力并集。"""
-    rows = await session.execute(
+async def available_capabilities(session: AsyncSession, org_id: uuid.UUID) -> set[str]:
+    """当前公司可用能力集 = active Agent 能力 ∪ 可见 published Skill 能力（ADR-0009）。
+
+    能力的「信用」来自实现它的 Skill 过审+发布；故 published Skill 提供的能力也算 active——
+    即便暂无 Agent 承接，编配器可按需拼 Skill 成 Agent（A3 route_or_compose）。
+    """
+    agent_rows = await session.execute(
         select(AgentCapability.capability)
         .join(Agent, Agent.id == AgentCapability.agent_id)
         .where(Agent.status == "active")
     )
-    return {c for (c,) in rows.all()}
+    skill_rows = await session.execute(
+        select(Skill.capability).where(
+            Skill.capability.is_not(None),
+            Skill.status == "published",
+            visible_clause(Skill, org_id),
+        )
+    )
+    return {c for (c,) in agent_rows.all()} | {c for (c,) in skill_rows.all() if c}
 
 
 async def list_plan_templates(session: AsyncSession) -> list[PlanTemplate]:
