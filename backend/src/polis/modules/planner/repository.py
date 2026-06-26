@@ -35,6 +35,22 @@ async def list_plan_templates(session: AsyncSession) -> list[PlanTemplate]:
     )
 
 
+async def rank_plan_templates_by_goal(
+    session: AsyncSession, query_embedding: list[float], limit: int = 10
+) -> list[PlanTemplate]:
+    """按 goal 向量与模板 embedding 的余弦距离升序返回候选模板（A1 语义检索）。
+
+    仅含 embedding 非空的模板（未回填的走 service 兜底确定性路径）；用 hnsw 索引。
+    """
+    q = (
+        select(PlanTemplate)
+        .where(PlanTemplate.embedding.isnot(None))
+        .order_by(PlanTemplate.embedding.cosine_distance(query_embedding))
+        .limit(limit)
+    )
+    return list((await session.scalars(q)).all())
+
+
 async def create_plan(
     session: AsyncSession,
     org_id: uuid.UUID,

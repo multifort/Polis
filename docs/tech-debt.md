@@ -26,7 +26,7 @@
 | [TD-016](#td-016) | 权限矩阵未完整落地（approver/member 区分 + 成员邀请/移除） | Low-Med | open | 审批/成员管理接入时 |
 | [TD-017](#td-017) | 预设关键词匹配对中文弱（无分词/无语义） | Low | open | M6 embedding 语义匹配 |
 | [TD-018](#td-018) | Temporal worker 沙箱 pydantic_core 延迟导入 UserWarning | Low | **closed** | 已消除，见偿还记录 |
-| [TD-019](#td-019) | 节点终态仅靠 GET /run 触发回写（无 workflow 完成回调） | Low-Med | open | M6 审批/Manifest 接线时 |
+| [TD-019](#td-019) | 节点终态仅靠 GET /run 触发回写（无 workflow 完成回调） | Low-Med | **closed** | 已补 finalize_run 工作流完成回调，见偿还记录 |
 | [TD-020](#td-020) | M3 Planner 仅模板优先，全自动 LLM 拆解兜底延后 | Low | open(设计内后置) | M6 模型网关接入时 |
 | [TD-021](#td-021) | M4 执行内核 5 处桩待真实化（模型/凭证/记忆/护栏/MCP） | Med | open(设计内·ADR-0007) | M5/M6 |
 | [TD-022](#td-022) | run_node 真实执行路径未经 Temporal worker 端到端测试 | Low-Med | open | worker+temporal 常驻测试环境就绪时 |
@@ -37,6 +37,7 @@
 | [TD-029](#td-029) | 部署：组件地址 dev 默认 localhost，生产需 env 覆盖 + 容器化用 service name | Low-Med | open | 应用容器化(TD-009)/进 staging 前 |
 | [TD-026](#td-026) | M6 仍有桩：Guardrails 规则版/MCP 内置工具/单模型(无主模型·Agent选型) | Low-Med | open | Guardrails-AI/真实MCP/多模型第二步 |
 | [TD-027](#td-027) | TEI 模型须预下载离线挂载（hf-mirror 不返回 etag，在线下载失败） | Low | open(运维已知) | 换可返回 etag 的源 / 自建镜像 |
+| [TD-030](#td-030) | A1 仅落「模板语义选择」，能力/技能/角色语义检索延后 | Med | open(切片后置) | A1 后续刀 / A3·B2 接线时 |
 
 ---
 
@@ -154,7 +155,9 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 **节点/任务终态仅在 `GET /run` 被调用时回写 DB（无 workflow 完成的主动回调）。**
 `finish_task_run` 在轮询 `GET /run` 发现终态时才更新 `task_run`/`plan` 状态；若前端不再轮询，DB 状态可能滞留 `running`。
 - 影响：M3 桩执行可接受（前端运行页持续轮询直到终态）；但无轮询场景下 DB 不最终一致。
-- 偿还：M6 审批/Run Manifest 接线时，由 Temporal workflow 完成钩子或 Activity 主动回写终态（含 finished_at）。
+- **已偿还（2026-06-25）**：`TaskWorkflow.run()` 结束时执行 `finalize_run` Activity 主动回写
+  `task_run`/`plan` 终态（含 `finished_at`），不再依赖任何客户端轮询；`GET /run` 惰性回写保留为兜底。
+  暴露契机：任务页只读 DB/产出、从不轮询 `/run`，导致运行卡 `running` 与节点产出不一致。见 commit `701c99b`。
 
 ### TD-020
 **M3 Planner 只实现「模板优先」，T3.2 设计的「全自动拆解兜底」延后。**
@@ -239,9 +242,13 @@ M5 写入/检索/衰减/共享并发/治理均真实落地，但依赖 embedding
 - 影响：换机/新环境需先预下载模型（~1.2G），非「compose up 即用」。
 - 偿还：换可返回 etag 的镜像源 / 自建含模型的镜像 / 或用支持 hf-mirror 的下载方式。
 
----
-
-## 偿还记录
+### TD-030
+**A1 检索升级仅落「模板语义选择」第一刀，能力/技能/角色语义检索延后（用户决策切片）。**
+A1 设计（docs/design/v2/00 §A1）原为「模板/角色/技能/能力**全部**语义检索」。为符合 DoR（1–3 天可独立验收）
++ 尽早过评审，按用户决定先只做最高价值、最目标盲的一处——`service.plan` 模板选择：
+从「第一个能力可行的模板」改为「能力可行候选中按 goal↔模板向量最相似择优」，TEI 不可用时优雅回退确定性逻辑。
+- 影响：能力解析（节点 `required_capabilities`）、技能/角色检索仍走原关键词/遍历；多模板同质场景外，效果与原逻辑接近。
+- 偿还：A1 后续刀补能力语义解析；技能/角色语义检索随 A3 编配生成 / B2 分层接地接线时一并做。属切片后置，非疏漏。
 - **TD-010 已偿还**：运行时 RLS 接通——`OrgContext` 中间件每请求 `SET LOCAL ROLE polis_app`
   + `set_config('app.current_org', …)`，组织级端点（如花名册）按公司隔离；HTTP 层隔离回归
   `tests/test_integration_orgctx.py`（X-Org-Id A/B 互不可见 + 非成员 403 + 缺头 400）已测通。

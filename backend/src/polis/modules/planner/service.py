@@ -6,13 +6,18 @@
 from __future__ import annotations
 
 import copy
+import logging
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from polis.modules.model.gateway import ModelGateway
 from polis.modules.planner import repository as repo
+from polis.modules.planner.models import PlanTemplate
 from polis.modules.planner.router import select_agent
 from polis.modules.planner.schemas import PlanDag, PlanResult, estimate_cost_cents, validate
+
+logger = logging.getLogger(__name__)
 
 
 class NoTemplateMatch(Exception):
@@ -27,18 +32,52 @@ class PlanInvalid(Exception):
         self.errors = errors
 
 
-async def plan(session: AsyncSession, org_id: uuid.UUID, goal: str) -> PlanResult:
+def _feasible(tpl: PlanTemplate, available: set[str]) -> bool:
+    """模板所有节点的能力需求是否 ⊆ 当前公司可用能力集。"""
+    nodes = tpl.dag_skeleton.get("nodes", [])
+    needs = {c for n in nodes for c in n.get("required_capabilities", [])}
+    return needs <= available
+
+
+async def _embed_goal(goal: str, gateway: ModelGateway | None) -> list[float] | None:
+    """把 goal 向量化（A1 语义检索用）。无网关/桩/服务不可达 → None（调用方回退确定性）。"""
+    if gateway is None:
+        return None
+    try:
+        return (await gateway.embed([goal]))[0]
+    except Exception:  # 检索是增强项，embedding 失败不应让出图崩；记日志后回退
+        logger.warning("goal embedding 失败，回退确定性模板选择", exc_info=True)
+        return None
+
+
+async def _select_template(
+    session: AsyncSession, available: set[str], goal: str, gateway: ModelGateway | None
+) -> PlanTemplate | None:
+    """选模板：语义优先（goal↔模板向量最相似的可行模板），否则确定性「第一个可行」兜底（A1）。"""
+    query_vec = await _embed_goal(goal, gateway)
+    if query_vec is not None:
+        for tpl in await repo.rank_plan_templates_by_goal(session, query_vec):
+            if _feasible(tpl, available):
+                return tpl  # 语义最相似的可行模板
+        # 语义候选都不可行（或模板未回填 embedding）→ 落确定性兜底
+    for tpl in await repo.list_plan_templates(session):
+        if _feasible(tpl, available):
+            return tpl
+    return None
+
+
+async def plan(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    goal: str,
+    *,
+    embed_gateway: ModelGateway | None = None,
+) -> PlanResult:
     # ① 当前公司可用能力集（所有 active Agent 的能力并集）
     available = await repo.available_capabilities(session)
 
-    # ② 选第一个所有节点能力需求都 ⊆ 可用能力集的模板
-    chosen = None
-    for tpl in await repo.list_plan_templates(session):
-        nodes = tpl.dag_skeleton.get("nodes", [])
-        needs = {c for n in nodes for c in n.get("required_capabilities", [])}
-        if needs <= available:
-            chosen = tpl
-            break
+    # ② 选模板：A1 语义优先（按 goal 相似度），TEI 不可用/未注入网关 → 确定性「第一个可行」兜底
+    chosen = await _select_template(session, available, goal, embed_gateway)
     if chosen is None:
         raise NoTemplateMatch
 
