@@ -1,0 +1,82 @@
+"""单测（A2 规划生成）：generate_dag RAG 接地 + 双校验 + 有界自修复（不依赖真实 LLM）。
+
+用 StubModelGateway 脚本化 LLM 输出，验证：
+1. 一次过合法 JSON → 返回 PlanDag；
+2. 首轮结构非法 / 语义非法 → 反馈错误 → 次轮修正 → 通过（有界自修复）；
+3. N 轮都不过 → PlanInvalid（携带最后一轮错误）。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+
+import pytest
+
+from polis.modules.model.gateway import ChatResponse, ResolvedModel, StubModelGateway
+from polis.modules.planner.errors import PlanInvalid
+from polis.modules.planner.generator import generate_dag
+
+_MODEL = ResolvedModel(id="m", provider="p", litellm_name="n", context_window=8000)
+
+
+def _valid_dag_json(cap: str = "analysis") -> str:
+    return json.dumps(
+        {
+            "workflow_name": "wf",
+            "goal": "g",
+            "budget_cents": 1000,
+            "nodes": [{"id": "n1", "type": "agent", "deps": [], "required_capabilities": [cap]}],
+        }
+    )
+
+
+def _run(gw: StubModelGateway, available: set[str]) -> object:
+    return asyncio.run(generate_dag(gw, _MODEL, "目标", available, exemplars=[]))
+
+
+def test_valid_first_try() -> None:
+    gw = StubModelGateway(script=[ChatResponse(content=_valid_dag_json())])
+    dag = _run(gw, {"analysis"})
+    assert dag.nodes[0].required_capabilities == ["analysis"]
+
+
+def test_valid_with_markdown_fence() -> None:
+    fenced = "```json\n" + _valid_dag_json() + "\n```"
+    gw = StubModelGateway(script=[ChatResponse(content=fenced)])
+    dag = _run(gw, {"analysis"})
+    assert dag.workflow_name == "wf"
+
+
+def test_self_repair_after_bad_json() -> None:
+    gw = StubModelGateway(
+        script=[
+            ChatResponse(content="对不起，这不是 JSON"),  # 结构非法
+            ChatResponse(content=_valid_dag_json()),  # 修正
+        ]
+    )
+    dag = _run(gw, {"analysis"})
+    assert len(dag.nodes) == 1
+
+
+def test_self_repair_after_capability_error() -> None:
+    gw = StubModelGateway(
+        script=[
+            ChatResponse(content=_valid_dag_json(cap="not_active")),  # 语义：能力不在 available
+            ChatResponse(content=_valid_dag_json(cap="analysis")),  # 修正
+        ]
+    )
+    dag = _run(gw, {"analysis"})
+    assert dag.nodes[0].required_capabilities == ["analysis"]
+
+
+def test_give_up_raises_plan_invalid() -> None:
+    gw = StubModelGateway(
+        script=[
+            ChatResponse(content=_valid_dag_json(cap="bad")),
+            ChatResponse(content=_valid_dag_json(cap="bad")),
+        ]
+    )
+    with pytest.raises(PlanInvalid) as ei:
+        _run(gw, {"analysis"})
+    assert any("能力" in e for e in ei.value.errors)

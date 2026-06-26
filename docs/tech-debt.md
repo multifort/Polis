@@ -27,7 +27,7 @@
 | [TD-017](#td-017) | 预设关键词匹配对中文弱（无分词/无语义） | Low | open | M6 embedding 语义匹配 |
 | [TD-018](#td-018) | Temporal worker 沙箱 pydantic_core 延迟导入 UserWarning | Low | **closed** | 已消除，见偿还记录 |
 | [TD-019](#td-019) | 节点终态仅靠 GET /run 触发回写（无 workflow 完成回调） | Low-Med | **closed** | 已补 finalize_run 工作流完成回调，见偿还记录 |
-| [TD-020](#td-020) | M3 Planner 仅模板优先，全自动 LLM 拆解兜底延后 | Low | open(设计内后置) | M6 模型网关接入时 |
+| [TD-020](#td-020) | M3 Planner 仅模板优先，全自动 LLM 拆解兜底延后 | Low | **closed** | A2 generate_dag（RAG+双校验+自修复）已补，见偿还记录 |
 | [TD-021](#td-021) | M4 执行内核 5 处桩待真实化（模型/凭证/记忆/护栏/MCP） | Med | open(设计内·ADR-0007) | M5/M6 |
 | [TD-022](#td-022) | run_node 真实执行路径未经 Temporal worker 端到端测试 | Low-Med | open | worker+temporal 常驻测试环境就绪时 |
 | [TD-023](#td-023) | SkillInvocation 计费/可观测为桩（latency/cost=0、聚合一条） | Low | open | M6 模型网关+Langfuse 接线时 |
@@ -164,7 +164,10 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 研发任务 T3.2 原为「模板优先 + 全自动拆解兜底」；当前 `planner.service.plan` 仅模板优先，
 无模板匹配时 `raise NoTemplateMatch`（404）。全自动拆解需 LLM 生成 DAG，依赖模型网关（M6）。
 - 影响：当前公司能力不匹配任何模板时无法出图（404），需先有匹配模板；与 ADR-0006 确定性路线一致，M3 演示不受影响。
-- 偿还：M6 接 LiteLLM 后补 LLM 拆解兜底（无模板→LLM 生成 DAG→过 `validate`→落库），与模板优先同构。属设计内后置（同 ADR-0006 思路），非疏漏。
+- **已偿还（2026-06-26，A2）**：`planner/generator.generate_dag`——模板未命中（相似度 < τ_tpl 或无可行模板）
+  时 RAG 接地 LLM 生成 DAG（top-k 模板骨架作范例）+ 结构(Pydantic)/语义(`validate`)双校验 + 有界自修复(N=2)，
+  仍不过→`PlanInvalid`(422)。无 active 能力仍 404（`NoTemplateMatch`）。实测：营销渠道目标命中采购模板失败→
+  生成 4 节点合法 DAG（能力闭合于 org 4 能力、无环、全路由）。单测 `test_plan_generator.py` 5 例。
 
 ### TD-021
 **M4 执行内核 5 处桩待真实化（设计内，ADR-0007）。** M4 按桩驱动路线搭全部执行内核结构，

@@ -64,7 +64,7 @@ async def _temporal_client() -> Any:
 @router.post("/plans", response_model=PlanResult, status_code=status.HTTP_201_CREATED)
 async def create_plan(data: PlanCreateIn, org: CurrentOrg, session: SessionDep) -> PlanResult:
     try:
-        return await service.plan(session, org.org_id, data.goal, embed_gateway=LiteLLMGateway())
+        return await service.plan(session, org.org_id, data.goal, gateway=LiteLLMGateway())
     except service.NoTemplateMatch as exc:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, "没有可用的计划模板（当前公司能力不足以匹配任何模板）"
@@ -192,9 +192,7 @@ async def run_task(
     if task is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "任务不存在")
     try:
-        plan_result = await service.plan(
-            session, org.org_id, task.goal, embed_gateway=LiteLLMGateway()
-        )
+        plan_result = await service.plan(session, org.org_id, task.goal, gateway=LiteLLMGateway())
     except service.NoTemplateMatch as exc:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, "没有可用的计划模板（当前公司能力不足以匹配任何模板）"
