@@ -38,7 +38,7 @@
 | [TD-026](#td-026) | M6 仍有桩：Guardrails 规则版/MCP 内置工具/单模型(无主模型·Agent选型) | Low-Med | open | Guardrails-AI/真实MCP/多模型第二步 |
 | [TD-027](#td-027) | TEI 模型须预下载离线挂载（hf-mirror 不返回 etag，在线下载失败） | Low | open(运维已知) | 换可返回 etag 的源 / 自建镜像 |
 | [TD-030](#td-030) | A1 仅落「模板语义选择」，能力/技能/角色语义检索延后 | Med | open(切片后置) | A1 后续刀 / A3·B2 接线时 |
-| [TD-032](#td-032) | Skill 生成链机制已落（草稿+人审墙+发布）；**剩**从 goal 端可达（A2 提案新能力）+ tool/MCP 草稿+沙箱 | Med | partial | A2 放开能力提案 / 需要 tool 类 skill 生成时 |
+| [TD-032](#td-032) | Skill 生成链已落（草稿+风险分级放行：manual 自动 eval 发布 / tool 人审墙）；**剩** goal 端可达（A2 提案新能力）+ tool/MCP 草稿+沙箱 + 语义去重 | Med | partial | A2 放开能力提案 / 需要 tool 类 skill 时 |
 | [TD-033](#td-033) | compose-eval 升级为「试产出」judge 并硬门控（judge≥τ active / <τ draft） | Med | **closed** | 已接试产出 eval（带技能 playbook），见偿还记录 |
 
 ---
@@ -270,10 +270,13 @@ A3 完整定义（docs/design/v2/01 §5.2–5.4）= ① 节点无现成 Agent→
   （能力随之进 `available_capabilities`）。`compose_agent` 缺 Skill → 生成草稿+撞墙（返 None）；approval decide
   approve+skill_review → 自动 `publish_skill`。集成测试 `test_integration_skillgen.py`（草稿/私有/幂等/
   发布/仅本 org/发布后可拼装）。
-- **剩余（仍 open）**：① **从 goal 端可达**——当前 `validate` 拦不可用能力、A2 又约束只用可用能力，故
-  缺 Skill 路径只在直接 compose / 授权场景触发；要从「用户目标需要全新能力」端打通，需放开 A2 提案新能力
-  （`<domain>.<verb>` 命名）+ service.plan 把缺能力路由到本链（会动 A2 已验的 100%，单列谨慎做）。
-  ② **tool/MCP 类 skill 草稿 + 沙箱试跑**（§6.2）——manual 类靠人审即可，tool 类需沙箱最小权限闸。
+- **风险分级放行（2026-06-27，ADR-0009 修订）**：洞察「副作用来自工具、不来自提示词」——`manual`
+  playbook 过自动 eval(`_auto_eval` 沙箱试用 + judge≥0.6) → **自动 published(community)、无人卡、同轮可用**
+  （`compose_agent` 对自动放行能力同轮拼装）；`tool` 类才保留人审墙。留审计痕(approved/decided_by NULL)。
+  实测 live：生成 playbook → judge 0.98 → 自动发布。解决「每个任务都等人审、不智能」。
+- **剩余（仍 open）**：① **从 goal 端可达**——`validate` 拦不可用能力、A2 又约束只用可用能力，故缺 Skill
+  路径目前只在直接 compose 触发；要从「目标需要全新能力」端打通，需放开 A2 提案新能力 + service.plan
+  路由缺能力到本链（会动 A2 已验 100%，单列谨慎做）。② **tool/MCP 草稿 + 沙箱试跑**（§6.2 最小权限闸）。
   ③ `activate_capability` 语义去重（§14.4，τ_dedup≈0.86）。
 
 ### TD-033

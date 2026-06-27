@@ -147,13 +147,22 @@ async def compose_agent(
         else:
             chosen[cap] = sk
     if missing:
-        # 撞人审墙（TD-032）：为缺 Skill 的能力生成草稿 + skill_review 审批（不自动发布）。
-        # 本节点暂不可用（返 None），待人审通过发布后下次拼装。无 gateway 则仅记日志（不阻断）。
-        if gateway is not None:
-            for cap in missing:
-                await generate_skill_draft(session, org_id, cap, gateway)
-        logger.info("compose_agent 缺 Skill 能力 %s → 已生成草稿待人审，暂不覆盖", missing)
-        return None
+        # Skill 生成链（TD-032）+ 风险分级放行：为缺 Skill 的能力生成草稿。
+        # manual 过自动 eval → 同轮 published 可用（无人卡）；未过/tool → 撞人审墙、暂不覆盖。
+        if gateway is None:
+            logger.info("compose_agent 缺 Skill 能力 %s 且无 gateway → 暂不覆盖", missing)
+            return None
+        still_missing: list[str] = []
+        for cap in missing:
+            sk = await generate_skill_draft(session, org_id, cap, gateway)
+            if sk.status == "published":  # 自动放行 → 同轮可用
+                chosen[cap] = sk
+            else:
+                still_missing.append(cap)  # 撞人审墙，待发布
+        if still_missing:
+            logger.info("compose_agent 能力 %s 待人审发布，暂不覆盖", still_missing)
+            return None
+        # 全部自动放行 → 落到下方正常拼装（cfg 用 chosen）
 
     cfg = AgentConfig(
         prompt=_compose_prompt(caps),
