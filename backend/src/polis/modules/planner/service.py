@@ -26,8 +26,10 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["NoTemplateMatch", "PlanInvalid", "plan"]
 
-# 模板命中相似度阈值：top-1 可行模板的 goal↔模板余弦 < τ → 判「未命中」转生成（design §14 阈值表）
-TAU_TPL = 0.78
+# 模板命中相似度阈值：top-1 可行模板的 goal↔模板余弦 < τ → 判「未命中」转生成。
+# 0.50 为数据校准值（design §14 标注 0.78 为待校准初值）：用中文语义模板 embedding 后，实测
+# 同域目标 0.57–0.69 / 跨域 0.36–0.41，0.50 两侧均有 ≥0.07 余量。见 A1 检索校准。
+TAU_TPL = 0.50
 _EXEMPLAR_K = 3  # RAG 接地范例数
 
 

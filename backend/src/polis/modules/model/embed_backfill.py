@@ -35,8 +35,19 @@ async def _embed_rows(gateway: ModelGateway, rows: list[Any], text_of: Callable[
 
 
 def _tpl_text(t: PlanTemplate) -> str:
+    """模板的语义检索源文本：聚合中文「验收标准 + 各节点意图/产出」。
+
+    不用 name/workflow_name（英文标识符，对 bge-zh 是噪声、拉低与中文 goal 的相似度——实测
+    同域目标仅 ~0.5–0.7）。改用节点 input_hint/expected_output 的中文意图后，同域升到 ~0.57–0.69、
+    跨域降到 ~0.36–0.41，分离清晰（详见 A1 检索校准）。
+    """
     sk = t.dag_skeleton or {}
-    return f"{t.name} {sk.get('workflow_name', '')} {sk.get('acceptance_criteria', '')}"
+    parts: list[str] = [str(sk.get("acceptance_criteria") or "")]
+    for n in sk.get("nodes", []):
+        parts.append(str(n.get("input_hint") or ""))
+        parts.append(str(n.get("expected_output") or ""))
+    text = " ".join(p for p in parts if p).strip()
+    return text or t.name  # 兜底：骨架无中文文本时退回 name
 
 
 async def backfill() -> dict[str, int]:
