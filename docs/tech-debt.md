@@ -39,6 +39,7 @@
 | [TD-027](#td-027) | TEI 模型须预下载离线挂载（hf-mirror 不返回 etag，在线下载失败） | Low | open(运维已知) | 换可返回 etag 的源 / 自建镜像 |
 | [TD-030](#td-030) | A1 仅落「模板语义选择」，能力/技能/角色语义检索延后 | Med | open(切片后置) | A1 后续刀 / A3·B2 接线时 |
 | [TD-032](#td-032) | A3 仅落「拼已有 Skill 成 Agent」，缺 Skill→生成草稿+人审墙延后 | Med | open(切片后置) | A 阶段后续 / 出现「有目标但无 Skill 实现」的真实需求时 |
+| [TD-033](#td-033) | A4 compose-eval 为 advisory（judge 只见技能名，弱信号不硬门控）；试产出/执行 eval 硬降级延后 | Med | open(切片后置) | 接「试产出 eval」或把 S1 执行 judge 回写 Agent 背书时 |
 
 ---
 
@@ -264,6 +265,16 @@ A3 完整定义（docs/design/v2/01 §5.2–5.4）= ① 节点无现成 Agent→
 本次落 ①（`planner/composer.compose_agent`/`route_or_compose`，已接 `service.plan`）；② 缺 Skill 时 `compose_agent` 返回 None＝「该能力暂不可办」，路由置 None（设计 §5.4 line 225 明确允许检索/拼装期先不做生成）。
 - 影响：目标若需要一个**既无 Agent 又无任何 Skill**的能力，该节点无法被覆盖（路由 None），需人工补 Skill 后再跑。`available_capabilities` 已含 published Skill 能力（ADR-0009），故「有 Skill 无 Agent」场景已能自动拼装。
 - 偿还：A 阶段后续开 Skill 生成链（LLM 出草稿 + 沙箱 + 人审入口 + `activate_capability` 语义去重）。属切片后置，非疏漏。
+
+### TD-033
+**A4 compose-time 自动背书为 advisory（不硬门控激活），「试产出/执行 eval 硬降级」延后。**
+设计（§13.2）原意为 `eval(agent 试产出)→judge≥τ→activate`，即判**真实试跑产出**。本次为控成本/复杂度，
+compose 后只用一次轻量 judge 评「岗位说明+技能名+声明能力」的胜任度（`composer._endorse`），写进
+`config.eval` 快照（judge/passed/at/kind）。但该 judge **只见技能名、看不到技能实现**，是弱信号
+（实测对内容缺失的占位 Skill judge≈0），故**不据此硬门控**——拼装 Agent 仍直接 active，权威背书交给
+**S1 执行期质量门**（对真实节点产出 judge→needs_rework，已实现）。
+- 影响：compose 出的 Agent 的 `config.eval.passed` 仅供观测/「采纳率」基线，不影响其可用性；真正拦截坏产出靠 S1。
+- 偿还：接「试产出 eval」（建 Agent 后用 AgentRuntime 跑一条 trial 输入再 judge）或把 S1 执行 judge 回写到 Agent 背书 + 累计失败自动降级（active→suspended）。属切片后置。
 - **TD-007 已偿还**：新增 testcontainers 集成测试（`backend/tests/conftest.py` 起临时 pgvector 容器 + 跑 alembic，
   `test_integration_identity.py` 覆盖注册/登录/me/建公司/失败态 + schema/RLS 断言）。Docker 不可用时优雅跳过，
   并自动探测 macOS Docker Desktop 的 `DOCKER_HOST`。

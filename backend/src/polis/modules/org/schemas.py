@@ -80,6 +80,7 @@ class AgentConfig(BaseModel):
     model: str | None = None  # model_catalog.id；None 时由运行时取默认（M4）
     authority: AgentAuthority = Field(default_factory=AgentAuthority)  # 最小权限（M4）
     provenance: dict[str, Any] | None = None  # 生成出处（V2-A3 拼装记录：来自哪些 Skill）
+    eval: dict[str, Any] | None = None  # 自动背书快照（V2-A4：judge 分/是否过/时间）
 
 
 class AgentOut(BaseModel):

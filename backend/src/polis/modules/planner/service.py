@@ -142,8 +142,8 @@ async def plan(
     if not vr.ok:
         raise PlanInvalid(vr.errors)
 
-    # ④ 路由/编配（§5.2）：现有 Agent 检索命中即用；无则拼已审 Skill 成 Agent（A3）
-    routing = await route_or_compose(session, org_id, dag)
+    # ④ 路由/编配（§5.2）：现有 Agent 检索命中即用；无则拼已审 Skill 成 Agent（A3）+ 自动背书（A4）
+    routing = await route_or_compose(session, org_id, dag, gateway=gateway)
 
     # ⑤ 持久化
     cost = estimate_cost_cents(dag)

@@ -14,6 +14,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from polis.config import get_settings
+from polis.modules.model.gateway import ChatResponse, StubModelGateway
 from polis.modules.planner.composer import compose_agent, route_or_compose
 from polis.modules.planner.schemas import PlanDag, PlanNode
 
@@ -42,6 +43,59 @@ def _seed(pg_url: str, cap: str, skill_name: str) -> uuid.UUID:
             return uuid.UUID(str(oid))
     finally:
         engine.dispose()
+
+
+def _seed_model(pg_url: str, model_id: str) -> None:
+    """播一个 model_catalog 行（仅 id 必填），供 compose 自动背书 resolve_model 用。"""
+    engine = create_engine(pg_url.replace("+asyncpg", "+psycopg2"))
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("INSERT INTO model_catalog (id) VALUES (:m) ON CONFLICT (id) DO NOTHING"),
+                {"m": model_id},
+            )
+    finally:
+        engine.dispose()
+
+
+def test_compose_endorse_snapshot(pg_url: str) -> None:
+    """A4 advisory 自动背书：拼装后附 eval 快照（judge/passed）进 config.eval，不阻断激活。"""
+    sfx = uuid.uuid4().hex[:6]
+    cap = f"compose.endorse_{sfx}"
+    skill_name = f"skill_{sfx}"
+    org_id = _seed(pg_url, cap, skill_name)
+    _seed_model(pg_url, get_settings().default_chat_model)
+
+    async def _run() -> None:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                # 高分背书：judge 0.9 → passed True，agent active（可用）
+                gw = StubModelGateway(script=[ChatResponse(content="0.9")])
+                a = await compose_agent(s, org_id, [cap], gateway=gw)
+                assert a is not None and a.status == "active"
+                ver = await s.scalar(
+                    text("SELECT config FROM agent_version WHERE agent_id = :a").bindparams(a=a.id)
+                )
+                assert ver["eval"]["judge"] == 0.9
+                assert ver["eval"]["passed"] is True
+                assert ver["eval"]["kind"] == "compose_fitness"
+                await s.rollback()
+
+                # 低分背书：judge 0.2 → passed False 仍记录，但 agent 仍 active（advisory，不门控）
+                gw2 = StubModelGateway(script=[ChatResponse(content="0.2")])
+                a2 = await compose_agent(s, org_id, [cap], gateway=gw2)
+                assert a2 is not None and a2.status == "active"
+                ver2 = await s.scalar(
+                    text("SELECT config FROM agent_version WHERE agent_id = :a").bindparams(a=a2.id)
+                )
+                assert ver2["eval"]["judge"] == 0.2
+                assert ver2["eval"]["passed"] is False
+                await s.rollback()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
 
 
 def test_compose_from_skill_idempotent_and_missing(pg_url: str) -> None:
