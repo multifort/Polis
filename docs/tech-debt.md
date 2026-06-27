@@ -39,7 +39,7 @@
 | [TD-027](#td-027) | TEI 模型须预下载离线挂载（hf-mirror 不返回 etag，在线下载失败） | Low | open(运维已知) | 换可返回 etag 的源 / 自建镜像 |
 | [TD-030](#td-030) | A1 仅落「模板语义选择」，能力/技能/角色语义检索延后 | Med | open(切片后置) | A1 后续刀 / A3·B2 接线时 |
 | [TD-032](#td-032) | Skill 生成链机制已落（草稿+人审墙+发布）；**剩**从 goal 端可达（A2 提案新能力）+ tool/MCP 草稿+沙箱 | Med | partial | A2 放开能力提案 / 需要 tool 类 skill 生成时 |
-| [TD-033](#td-033) | A4 compose-eval 为 advisory（judge 只见技能名，弱信号不硬门控）；试产出/执行 eval 硬降级延后 | Med | open(切片后置) | 接「试产出 eval」或把 S1 执行 judge 回写 Agent 背书时 |
+| [TD-033](#td-033) | compose-eval 升级为「试产出」judge 并硬门控（judge≥τ active / <τ draft） | Med | **closed** | 已接试产出 eval（带技能 playbook），见偿还记录 |
 
 ---
 
@@ -284,7 +284,14 @@ compose 后只用一次轻量 judge 评「岗位说明+技能名+声明能力」
 （实测对内容缺失的占位 Skill judge≈0），故**不据此硬门控**——拼装 Agent 仍直接 active，权威背书交给
 **S1 执行期质量门**（对真实节点产出 judge→needs_rework，已实现）。
 - 影响：compose 出的 Agent 的 `config.eval.passed` 仅供观测/「采纳率」基线，不影响其可用性；真正拦截坏产出靠 S1。
-- 偿还：接「试产出 eval」（建 Agent 后用 AgentRuntime 跑一条 trial 输入再 judge）或把 S1 执行 judge 回写到 Agent 背书 + 累计失败自动降级（active→suspended）。属切片后置。
+- **已偿还（2026-06-27）**：`composer._trial_endorse`——拼装后让 Agent **试产出**一份示例结果再 judge：
+  把 cfg.prompt + 绑定技能的 **playbook 正文**（`_skill_contents`）作 system，让模型产一份示例产出，再用
+  `evaluator.score` 评分。judge≥τ(0.6) → active；<τ → 落 draft + 返回 None（硬降级）。两次 LLM 调用、
+  无副作用（不落 envelope）。**实测对比**：旧 advisory judge 只见技能名 → 0.0（会误杀）；新试产出 judge
+  看真实产出 → 1.0（带 playbook 的 market.sentiment 拼装），分离可靠，故可硬门控。运行期仍有 S1 质量门兜底。
+  测试 `test_compose_trial_endorse_hard_gate`（高分 active / 低分 draft+None）。
+  注：未用全 AgentRuntime（避免 trial 落 envelope/调用日志副作用）；tool 类技能的工具调用未在 trial 里跑——
+  够用，全 runtime trial 留作将来。
 - **TD-007 已偿还**：新增 testcontainers 集成测试（`backend/tests/conftest.py` 起临时 pgvector 容器 + 跑 alembic，
   `test_integration_identity.py` 覆盖注册/登录/me/建公司/失败态 + schema/RLS 断言）。Docker 不可用时优雅跳过，
   并自动探测 macOS Docker Desktop 的 `DOCKER_HOST`。

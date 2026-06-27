@@ -98,8 +98,11 @@ def test_skill_generation_wall_then_publish_then_compose(pg_url: str) -> None:
                 ).first()
                 assert tuple(pub) == ("published", "verified")
 
-                # ④ 发布后能力可用 → 同 cap 拼装成功（active generated Agent）
-                gw2 = StubModelGateway(script=[ChatResponse(content="0.9")])  # endorse judge
+                # ④ 发布后能力可用 → 同 cap 拼装成功（试产出背书过 → active）
+                # _trial_endorse 两次调用：① 试产出 ② judge 分数
+                gw2 = StubModelGateway(
+                    script=[ChatResponse(content="示例产出"), ChatResponse(content="0.9")]
+                )
                 agent2 = await compose_agent(s, org_id, [cap], gateway=gw2)
                 assert agent2 is not None and agent2.status == "active"
                 await s.rollback()

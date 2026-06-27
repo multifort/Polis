@@ -4,10 +4,9 @@
 洞察：Skill 是唯一的「新代码」资产；Agent 只是「已审 Skill 之上的配置拼装」。因此拼装
 已有 Skill 成 Agent **不产生新代码 → 可自动生成 + 自动 eval 背书、不卡人审**；只有「某能力连
 Skill 都没有」才撞人审墙（生成 Skill 草稿走审核——A3 暂不做，缺 Skill 即返 None）。
-A4 自动背书（advisory）：拼装后用 Evaluator 给一份「胜任度」judge 快照写进 config.eval（观测 +
-采纳率基线）。注意——此 judge 只见技能名/岗位说明（非「试产出」），是弱信号，故**不硬门控**激活；
-权威背书仍是 S1 执行期质量门（对真实节点产出 judge→needs_rework）。基于「试产出/执行 eval」的
-硬降级留作后续（TD-033）。
+A4 自动背书 + TD-033 试产出硬门控：拼装后让 Agent **试产出**一份示例结果（带技能 playbook 内容）
+再 judge，judge≥τ 才置 active 启用、否则落 draft 留观测（硬降级）。比早期「只看技能名」的 advisory
+判定可靠得多。运行期仍有 S1 质量门兜底（对真实节点产出 judge→needs_rework）。
 """
 
 from __future__ import annotations
@@ -21,14 +20,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.config import get_settings
 from polis.db.org_scoped import select_org_scoped, visible_clause
-from polis.modules.model.gateway import ModelGateway, resolve_model
+from polis.modules.model.gateway import ChatMessage, ModelGateway, resolve_model
 from polis.modules.observability import evaluator
 from polis.modules.org.models import Agent, AgentCapability, AgentVersion
 from polis.modules.org.schemas import AgentConfig
 from polis.modules.planner.router import select_agent
 from polis.modules.planner.schemas import PlanDag
 from polis.modules.planner.skillgen import generate_skill_draft
-from polis.modules.runtime.models import Skill
+from polis.modules.runtime.models import Skill, SkillVersion
 
 logger = logging.getLogger(__name__)
 
@@ -51,29 +50,52 @@ def _compose_prompt(caps: list[str]) -> str:
 
 
 _EVAL_TAU = 0.6  # 拼装 Agent 自动背书 judge 阈值（design §14.6 阈值表初值）
+_TRIAL_PREVIEW = 200
 
 
-async def _endorse(
+async def _skill_contents(session: AsyncSession, skill_names: list[str]) -> list[str]:
+    """载入绑定技能的 playbook 正文（让试产出真正「用」技能内容，而非只看技能名）。"""
+    if not skill_names:
+        return []
+    rows = (
+        await session.execute(
+            select(Skill.name, SkillVersion.content)
+            .join(SkillVersion, SkillVersion.skill_id == Skill.id)
+            .where(Skill.name.in_(skill_names))
+        )
+    ).all()
+    return [f"【{name}】\n{content}" for name, content in rows if content]
+
+
+async def _trial_endorse(
     gateway: ModelGateway, caps: list[str], cfg: AgentConfig, session: AsyncSession
 ) -> dict[str, object]:
-    """A4 自动背书：judge 拼装出的 Agent 是否胜任 caps。返回 eval 快照（judge/passed/at）。
+    """A4/TD-033 自动背书：让拼装出的 Agent **试产出**一份示例结果再 judge（强信号，可硬门控）。
 
-    配置类拼装不产生新代码 → 自动 eval 背书、不卡人审（§13.2）。这里用一次轻量 judge（非全 Agent
-    试跑）：把岗位说明+技能+声明能力作为「待评对象」，让模型判其是否足以胜任。失败由调用方降级。
+    比 advisory 配置判定可靠——judge 看的是 Agent 真实产出（带上技能 playbook 内容），而非技能名。
+    两次 LLM 调用（试产出 + 评分），无副作用（不落 envelope/调用日志）。失败由调用方硬降级。
     """
     model = await resolve_model(session, get_settings().default_chat_model)
-    described = (
-        f"岗位说明：{cfg.prompt}\n绑定技能：{'、'.join(cfg.skills)}\n声明能力：{'、'.join(caps)}"
+    playbooks = await _skill_contents(session, cfg.skills)
+    sys = cfg.prompt + ("\n\n可用技能手册：\n" + "\n---\n".join(playbooks) if playbooks else "")
+    trial_in = (
+        f"请就你负责的能力【{'、'.join(caps)}】，针对一个典型场景给出一份示例产出："
+        "结构化、可执行、有依据，简洁即可。"
     )
-    criteria = (
-        f"该智能体的技能与岗位说明是否足以胜任能力【{'、'.join(caps)}】并产出合格、可执行的结果"
-    )
-    res = await evaluator.score(gateway, model, described, acceptance_criteria=criteria)
+    trial_out = (
+        await gateway.chat(
+            model,
+            [ChatMessage(role="system", content=sys), ChatMessage(role="user", content=trial_in)],
+        )
+    ).content or ""
+    criteria = f"该产出是否合格地体现了能力【{'、'.join(caps)}】，结构化、可执行、有依据"
+    res = await evaluator.score(gateway, model, trial_out, acceptance_criteria=criteria)
     return {
         "judge": res.judge_score,
         "passed": res.judge_score >= _EVAL_TAU,
         "at": dt.datetime.now(dt.UTC).isoformat(),
-        "kind": "compose_fitness",
+        "kind": "trial_output",
+        "trial_preview": trial_out[:_TRIAL_PREVIEW],
     }
 
 
@@ -100,23 +122,21 @@ async def compose_agent(
     *,
     gateway: ModelGateway | None = None,
 ) -> Agent | None:
-    """拼装一个覆盖 caps 的 Agent：每能力取一个 published Skill，全有则建 active Agent。
+    """拼装一个覆盖 caps 的 Agent：每能力取一个 published Skill，全有则**试产出 eval 背书**后启用。
 
-    A4：给了 gateway → 附一份 advisory 胜任度 eval 快照进 config.eval（不硬门控激活，见模块注释）。
-    无 gateway（TEI 不可达/测试）→ 跳过 eval。幂等：同能力集已建过的 active Agent 直接复用。
-    缺任一 Skill → None（A3 不生成草稿）。
+    A4/TD-033：给了 gateway → 让拼装 Agent 试产出一份示例结果再 judge（强信号）。judge≥τ → active；
+    <τ → 落 draft（不可用、留观测）+ 返回 None（硬降级）。无 gateway（TEI 不可达/测试）→ 跳过、直接
+    active。幂等：同能力集已建过的 Agent——active 复用、draft 不重建（返 None）。缺 Skill → 见上。
     """
     caps = list(dict.fromkeys(caps))  # 去重保序
     if not caps:
         return None
 
     name = _compose_name(caps)
-    # 显式 org 过滤（请求外不依赖 RLS，TD-015）
-    existing = await session.scalar(
-        select_org_scoped(Agent, org_id).where(Agent.name == name, Agent.status == "active")
-    )
+    # 显式 org 过滤（请求外不依赖 RLS）。按名取任一状态：active 复用、draft 不重建（避唯一约束）
+    existing = await session.scalar(select_org_scoped(Agent, org_id).where(Agent.name == name))
     if existing is not None:
-        return existing
+        return existing if existing.status == "active" else None
 
     chosen: dict[str, Skill] = {}
     missing: list[str] = []
@@ -142,16 +162,18 @@ async def compose_agent(
         executor="lite-agent",
         provenance={"composed_from": {c: s.name for c, s in chosen.items()}},
     )
-    # A4：advisory 背书快照（不阻断激活；权威门是 S1 执行期质量门）
+    # A4/TD-033：试产出 eval 背书 → 硬门控（judge≥τ active / <τ draft）。无 gateway → 跳过激活。
+    endorsed = True
     if gateway is not None:
-        cfg.eval = await _endorse(gateway, caps, cfg, session)
+        cfg.eval = await _trial_endorse(gateway, caps, cfg, session)
+        endorsed = bool(cfg.eval["passed"])
 
     agent = Agent(
         org_id=org_id,
         role_id=None,  # 临时组队不挂常设角色（高频复用时再晋升，§5.1）
         name=name,
         source="generated",
-        status="active",  # 拼装＝配置类、不产生新代码 → 自动激活、不卡人审（§5.3）
+        status="active" if endorsed else "draft",  # 试产出过阈值才启用（§5.3 + TD-033）
         current_version="v1",
     )
     session.add(agent)
@@ -169,6 +191,9 @@ async def compose_agent(
         session.add(AgentCapability(org_id=org_id, agent_id=agent.id, capability=cap))
     await session.flush()
     judge = cfg.eval["judge"] if cfg.eval else "—"
+    if not endorsed:
+        logger.info("compose_agent %s 试产出背书未过(judge=%s<%.2f)→draft", name, judge, _EVAL_TAU)
+        return None
     logger.info(
         "compose_agent 拼装 Agent %s 覆盖 %s（来自 %s，背书 judge=%s）",
         name,

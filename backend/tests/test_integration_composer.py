@@ -58,8 +58,11 @@ def _seed_model(pg_url: str, model_id: str) -> None:
         engine.dispose()
 
 
-def test_compose_endorse_snapshot(pg_url: str) -> None:
-    """A4 advisory 自动背书：拼装后附 eval 快照（judge/passed）进 config.eval，不阻断激活。"""
+def test_compose_trial_endorse_hard_gate(pg_url: str) -> None:
+    """TD-033 试产出硬门控：judge≥τ → active 可用；judge<τ → draft + 返回 None（硬降级）。
+
+    _trial_endorse 两次 LLM 调用：① 试产出示例结果 ② judge 评分。stub 脚本顺序 [产出, 分数]。
+    """
     sfx = uuid.uuid4().hex[:6]
     cap = f"compose.endorse_{sfx}"
     skill_name = f"skill_{sfx}"
@@ -70,27 +73,32 @@ def test_compose_endorse_snapshot(pg_url: str) -> None:
         engine = create_async_engine(get_settings().database_url)
         try:
             async with async_sessionmaker(engine)() as s:
-                # 高分背书：judge 0.9 → passed True，agent active（可用）
-                gw = StubModelGateway(script=[ChatResponse(content="0.9")])
+                # 高分：试产出「示例结果」→ judge 0.9 ≥ 0.6 → active
+                gw = StubModelGateway(
+                    script=[ChatResponse(content="示例：供应商分析"), ChatResponse(content="0.9")]
+                )
                 a = await compose_agent(s, org_id, [cap], gateway=gw)
                 assert a is not None and a.status == "active"
                 ver = await s.scalar(
                     text("SELECT config FROM agent_version WHERE agent_id = :a").bindparams(a=a.id)
                 )
-                assert ver["eval"]["judge"] == 0.9
-                assert ver["eval"]["passed"] is True
-                assert ver["eval"]["kind"] == "compose_fitness"
+                assert ver["eval"]["judge"] == 0.9 and ver["eval"]["passed"] is True
+                assert ver["eval"]["kind"] == "trial_output"
+                assert "示例" in ver["eval"]["trial_preview"]
                 await s.rollback()
 
-                # 低分背书：judge 0.2 → passed False 仍记录，但 agent 仍 active（advisory，不门控）
-                gw2 = StubModelGateway(script=[ChatResponse(content="0.2")])
-                a2 = await compose_agent(s, org_id, [cap], gateway=gw2)
-                assert a2 is not None and a2.status == "active"
-                ver2 = await s.scalar(
-                    text("SELECT config FROM agent_version WHERE agent_id = :a").bindparams(a=a2.id)
+                # 低分：judge 0.2 < 0.6 → 硬降级：返回 None + 落 draft（留观测）
+                gw2 = StubModelGateway(
+                    script=[ChatResponse(content="敷衍产出"), ChatResponse(content="0.2")]
                 )
-                assert ver2["eval"]["judge"] == 0.2
-                assert ver2["eval"]["passed"] is False
+                a2 = await compose_agent(s, org_id, [cap], gateway=gw2)
+                assert a2 is None
+                row = await s.scalar(
+                    text(
+                        "SELECT status FROM agent WHERE org_id = :o AND name LIKE '弹性组队%'"
+                    ).bindparams(o=org_id)
+                )
+                assert row == "draft"
                 await s.rollback()
         finally:
             await engine.dispose()
