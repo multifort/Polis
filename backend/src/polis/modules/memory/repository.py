@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, func, text, update
@@ -29,6 +29,7 @@ async def insert_memory(
     importance: float = 0.5,
     confidence: float = 0.5,
     expires_at: datetime | None = None,
+    promoted_from: uuid.UUID | None = None,
 ) -> Memory:
     mem = Memory(
         org_id=org_id,
@@ -41,6 +42,8 @@ async def insert_memory(
         importance=importance,
         confidence=confidence,
         expires_at=expires_at,
+        promoted_from=promoted_from,
+        last_promoted_at=datetime.now(UTC) if promoted_from is not None else None,
     )
     session.add(mem)
     await session.flush()

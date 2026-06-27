@@ -113,6 +113,33 @@ async def finalize_run(run_id: str, org_id: str, overall: str) -> None:
             await repo.finish_task_run(session, run, overall)
             await session.commit()
 
+    # V2-B3 自动晋升：任务成功完成 → 蒸馏产出为公司知识（org 记忆）。best-effort，失败不影响终态。
+    if overall == "done":
+        await _promote_task_memory(org_id, run_id)
+
+
+async def _promote_task_memory(org_id: str, run_id: str) -> None:
+    """读本任务产出 → 蒸馏 → 晋升到 org 记忆（飞轮）。独立会话、独立 try，绝不影响 run 终态。"""
+    import uuid
+
+    from polis.config import get_settings
+    from polis.db.session import get_sessionmaker
+    from polis.modules.memory import center as memory_center
+    from polis.modules.model.gateway import StubModelGateway, resolve_model
+    from polis.modules.model.litellm_gateway import LiteLLMGateway
+
+    try:
+        settings = get_settings()
+        gateway = LiteLLMGateway() if settings.deepseek_api_key else StubModelGateway()
+        async with get_sessionmaker()() as session:
+            model = await resolve_model(session, settings.default_chat_model)
+            await memory_center.promote_facts_from_task(
+                session, gateway, model, uuid.UUID(org_id), uuid.UUID(run_id)
+            )
+            await session.commit()
+    except Exception:
+        activity.logger.warning("promote_facts_from_task 失败（不影响 run 终态）", exc_info=True)
+
 
 # ── 有界重规划 ─────────────────────────────────────────────────────────────────
 

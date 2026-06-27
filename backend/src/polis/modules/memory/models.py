@@ -42,6 +42,9 @@ class Memory(UUIDPkMixin, OrgScopedMixin, Base):
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
     last_accessed: Mapped[datetime] = mapped_column(server_default=text("now()"))
     expires_at: Mapped[datetime | None]
+    # V2-B3 晋升溯源：promoted_from=晋升来源(如 task_run.id)；last_promoted_at=最近晋升时间
+    promoted_from: Mapped[uuid.UUID | None]
+    last_promoted_at: Mapped[datetime | None]
 
     __table_args__ = (
         CheckConstraint("scope IN ('session','task','role','org')", name="scope"),
