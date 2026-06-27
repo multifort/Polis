@@ -27,6 +27,7 @@ from polis.modules.org.models import Agent, AgentCapability, AgentVersion
 from polis.modules.org.schemas import AgentConfig
 from polis.modules.planner.router import select_agent
 from polis.modules.planner.schemas import PlanDag
+from polis.modules.planner.skillgen import generate_skill_draft
 from polis.modules.runtime.models import Skill
 
 logger = logging.getLogger(__name__)
@@ -118,12 +119,21 @@ async def compose_agent(
         return existing
 
     chosen: dict[str, Skill] = {}
+    missing: list[str] = []
     for cap in caps:
         sk = await _retrieve_skill(session, org_id, cap)
         if sk is None:
-            logger.info("compose_agent 缺 Skill 提供能力 %s → 放弃拼装（需补 Skill）", cap)
-            return None
-        chosen[cap] = sk
+            missing.append(cap)
+        else:
+            chosen[cap] = sk
+    if missing:
+        # 撞人审墙（TD-032）：为缺 Skill 的能力生成草稿 + skill_review 审批（不自动发布）。
+        # 本节点暂不可用（返 None），待人审通过发布后下次拼装。无 gateway 则仅记日志（不阻断）。
+        if gateway is not None:
+            for cap in missing:
+                await generate_skill_draft(session, org_id, cap, gateway)
+        logger.info("compose_agent 缺 Skill 能力 %s → 已生成草稿待人审，暂不覆盖", missing)
+        return None
 
     cfg = AgentConfig(
         prompt=_compose_prompt(caps),

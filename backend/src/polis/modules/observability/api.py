@@ -97,6 +97,12 @@ async def decide_approval(
         detail={"approve": data.approve, "kind": ap.kind},
     )
 
+    # 人审通过 skill_review → 发布草稿 Skill（TD-032 生成停点的放行：published/verified）
+    if data.approve and ap.kind == "skill_review" and ap.ref_id:
+        from polis.modules.planner.skillgen import publish_skill
+
+        await publish_skill(session, org.org_id, uuid.UUID(ap.ref_id))
+
     # best-effort：approve 且 payload 关联 workflow → signal 恢复（Temporal 不可达不阻断决定）
     if data.approve and ap.payload and ap.payload.get("workflow_id") and ap.payload.get("node_id"):
         await _try_signal(ap.payload["workflow_id"], ap.payload["node_id"])
