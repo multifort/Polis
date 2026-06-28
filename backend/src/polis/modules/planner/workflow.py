@@ -27,6 +27,9 @@ MAX_REPLANS = 3
 REWORK_MAX = 1  # S2：单节点反馈重跑上限（§4.3 纠错预算）
 _ACTIVITY_TIMEOUT = timedelta(minutes=5)
 _QUALITY_TIMEOUT = timedelta(minutes=2)
+# S4 长时运行：节点活动 heartbeat（worker 崩溃快速发现重试）
+_HEARTBEAT_EVERY_S = 10
+_HEARTBEAT_TIMEOUT = timedelta(seconds=40)
 
 
 def _is_key_node(node: dict[str, Any]) -> bool:
@@ -67,7 +70,18 @@ async def run_node(
         }
     from polis.modules.runtime.agent_runtime import execute_node
 
-    return await execute_node(node, org_id, task_id or None, goal=goal or None)
+    # S4 长时运行：节点执行可达分钟级，后台周期 heartbeat → worker 崩溃可被 Temporal 快速发现重试
+    # （配合 _run_node 的 heartbeat_timeout），而非死等 start_to_close_timeout。
+    async def _heartbeat() -> None:
+        while True:
+            await asyncio.sleep(_HEARTBEAT_EVERY_S)
+            activity.heartbeat()
+
+    hb = asyncio.create_task(_heartbeat())
+    try:
+        return await execute_node(node, org_id, task_id or None, goal=goal or None)
+    finally:
+        hb.cancel()
 
 
 @activity.defn
@@ -333,6 +347,7 @@ class TaskWorkflow:
             run_node,
             args=[raw_node, org_id, self._task_id, self._goal],
             start_to_close_timeout=_ACTIVITY_TIMEOUT,
+            heartbeat_timeout=_HEARTBEAT_TIMEOUT,  # S4：配合 run_node 后台 heartbeat
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         return result
