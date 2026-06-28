@@ -37,6 +37,7 @@ def _node(
     fail_once: bool = False,
     fail_always: bool = False,
     force_rework: bool = False,
+    rework_recover: bool = False,
     cap: str = "test.cap",
 ) -> dict[str, Any]:
     return {
@@ -48,6 +49,7 @@ def _node(
         "fail_once": fail_once,
         "fail_always": fail_always,
         "force_rework": force_rework,  # V2-S1 质量门测试钩子：强制不达标
+        "rework_recover": rework_recover,  # V2-S2 测试钩子：首次不达标、返工即恢复
         "stub": True,  # 纯编排测试走桩 run_node，不连 DB（M4-F）
     }
 
@@ -251,5 +253,44 @@ def test_quality_gate_needs_review() -> None:
         assert result["status"] == "needs_review", result["status"]
         assert statuses["n4"] == "needs_rework", statuses
         assert statuses["n1"] == "done" and statuses["n2"] == "done", statuses
+
+    asyncio.run(_run())
+
+
+def test_s2_rework_recovers() -> None:
+    """V2-S2 分级纠错 ②：关键节点首次不达标 → 反馈重跑【同节点】→ 达标 → done（自动纠错）。"""
+    _skip_if_unavailable()
+
+    async def _run() -> None:
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        from polis.modules.planner.workflow import evaluate_node
+
+        plan = _plan(
+            [
+                _node("n1"),
+                _node("n2", deps=["n1"], rework_recover=True),  # 首次不达标，返工即恢复
+            ]
+        )
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:  # noqa: SIM117
+            async with Worker(
+                env.client,
+                task_queue=TASK_QUEUE,
+                workflows=[TaskWorkflow],
+                activities=[run_node, evaluate_node],
+            ):
+                result: dict[str, Any] = await env.client.execute_workflow(
+                    TaskWorkflow.run,
+                    args=[plan, str(uuid.uuid4())],
+                    id=f"test-s2-rework-{uuid.uuid4().hex}",
+                    task_queue=TASK_QUEUE,
+                )
+
+        statuses = {n["id"]: n["status"] for n in result["nodes"]}
+        # 返工后达标 → 顶层全 done，n2 done（而非卡 needs_review）
+        assert result["status"] == "done", result["status"]
+        assert statuses["n2"] == "done", statuses
 
     asyncio.run(_run())

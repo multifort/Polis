@@ -24,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
 
 TASK_QUEUE = "polis-tasks"
 MAX_REPLANS = 3
+REWORK_MAX = 1  # S2：单节点反馈重跑上限（§4.3 纠错预算）
 _ACTIVITY_TIMEOUT = timedelta(minutes=5)
 _QUALITY_TIMEOUT = timedelta(minutes=2)
 
@@ -141,6 +142,26 @@ async def _promote_task_memory(org_id: str, run_id: str) -> None:
         activity.logger.warning("promote_facts_from_task 失败（不影响 run 终态）", exc_info=True)
 
 
+@activity.defn
+async def escalate_node(run_id: str, org_id: str, node_id: str, judge: float) -> None:
+    """S2 ④ 升级人审：返工仍不达标 → 建一条 rework 审批进收件箱（超界交人，§4.2/§4.3）。"""
+    import uuid
+
+    from polis.db.session import get_sessionmaker, init_engine
+    from polis.modules.observability import repository as obs_repo
+
+    init_engine()
+    async with get_sessionmaker()() as session:
+        await obs_repo.create_approval(
+            session,
+            org_id=uuid.UUID(org_id),
+            kind="rework",
+            ref_id=run_id,
+            payload={"node_id": node_id, "judge": judge, "reason": "返工后仍未达质量门，请复核"},
+        )
+        await session.commit()
+
+
 # ── 有界重规划 ─────────────────────────────────────────────────────────────────
 
 
@@ -187,6 +208,7 @@ class TaskWorkflow:
         self._goal = ""  # 用户意图（F3：贯通到 Agent 上下文，让产出锚定目标）
         self._acceptance = ""  # 验收标准（V2-S1 质量门）
         self._quality: dict[str, float] = {}  # 关键节点 judge 分数（观测用）
+        self._rework_count: dict[str, int] = {}  # S2：每节点反馈重跑次数
 
     @workflow.run
     async def run(self, plan: dict[str, Any], org_id: str, task_id: str = "") -> dict[str, Any]:
@@ -274,18 +296,55 @@ class TaskWorkflow:
         self._node_status[node.id] = "running"
         # 用原始 dict 传给 activity，保留 Pydantic 未定义的 extra 字段（如 fail_once/fail_always）
         raw_node = self._raw_nodes.get(node.id, node.model_dump())
+        result = await self._run_node(raw_node, org_id)
+
+        # ── V2-S1 质量门 + S2 分级纠错（② rework → ④ escalate）──
+        failed, judge = await self._assess(raw_node, result, reworked=False)
+        self._quality[node.id] = judge
+        if failed and self._rework_count.get(node.id, 0) < REWORK_MAX:
+            # ② rework：把不达标原因喂回上下文，重跑【同节点】（上限 REWORK_MAX，§4.2）
+            self._rework_count[node.id] = self._rework_count.get(node.id, 0) + 1
+            self._node_status[node.id] = "replanning"
+            fb = (raw_node.get("input_hint") or "") + (
+                f"\n\n[返工反馈] 上次产出未达质量门(judge={judge:.2f})，请严格对照验收标准改进："
+                f"{self._acceptance}"
+            )
+            result = await self._run_node({**raw_node, "input_hint": fb}, org_id)
+            failed, judge = await self._assess(raw_node, result, reworked=True)
+            self._quality[node.id] = judge
+        if failed:
+            # ④ escalate：返工仍不达标 → needs_rework + 升级人审（超界交人，§4.3）。
+            # stub 为纯编排测试节点（无 DB），不建审批。
+            self._node_status[node.id] = "needs_rework"
+            if not raw_node.get("stub"):
+                await workflow.execute_activity(
+                    escalate_node,
+                    args=[self._task_id, self._org_id, node.id, judge],
+                    start_to_close_timeout=_QUALITY_TIMEOUT,
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            return result
+
+        self._node_status[node.id] = "done"
+        return result
+
+    async def _run_node(self, raw_node: dict[str, Any], org_id: str) -> dict[str, Any]:
         result: dict[str, Any] = await workflow.execute_activity(
             run_node,
             args=[raw_node, org_id, self._task_id, self._goal],
             start_to_close_timeout=_ACTIVITY_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        return result
 
-        # ── V2-S1 关键节点质量门 ──
-        if raw_node.get("force_rework"):  # 测试钩子：强制不达标
-            self._node_status[node.id] = "needs_rework"
-            self._quality[node.id] = 0.0
-            return result
+    async def _assess(
+        self, raw_node: dict[str, Any], result: dict[str, Any], *, reworked: bool
+    ) -> tuple[bool, float]:
+        """质量评估，返回 (是否不达标, judge)。含测试钩子 + 真实关键节点 Evaluator。"""
+        if raw_node.get("rework_recover"):  # 测试钩子：首次不达标、返工即恢复
+            return (not reworked, 1.0 if reworked else 0.0)
+        if raw_node.get("force_rework"):
+            return (True, 0.0)  # 测试钩子：强制不达标（返工仍失败 → 测 escalate 路径）
         if not raw_node.get("stub") and _is_key_node(raw_node) and self._acceptance:
             ev: dict[str, Any] = await workflow.execute_activity(
                 evaluate_node,
@@ -293,11 +352,5 @@ class TaskWorkflow:
                 start_to_close_timeout=_QUALITY_TIMEOUT,
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
-            self._quality[node.id] = float(ev.get("judge") or 0.0)
-            if not ev.get("passed"):
-                # 不达标 → needs_rework（S1 不再调度；S2 接自动纠错/局部重规划）
-                self._node_status[node.id] = "needs_rework"
-                return result
-
-        self._node_status[node.id] = "done"
-        return result
+            return (not ev.get("passed"), float(ev.get("judge") or 0.0))
+        return (False, 1.0)  # 非关键/桩节点 → 视为达标
