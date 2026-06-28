@@ -37,8 +37,14 @@ async def run_loop(
     max_steps: int = MAX_STEPS,
     guard: Guardrails | None = None,
     extra_specs: list[ToolSpec] | None = None,
+    ctx_budget: int | None = None,
+    max_output_tokens: int | None = None,
 ) -> LoopResult:
-    """多轮 tool-calling 循环。模型返回工具调用→执行→回灌；返回纯文本则结束。"""
+    """多轮 tool-calling 循环。模型返回工具调用→执行→回灌；返回纯文本则结束。
+
+    V2-B4 预算治理：`ctx_budget` 截**输入**上下文（按 input_hint>依赖摘要>记忆 优先级保留）；
+    `max_output_tokens` 设**输出**上限（仅设上限、绝不截已生成内容），透传到每次 chat。
+    """
     system = agent_prompt
     if ctx.skills.system_append:
         system += "\n\n" + ctx.skills.system_append
@@ -49,6 +55,11 @@ async def run_loop(
         user += "\n\n" + ctx.deps_brief
     if ctx.memory_slice:
         user += "\n\n" + ctx.memory_slice
+    # B4：输入上下文超预算 → 截断（token≈chars/2；input_hint 在前，优先保留）。绝不截输出。
+    if ctx_budget is not None:
+        cap_chars = max(0, ctx_budget * 2 - len(system))
+        if len(user) > cap_chars:
+            user = user[:cap_chars] + "\n…（上下文超预算，已按优先级截断）"
 
     msgs = [ChatMessage(role="system", content=system), ChatMessage(role="user", content=user)]
     specs = [b.spec for b in ctx.skills.tools] + (extra_specs or [])
@@ -56,7 +67,9 @@ async def run_loop(
     tool_outputs: list[str] = []
 
     for step in range(1, max_steps + 1):
-        rsp = await gateway.chat(ctx.model, msgs, tools=specs, cred=ctx.cred)
+        rsp = await gateway.chat(
+            ctx.model, msgs, tools=specs, cred=ctx.cred, max_tokens=max_output_tokens
+        )
         if not rsp.tool_calls:
             return LoopResult(
                 ok=True,

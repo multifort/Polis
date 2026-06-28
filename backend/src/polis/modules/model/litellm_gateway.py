@@ -84,6 +84,7 @@ class LiteLLMGateway:
         messages: list[ChatMessage],
         tools: list[ToolSpec] | None = None,
         cred: Any | None = None,
+        max_tokens: int | None = None,
     ) -> ChatResponse:
         import litellm
 
@@ -106,6 +107,7 @@ class LiteLLMGateway:
             api_key=api_key,
             api_base=settings.deepseek_base_url or None,
             metadata=metadata,
+            max_tokens=max_tokens,  # V2-B4 输出上限（None=模型默认）
         )
         msg = resp.choices[0].message
         tool_calls = [

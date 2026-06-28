@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polis.config import get_settings
 from polis.modules.model.gateway import ModelGateway, resolve_model
 from polis.modules.planner import repository as repo
+from polis.modules.planner.budget import apply_budgets
 from polis.modules.planner.composer import route_or_compose
 from polis.modules.planner.errors import NoTemplateMatch, PlanInvalid
 from polis.modules.planner.models import PlanTemplate
@@ -167,7 +168,10 @@ async def plan(
     else:
         raise NoTemplateMatch
 
-    # ③ 确定性校验（生成路径已内部校验，这里对模板路径兜底 + 统一闸）
+    # ③ 预算治理（V2-B4）：回填每节点解析预算（节点>任务>智能缺省），执行期直接读
+    apply_budgets(dag)
+
+    # ④ 确定性校验（生成路径已内部校验，这里对模板路径兜底 + 统一闸）
     vr = validate(dag, available)
     if not vr.ok:
         raise PlanInvalid(vr.errors)

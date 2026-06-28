@@ -88,7 +88,14 @@ async def execute(
     blackboard.register_blackboard_tools(registry)
     runtime = McpRuntime(registry, ctx=blackboard.ToolCtx(session, org_uuid, task_uuid))
     loop = await run_loop(
-        gateway, runtime, config.prompt, ctx, guard=guard, extra_specs=blackboard.blackboard_specs()
+        gateway,
+        runtime,
+        config.prompt,
+        ctx,
+        guard=guard,
+        extra_specs=blackboard.blackboard_specs(),
+        ctx_budget=node.get("ctx_budget"),  # V2-B4 预算（出图时已按节点类型解析回填）
+        max_output_tokens=node.get("max_output_tokens"),
     )
 
     status = "done" if loop.ok else ("blocked" if loop.blocked else "failed")

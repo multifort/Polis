@@ -19,6 +19,9 @@ class PlanNode(BaseModel):
     input_hint: str | None = None
     expected_output: str | None = None
     dangerous: bool = False
+    # 预算治理（V2-B4，分层覆盖 节点>任务>全局）。出图时由 budget.apply_budgets 回填解析值。
+    ctx_budget: int | None = None  # 输入上下文 token 预算（截输入）
+    max_output_tokens: int | None = None  # 输出 token 上限（仅设上限，绝不截已生成内容）
 
 
 class PlanDag(BaseModel):
@@ -26,6 +29,9 @@ class PlanDag(BaseModel):
     goal: str
     acceptance_criteria: str | None = None
     budget_cents: int = 0
+    # 任务级预算（V2-B4，可选；缺省走节点类型智能缺省/全局）。节点未显式覆盖时用它。
+    ctx_budget: int | None = None
+    output_max_tokens: int | None = None
     nodes: list[PlanNode]
 
 

@@ -68,6 +68,7 @@ class ModelGateway(Protocol):
         messages: list[ChatMessage],
         tools: list[ToolSpec] | None = None,
         cred: Any | None = None,
+        max_tokens: int | None = None,
     ) -> ChatResponse: ...
 
     async def embed(self, texts: list[str]) -> list[list[float] | None]:
@@ -92,6 +93,7 @@ class StubModelGateway:
         messages: list[ChatMessage],
         tools: list[ToolSpec] | None = None,
         cred: Any | None = None,
+        max_tokens: int | None = None,
     ) -> ChatResponse:
         if self._script:
             return self._script.pop(0)

@@ -75,3 +75,40 @@ def test_loop_max_steps_soft_fail() -> None:
     assert res.soft_fail is True
     assert res.steps == 3
     assert res.tool_calls_made == 3
+
+
+class _CapGateway:
+    """捕获 chat 入参的桩网关（验证 B4 预算：截输入 + 传 max_tokens）。"""
+
+    def __init__(self) -> None:
+        self.last_user: str = ""
+        self.last_max: int | None = None
+
+    async def chat(self, model, messages, tools=None, cred=None, max_tokens=None):  # type: ignore[no-untyped-def]
+        self.last_user = next(m.content for m in messages if m.role == "user")
+        self.last_max = max_tokens
+        return ChatResponse(content="ok")
+
+    async def embed(self, texts):  # type: ignore[no-untyped-def]
+        return [None for _ in texts]
+
+
+def test_run_loop_enforces_ctx_budget_and_output_cap() -> None:
+    ctx = ExecCtx(
+        goal="g",
+        memory_slice="记忆" * 5000,  # 超大输入上下文
+        skills=LoadedSkills(system_append="", tools=[]),
+        model=_MODEL,
+        cred=ScopedCredential(handle="h", model_id="stub", task_id="t"),
+        node={"input_hint": "关键诉求"},
+    )
+    gw = _CapGateway()
+    rt = McpRuntime(default_registry())
+    asyncio.run(
+        run_loop(gw, rt, "你是分析师", ctx, ctx_budget=100, max_output_tokens=123)  # type: ignore[arg-type]
+    )
+    # 截输入：用户消息被压到预算内（token≈chars/2 → ~200 字上限），且保留高优先的 input_hint
+    assert "关键诉求" in gw.last_user
+    assert len(gw.last_user) <= 260 and "截断" in gw.last_user
+    # 传输出上限
+    assert gw.last_max == 123

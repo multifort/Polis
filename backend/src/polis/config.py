@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     embedding_base_url: str = "http://localhost:8082"  # 本地 TEI(bge-large-zh-v1.5, arm64)
     kms_master_key: str = ""  # 信封加密主密钥（base64 32B）；生产必填
 
+    # 预算治理（V2-B4）：分层可配置（节点>任务>全局）缺省。tokens 为粗估，非精确计费。
+    default_ctx_budget_tokens: int = 4000  # 每节点输入上下文预算（截输入，绝不截输出）
+    default_output_max_tokens: int = 2500  # 每节点输出上限（max_tokens）
+
     # Langfuse 可观测（M6-H）。Polis 自建可观测页面用，Langfuse 只做采集后端。
     langfuse_enabled: bool = False
     langfuse_host: str = "http://localhost:3001"
