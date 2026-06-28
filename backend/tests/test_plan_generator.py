@@ -15,7 +15,7 @@ import pytest
 
 from polis.modules.model.gateway import ChatResponse, ResolvedModel, StubModelGateway
 from polis.modules.planner.errors import PlanInvalid
-from polis.modules.planner.generator import generate_dag
+from polis.modules.planner.generator import _build_user, generate_dag
 
 _MODEL = ResolvedModel(id="m", provider="p", litellm_name="n", context_window=8000)
 
@@ -80,3 +80,21 @@ def test_give_up_raises_plan_invalid() -> None:
     with pytest.raises(PlanInvalid) as ei:
         _run(gw, {"analysis"})
     assert any("能力" in e for e in ei.value.errors)
+
+
+def test_build_user_injects_org_memory() -> None:
+    # B2：org 记忆先验注入生成 prompt（供约束/取舍）
+    prompt = _build_user(
+        "分析供应商",
+        {"analysis"},
+        exemplars=[],
+        org_memory=["供应商A交付准时率仅60%", "6天交付为硬约束"],
+    )
+    assert "公司已知" in prompt
+    assert "供应商A交付准时率仅60%" in prompt
+    assert "6天交付为硬约束" in prompt
+
+
+def test_build_user_no_memory_section_when_empty() -> None:
+    prompt = _build_user("目标", {"analysis"}, exemplars=[], org_memory=[])
+    assert "公司已知" not in prompt

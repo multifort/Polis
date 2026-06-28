@@ -35,12 +35,23 @@ _SYSTEM = (
 )
 
 
-def _build_user(goal: str, available: set[str], exemplars: list[dict[str, Any]]) -> str:
+def _build_user(
+    goal: str,
+    available: set[str],
+    exemplars: list[dict[str, Any]],
+    org_memory: list[str] | None = None,
+) -> str:
     caps = "、".join(sorted(available)) or "（无）"
     ex = json.dumps(exemplars[:3], ensure_ascii=False) if exemplars else "（无可参考模板）"
+    mem = (
+        "公司已知（先验，供约束/取舍，勿照抄）：\n" + "\n".join(f"- {m}" for m in org_memory) + "\n"
+        if org_memory
+        else ""
+    )
     return (
         f"目标：{goal}\n"
         f"可用能力词表（required_capabilities 只能取这些 key）：{caps}\n"
+        f"{mem}"
         f"参考范例（最相似的已有模板骨架，照着改，不要照抄）：{ex}\n"
         "请输出严格符合结构的 DAG JSON。"
     )
@@ -66,12 +77,16 @@ async def generate_dag(
     available: set[str],
     exemplars: list[dict[str, Any]],
     *,
+    org_memory: list[str] | None = None,
     budget_cents: int = DEFAULT_BUDGET_CENTS,
     attempts: int = DEFAULT_ATTEMPTS,
 ) -> PlanDag:
-    """RAG 接地生成 DAG + 双校验 + 有界自修复。N 次仍不过 → PlanInvalid（最后一轮错误）。"""
+    """RAG 接地生成 DAG + 双校验 + 有界自修复。N 次仍不过 → PlanInvalid（最后一轮错误）。
+
+    org_memory（B2）：公司级先验事实，注入 prompt 供生成约束/取舍。
+    """
     messages = [ChatMessage(role="system", content=_SYSTEM)]
-    user = _build_user(goal, available, exemplars)
+    user = _build_user(goal, available, exemplars, org_memory)
     last_errors: list[str] = ["生成失败（无有效输出）"]
 
     for attempt in range(1, attempts + 1):

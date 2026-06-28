@@ -31,6 +31,7 @@ __all__ = ["NoTemplateMatch", "PlanInvalid", "plan"]
 # 同域目标 0.57–0.69 / 跨域 0.36–0.41，0.50 两侧均有 ≥0.07 余量。见 A1 检索校准。
 TAU_TPL = 0.50
 _EXEMPLAR_K = 3  # RAG 接地范例数
+_K_MEM = 5  # B2：规划接地时检索的 org 记忆条数上限（预算雏形；B4 做完整 token 预算）
 
 
 def _feasible(tpl: PlanTemplate, available: set[str]) -> bool:
@@ -87,14 +88,39 @@ def _fill_template(tpl: PlanTemplate, goal: str) -> PlanDag:
     return PlanDag.model_validate(skeleton)
 
 
+async def _retrieve_org_memory(
+    session: AsyncSession, org_id: uuid.UUID, goal: str, query_vec: list[float] | None
+) -> list[str]:
+    """B2 分层接地：检索 org 层「公司知识」作规划先验（公司知道什么/干过什么相似的）。
+
+    消费 B3 晋升沉淀的事实。best-effort：检索失败不应让出图崩，返回空。
+    """
+    try:
+        from polis.modules.memory import center as memory_center
+
+        slice_ = await memory_center.retrieve(
+            session,
+            org_id,
+            scopes=["org"],
+            query=goal,
+            query_embedding=query_vec,
+            limit=_K_MEM,
+        )
+        return slice_.summaries
+    except Exception:
+        logger.warning("org 记忆接地检索失败，跳过先验", exc_info=True)
+        return []
+
+
 async def _generate_dag(
     session: AsyncSession,
     goal: str,
     available: set[str],
     query_vec: list[float],
     gateway: ModelGateway,
+    org_memory: list[str],
 ) -> PlanDag:
-    """模板未命中 → RAG 接地 LLM 生成（A2）。范例取 top-k 最相似模板骨架。"""
+    """模板未命中 → RAG 接地 LLM 生成（A2）。范例取 top-k 最相似模板骨架 + org 记忆先验（B2）。"""
     from polis.modules.planner.generator import generate_dag
 
     model = await resolve_model(session, get_settings().default_chat_model)
@@ -102,7 +128,7 @@ async def _generate_dag(
         t.dag_skeleton
         for t in await repo.rank_plan_templates_by_goal(session, query_vec, limit=_EXEMPLAR_K)
     ]
-    return await generate_dag(gateway, model, goal, available, exemplars)
+    return await generate_dag(gateway, model, goal, available, exemplars, org_memory=org_memory)
 
 
 async def plan(
@@ -128,7 +154,9 @@ async def plan(
         version: str | None = chosen.version
     elif query_vec is not None and gateway is not None:
         # 未命中（无可行模板 / 相似度不足）+ 具备生成条件 → A2 生成（内部已双校验+自修复）
-        dag = await _generate_dag(session, goal, available, query_vec, gateway)
+        # B2：检索 org 记忆作先验喂给生成（消费 B3 沉淀的公司知识）
+        org_memory = await _retrieve_org_memory(session, org_id, goal, query_vec)
+        dag = await _generate_dag(session, goal, available, query_vec, gateway, org_memory)
         template_name = "generated"
         version = None
     elif chosen is not None:
