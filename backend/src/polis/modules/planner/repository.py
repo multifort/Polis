@@ -169,6 +169,31 @@ async def list_task_runs(
     return list((await session.scalars(q)).all())
 
 
+async def count_active_runs(session: AsyncSession, org_id: uuid.UUID) -> int:
+    """org 当前在跑的 task_run 数（S3 并发闸）。"""
+    from sqlalchemy import func
+
+    n = await session.scalar(
+        select(func.count())
+        .select_from(TaskRun)
+        .where(TaskRun.org_id == org_id, TaskRun.status == "running")
+    )
+    return int(n or 0)
+
+
+async def org_estimated_cost_cents(session: AsyncSession, org_id: uuid.UUID) -> int:
+    """org 累计预估成本（分，S3 预算提示用）：所有运行关联 plan 的 estimated_cost_cents 之和。"""
+    from sqlalchemy import func
+
+    total = await session.scalar(
+        select(func.coalesce(func.sum(Plan.estimated_cost_cents), 0))
+        .select_from(TaskRun)
+        .join(Plan, Plan.id == TaskRun.plan_id)
+        .where(TaskRun.org_id == org_id)
+    )
+    return int(total or 0)
+
+
 async def get_task_run(
     session: AsyncSession, org_id: uuid.UUID, run_id: uuid.UUID
 ) -> TaskRun | None:

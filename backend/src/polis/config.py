@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     default_ctx_budget_tokens: int = 4000  # 每节点输入上下文预算（截输入，绝不截输出）
     default_output_max_tokens: int = 2500  # 每节点输出上限（max_tokens）
 
+    # 协同 S3：org 级并发上限（真实闸，保资源公平）+ 预算提示阈值（只提示不阻断，§6）。
+    org_max_concurrent_runs: int = 5  # 同 org 同时运行的 task_run 上限；超限拒绝（429）
+    org_budget_cents: int = 0  # org 累计预估成本告警阈值（分）；0=不告警。仅提示不阻断
+
     # Langfuse 可观测（M6-H）。Polis 自建可观测页面用，Langfuse 只做采集后端。
     langfuse_enabled: bool = False
     langfuse_host: str = "http://localhost:3001"

@@ -9,6 +9,7 @@ POST /api/plans/{id}/signal         → 审批 human 节点（signal workflow）
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from typing import Annotated, Any
 
@@ -40,6 +41,7 @@ from polis.modules.planner.schemas import (
 from polis.modules.planner.workflow import TASK_QUEUE, TaskWorkflow
 
 router = APIRouter(prefix="/api", tags=["planner"])
+logger = logging.getLogger(__name__)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 # 审批/人审是治理动作：仅 owner/approver 可批准运行计划、放行人审 gate（09 §6 权限矩阵）
@@ -86,6 +88,25 @@ async def _start_plan(
 
     approve_plan（直接出图后审批）与 run_task（任务驱动）共用。Temporal 不可达 → 503。
     """
+    settings = get_settings()
+    # S3 并发闸（真实限制，§6.1）：org 在跑数达上限 → 拒绝（429），保资源公平。
+    active = await repo.count_active_runs(session, org_id)
+    if active >= settings.org_max_concurrent_runs:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"已达并发上限（{active}/{settings.org_max_concurrent_runs}），请待运行结束后重试",
+        )
+    # S3 预算提示（只提示不阻断，§6.2）：累计预估成本超阈值 → 记一条告警，照常执行。
+    if settings.org_budget_cents > 0:
+        spent = await repo.org_estimated_cost_cents(session, org_id)
+        if spent >= settings.org_budget_cents:
+            logger.warning(
+                "org %s 累计预估成本 %d 分 已达/超预算阈值 %d 分（只提示，不阻断）",
+                org_id,
+                spent,
+                settings.org_budget_cents,
+            )
+
     workflow_id = f"plan-{plan.id}"
     client = await _temporal_client()
     await repo.update_plan_status(session, org_id, plan.id, "running")
