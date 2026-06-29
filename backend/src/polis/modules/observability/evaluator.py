@@ -41,15 +41,25 @@ def _parse_score(text: str | None) -> float:
     return float(m.group(1)) if m else 0.0
 
 
+# 固定评分锚点（design §6.1 防糊弄：给维度 + 锚点，降 judge 方差，让分数可复现/稳定）
+_JUDGE_SYSTEM = (
+    "你是严格、稳定的评审。按以下**固定维度**给待评输出打分，再综合成一个 0~1 总分：\n"
+    "① 切题：是否直接回应验收标准/目标（不跑题、不套模板空话）；\n"
+    "② 完整：覆盖标准要求的关键要素；\n"
+    "③ 可执行：有具体、量化、可落地的结论/建议（非泛泛而谈）；\n"
+    "④ 有据：有数据/出处支撑，不臆造。\n"
+    "评分锚点（务必据此，保证一致性）：0.9~1.0=四项都好；0.7~0.8=基本达标有小瑕；"
+    "0.5~0.6=达标边缘、缺一项；0.3~0.4=明显不足；0~0.2=跑题/空洞。\n"
+    "**只输出一个 0~1 之间两位小数，不要任何其他文字。**"
+)
+
+
 async def _llm_judge(
     gateway: ModelGateway, model: ResolvedModel, output: str, criteria: str
 ) -> float:
     msgs = [
-        ChatMessage(
-            role="system",
-            content="你是严格的评审。只输出 0 到 1 之间的一个小数分数，不要任何其他文字。",
-        ),
-        ChatMessage(role="user", content=f"验收标准：{criteria}\n\n待评输出：{output}\n\n分数："),
+        ChatMessage(role="system", content=_JUDGE_SYSTEM),
+        ChatMessage(role="user", content=f"验收标准：{criteria}\n\n待评输出：\n{output}\n\n总分："),
     ]
     rsp = await gateway.chat(model, msgs)
     return _parse_score(rsp.content)
