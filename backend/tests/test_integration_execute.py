@@ -85,6 +85,19 @@ def test_execute_node_writes_envelope(client: TestClient, pg_url: str) -> None:
     assert envs[0]["node_id"] == "n1"
     assert "[stub]" in (envs[0]["summary"] or "")
 
+    # TD-023：skill_invocation 记真实耗时（去桩，latency_ms > 0）
+    eng = create_engine(pg_url.replace("+asyncpg", "+psycopg2"))
+    try:
+        with eng.begin() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT latency_ms, status FROM skill_invocation WHERE org_id = :o"
+                ).bindparams(o=org_id)
+            ).first()
+        assert row is not None and row[0] > 0 and row[1] == "done"
+    finally:
+        eng.dispose()
+
 
 def test_execute_node_blocked_by_injection(client: TestClient, pg_url: str) -> None:
     asyncio.run(seed())

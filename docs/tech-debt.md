@@ -30,7 +30,7 @@
 | [TD-020](#td-020) | M3 Planner 仅模板优先，全自动 LLM 拆解兜底延后 | Low | **closed** | A2 generate_dag（RAG+双校验+自修复）已补，见偿还记录 |
 | [TD-021](#td-021) | M4 执行内核 5 处桩待真实化（模型/凭证/记忆/护栏/MCP） | Med | open(设计内·ADR-0007) | M5/M6 |
 | [TD-022](#td-022) | run_node 真实执行路径未经 Temporal worker 端到端测试 | Low-Med | open | worker+temporal 常驻测试环境就绪时 |
-| [TD-023](#td-023) | SkillInvocation 计费/可观测为桩（latency/cost=0、聚合一条） | Low | open | M6 模型网关+Langfuse 接线时 |
+| [TD-023](#td-023) | SkillInvocation 计费/可观测为桩（latency/cost=0、聚合一条） | Low | **closed** | 实测 latency + 粗估 cost 已落，见偿还记录 |
 | [TD-024](#td-024) | M5 记忆用确定性检索/去重，embedding/向量RAG/reranker/语义近邻延后 | Med | **部分偿还(M6)** | reranker/语义去重待续 |
 | [TD-025](#td-025) | Langfuse 采集+自建观测页(H-1/2/3) 完成；trace_ref 表落库未用(直查 API) | Low | **closed** | trace_ref 表后续按需 |
 | [TD-028](#td-028) | execute 写 result_envelope 未关联 task_run.id | Med | **closed** | 已贯通 task_run.id |
@@ -198,6 +198,7 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 `latency_ms=0`、`cost_cents=0`，未按实际工具调用拆分、无真实耗时/成本。
 - 影响：调用日志可证「有执行」，但计费/性能数据不可用。
 - 偿还：M6 接 LiteLLM（真实 token 成本）+ Langfuse（trace/耗时）后，按工具调用粒度记录真实 latency/cost。
+- **已偿还（2026-06-27）**：`agent_runtime.execute` 记**实测 latency_ms**（节点墙钟 perf_counter）+ **粗估 cost_cents**（`_rough_cost_cents`：输出 token×目录价 price_out，权威成本仍在 observability 的 langfuse 实测 in+out）。单测 `test_integration_execute` 断言 latency_ms>0。仍为聚合一条（非按工具粒度拆分）——工具级拆分留后续。
 
 ### TD-024
 **M5 记忆为确定性实现，语义能力延后 M6（设计内，复用 ADR-0006/0007）。**

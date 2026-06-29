@@ -7,6 +7,7 @@ M4 用桩模型/记忆/凭证（ADR-0007）。
 
 from __future__ import annotations
 
+import time
 import uuid
 from typing import Any
 
@@ -28,6 +29,23 @@ from polis.modules.runtime.agent import run_loop
 from polis.modules.runtime.guardrails import Guardrails
 from polis.modules.runtime.mcp import McpRegistry, McpRuntime, default_registry
 from polis.modules.runtime.models import SkillInvocation
+
+
+async def _rough_cost_cents(session: AsyncSession, model_id: str, content: str | None) -> int:
+    """TD-023 粗估节点成本（分）：输出 token × 目录价 price_out(元/1K)×100。
+
+    只算输出侧（输入 token 运行时未单独计），故偏低；**权威成本在 observability**（langfuse 实测
+    in+out token × 目录价）。无价/无内容 → 0。
+    """
+    from polis.modules.model.models import ModelCatalog
+    from polis.modules.runtime import blackboard
+
+    row = await session.get(ModelCatalog, model_id)
+    price_out = float(row.price_out) if row is not None and row.price_out is not None else 0.0
+    if price_out <= 0:
+        return 0
+    tokens = blackboard.rough_tokens(content)
+    return round(tokens / 1000 * price_out * 100)
 
 
 async def _select_agent_scoped(
@@ -67,6 +85,7 @@ async def execute(
 
     task_id 为 task_run.id（TD-028）；写 envelope/调用日志/trace 时带上，便于观测按任务聚合。
     """
+    _t0 = time.perf_counter()  # TD-023：节点执行实测耗时
     org_uuid = uuid.UUID(org_id)
     task_uuid = uuid.UUID(task_id) if task_id else None
     caps = node.get("required_capabilities") or []
@@ -122,14 +141,17 @@ async def execute(
     session.add(envelope)
     await session.flush()
 
-    # 调用日志（聚合一条，计费/可观测字段；T4.6）
+    # 调用日志（聚合一条；T4.6）。TD-023：实测耗时 + 粗估成本（去桩）。
+    # latency=节点墙钟；cost_cents=粗估(输出 token×目录价)——权威成本在 observability。
+    latency_ms = int((time.perf_counter() - _t0) * 1000)
+    cost_cents = await _rough_cost_cents(session, ctx.model.id, loop.content)
     session.add(
         SkillInvocation(
             org_id=org_uuid,
             agent_id=(agent.id if agent is not None else None),
             skill_id=None,
-            latency_ms=0,
-            cost_cents=0,
+            latency_ms=latency_ms,
+            cost_cents=cost_cents,
             status=status,
         )
     )
