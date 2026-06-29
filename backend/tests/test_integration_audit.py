@@ -49,3 +49,16 @@ def test_create_org_audited(client: TestClient, pg_url: str) -> None:
     assert client.post("/api/orgs", json={"name": "审计公司"}, headers=auth).status_code == 201
 
     assert "org.create" in _audit_actions_for(pg_url, user_id)
+
+
+def test_login_failure_audited(client: TestClient, pg_url: str) -> None:
+    """TD-011：密码错误 → 401，且独立事务落一条 auth.login_failed（防暴力破解留痕）。"""
+    import uuid
+
+    email = f"af_{uuid.uuid4().hex[:8]}@polis.dev"
+    client.post("/api/auth/register", json={"email": email, "password": "secret123"})
+    # 错误密码 → 401
+    r = client.post("/api/auth/login", json={"email": email, "password": "WRONGpass"})
+    assert r.status_code == 401, r.text
+    # 失败审计以 email 为 actor（用户态请求已回滚，审计走独立事务才留得下）
+    assert "auth.login_failed" in _audit_actions_for(pg_url, email)

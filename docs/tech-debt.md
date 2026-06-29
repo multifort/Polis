@@ -18,7 +18,7 @@
 | [TD-008](#td-008) | 早期提交作者归属错误 | Low | accepted(won't-fix) | — |
 | [TD-009](#td-009) | 应用本体未容器化 | Low | open(设计内 E8 后置) | E8 启用时 |
 | [TD-010](#td-010) | 运行时 RLS 未接线 | Med | **closed** | 已补（M2 T9.2），见偿还记录 |
-| [TD-011](#td-011) | 审计仅覆盖 org 写操作（auth 事件未） | Med | open(部分) | 登录失败审计随限流做 |
+| [TD-011](#td-011) | 审计仅覆盖 org 写操作（auth 事件未） | Med | **closed** | 登录失败审计已补（独立事务），见偿还记录 |
 | [TD-012](#td-012) | 认证缺登出/刷新轮换/会话清理 | Med | **closed** | 已补，见偿还记录 |
 | [TD-013](#td-013) | 安全配置生产前须收紧（CORS `*`/JWT 默认密钥/无限流/找回密码桩） | Med | open(部分) | 限流/找回密码仍待对外前 |
 | [TD-014](#td-014) | 前端 token 存 localStorage + 无静默刷新 | Low-Med | open(部分) | localStorage→cookie 待前端硬化 |
@@ -106,6 +106,7 @@
 已覆盖：org 增改删 + provision（M2）；**认证 register/login/refresh/logout + 审批 plan.approve/plan.signal**（技术债清理批次3/4）。
 - 剩余：**登录失败审计**（防暴力破解）需独立事务（失败路径回滚会丢审计），与登录限流(TD-013剩余)一并做。
 - 偿还：批次3 `write_audit` 接入认证/审批成功路径（`test_integration_audit`）；失败审计待限流。
+- **已偿还（2026-06-27）**：登录失败 → `auth.login_failed` 审计（actor=尝试邮箱，不记密码），走**独立 session 事务**（失败请求会回滚，故另起 session 提交才留得下）；best-effort 不影响 401。单测 `test_login_failure_audited`。登录限流仍随 TD-013 待对外前做。
 
 ### TD-012
 **认证缺登出/刷新轮换/会话清理。** 已有 register/login/refresh，但**无 `/api/auth/logout`**（吊销 refresh）、
