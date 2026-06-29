@@ -105,7 +105,10 @@ async def evaluate_node(output: str, acceptance_criteria: str) -> dict[str, Any]
         model = await resolve_model(session, settings.default_chat_model)
     gateway = LiteLLMGateway() if settings.deepseek_api_key else StubModelGateway()
     r = await evaluator.score(gateway, model, output, acceptance_criteria=acceptance_criteria)
-    return {"passed": r.passed, "judge": r.judge_score}
+    # 质量门用设计的 τ_pass（§4.3/§6/ADR-0012，缺省 0.6），而非 evaluator 通用默认 0.7——
+    # 后者偏严，会把"本来够好、judge 有方差跌破 0.7"的产出误判（回炉：对齐设计阈值，降假阴性）。
+    passed = r.assertions_ok and r.judge_score >= settings.quality_gate_tau
+    return {"passed": passed, "judge": r.judge_score}
 
 
 @activity.defn

@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     org_max_concurrent_runs: int = 5  # 同 org 同时运行的 task_run 上限；超限拒绝（429）
     org_budget_cents: int = 0  # org 累计预估成本告警阈值（分）；0=不告警。仅提示不阻断
 
+    # 质量门通过阈值 τ_pass（S1/S2，design §4.3/§6/ADR-0012 初值 0.6；按数据校准）。
+    quality_gate_tau: float = 0.6
+
     # Langfuse 可观测（M6-H）。Polis 自建可观测页面用，Langfuse 只做采集后端。
     langfuse_enabled: bool = False
     langfuse_host: str = "http://localhost:3001"
