@@ -183,6 +183,25 @@ async def list_presets(session: AsyncSession) -> list[ScenarioPreset]:
     return list((await session.scalars(select(ScenarioPreset).order_by(ScenarioPreset.name))).all())
 
 
+async def rank_presets_by_vector(
+    session: AsyncSession, query_embedding: list[float], limit: int = 5
+) -> list[tuple[ScenarioPreset, float]]:
+    """按 query 向量与 preset.embedding 余弦相似排序（TD-017 语义选预设）。返回 (preset, 相似度)。
+
+    仅含 embedding 非空的 preset（未回填的走关键词兜底）。相似度 = 1 - cosine_distance。
+    """
+    dist = ScenarioPreset.embedding.cosine_distance(query_embedding)
+    rows = (
+        await session.execute(
+            select(ScenarioPreset, dist)
+            .where(ScenarioPreset.embedding.isnot(None))
+            .order_by(dist)
+            .limit(limit)
+        )
+    ).all()
+    return [(p, 1.0 - float(d)) for p, d in rows]
+
+
 async def list_orgs_for_user(session: AsyncSession, user_id: uuid.UUID) -> list[tuple[Org, str]]:
     rows = await session.execute(
         select(Org, OrgMember.role)

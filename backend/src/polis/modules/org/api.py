@@ -117,8 +117,11 @@ async def list_current_org_agents(org: CurrentOrg, session: SessionDep) -> list[
 @router.post("/provision", response_model=ProvisionOut, status_code=status.HTTP_201_CREATED)
 async def provision(data: ProvisionIn, user_id: CurrentUserId, session: SessionDep) -> ProvisionOut:
     # 立邦：选预设→实例化花名册。建公司故不需 CurrentOrg（此时尚无当前公司）。
+    # TD-017：注入网关让关键词走语义选预设（无 embedding/不可达时函数内回退关键词）。
+    from polis.modules.model.litellm_gateway import LiteLLMGateway
+
     try:
-        return await provisioning.provision(session, user_id, data)
+        return await provisioning.provision(session, user_id, data, gateway=LiteLLMGateway())
     except provisioning.NoPresetMatch as exc:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, "未匹配到预设，请换关键词或指定预设名"

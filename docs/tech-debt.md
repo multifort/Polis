@@ -24,7 +24,7 @@
 | [TD-014](#td-014) | 前端 token 存 localStorage + 无静默刷新 | Low-Med | open(部分) | localStorage→cookie 待前端硬化 |
 | [TD-015](#td-015) | org 过滤 repo 基类未建 | Low | **closed** | 已提供 select_org_scoped 助手 |
 | [TD-016](#td-016) | 权限矩阵未完整落地（approver/member 区分 + 成员邀请/移除） | Low-Med | open | 审批/成员管理接入时 |
-| [TD-017](#td-017) | 预设关键词匹配对中文弱（无分词/无语义） | Low | open | M6 embedding 语义匹配 |
+| [TD-017](#td-017) | 预设关键词匹配对中文弱（无分词/无语义） | Low | **closed** | provisioning 语义选预设已落，见偿还记录 |
 | [TD-018](#td-018) | Temporal worker 沙箱 pydantic_core 延迟导入 UserWarning | Low | **closed** | 已消除，见偿还记录 |
 | [TD-019](#td-019) | 节点终态仅靠 GET /run 触发回写（无 workflow 完成回调） | Low-Med | **closed** | 已补 finalize_run 工作流完成回调，见偿还记录 |
 | [TD-020](#td-020) | M3 Planner 仅模板优先，全自动 LLM 拆解兜底延后 | Low | **closed** | A2 generate_dag（RAG+双校验+自修复）已补，见偿还记录 |
@@ -146,6 +146,7 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 中文不分词时需空格分隔或精确子串；语义检索（embedding）按 ADR-0006 留 M6。
 - 影响：中文自由关键词命中率低；当前 UI 以"选预设"为主，影响有限。
 - 偿还：M6 接 LiteLLM embedding 后改语义检索（preset.embedding 已建 hnsw 索引）。
+- **已偿还（2026-06-27）**：`provisioning.match_preset` 语义优先——embed 关键词 + `repo.rank_presets_by_vector`(preset.embedding 余弦) 取 top-1，≥τ_preset(0.45) 命中；未命中/无网关/embed 失败 → 关键词子串兜底。`embed_backfill` 补 scenario_preset 回填。API 注入 LiteLLMGateway。单测 `test_provision_semantic.py`(4)。实测 live：「帮我把采购供应商分析一下」(非子串)→语义命中 采购分析公司；无关词→正确 404。
 
 ### TD-018
 **Temporal worker 沙箱 pydantic_core 延迟导入 UserWarning（已偿还）。**

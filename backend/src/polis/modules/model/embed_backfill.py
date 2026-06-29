@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polis.db.session import dispose_engine, get_sessionmaker, init_engine
 from polis.modules.model.gateway import ModelGateway
 from polis.modules.model.litellm_gateway import LiteLLMGateway
+from polis.modules.org.models import ScenarioPreset
 from polis.modules.planner.models import Capability, PlanTemplate
 from polis.modules.runtime.models import Skill
 
@@ -78,6 +79,12 @@ async def _backfill_session(
     counts["plan_template"] = await _embed_rows(gateway, tpls, _tpl_text)
     sks = list((await session.scalars(select(Skill).where(Skill.embedding.is_(None)))).all())
     counts["skill"] = await _embed_rows(gateway, sks, lambda s: f"{s.name} {s.capability or ''}")
+    # TD-017：场景预设语义匹配源——名称 + 描述（中文，供 provisioning 按意图语义选预设）
+    preset_q = select(ScenarioPreset).where(ScenarioPreset.embedding.is_(None))
+    presets = list((await session.scalars(preset_q)).all())
+    counts["scenario_preset"] = await _embed_rows(
+        gateway, presets, lambda p: f"{p.name or ''} {p.description or ''}".strip()
+    )
 
 
 def main() -> None:
