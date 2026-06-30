@@ -325,4 +325,22 @@ export const api = {
     request<ApproveResult>(`/api/tasks/${taskId}/run`, { method: "POST" }, true, orgId),
   taskRuns: (orgId: string, taskId: string) =>
     request<TaskRunRow[]>(`/api/tasks/${taskId}/runs`, {}, true, orgId),
+  // ── 审批收件箱（M6-G / 工作台「需要你处理」）──
+  listApprovals: (orgId: string, status = "pending") =>
+    request<ApprovalRow[]>(`/api/approvals?status=${status}`, {}, true, orgId),
+  decideApproval: (orgId: string, approvalId: string, approve: boolean) =>
+    request<ApprovalRow>(
+      `/api/approvals/${approvalId}/decide`,
+      { method: "POST", body: JSON.stringify({ approve }) },
+      true,
+      orgId,
+    ),
 };
+
+export interface ApprovalRow {
+  id: string;
+  kind: string;
+  ref_id: string | null;
+  payload: Record<string, unknown> | null;
+  status: string;
+}

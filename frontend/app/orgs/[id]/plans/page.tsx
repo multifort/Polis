@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -189,24 +189,43 @@ export default function PlansPage() {
 
   useEffect(() => () => stopPoll(), [stopPoll]);
 
+  const createWith = useCallback(
+    async (g: string) => {
+      if (!g.trim()) return;
+      setCreating(true);
+      setError("");
+      setNotice("");
+      setRun(null);
+      setObs(null);
+      stopPoll();
+      setPlan(null);
+      try {
+        setPlan(await api.createPlan(orgId, g.trim()));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "出图失败");
+      } finally {
+        setCreating(false);
+      }
+    },
+    [orgId, stopPoll],
+  );
+
   async function onCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!goal.trim()) return;
-    setCreating(true);
-    setError("");
-    setNotice("");
-    setRun(null);
-    setObs(null);
-    stopPoll();
-    setPlan(null);
-    try {
-      setPlan(await api.createPlan(orgId, goal.trim()));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "出图失败");
-    } finally {
-      setCreating(false);
-    }
+    await createWith(goal);
   }
+
+  // C0-1：工作台「出图」带 ?goal= 跳来 → 预填并自动出图一次。
+  const sp = useSearchParams();
+  const bootedRef = useRef(false);
+  useEffect(() => {
+    const g = sp.get("goal");
+    if (g && !bootedRef.current) {
+      bootedRef.current = true;
+      setGoal(g);
+      void createWith(g);
+    }
+  }, [sp, createWith]);
 
   const poll = useCallback(async () => {
     if (!plan) return;
