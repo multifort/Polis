@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.db.org_scoped import select_org_scoped, visible_clause
 from polis.modules.org.models import Agent, AgentCapability
-from polis.modules.planner.models import Plan, PlanTemplate, Task, TaskRun
+from polis.modules.planner.models import Capability, Plan, PlanTemplate, Task, TaskRun
 from polis.modules.runtime.models import Skill
 
 
@@ -45,6 +45,26 @@ async def list_plan_templates(session: AsyncSession) -> list[PlanTemplate]:
             )
         ).all()
     )
+
+
+async def rank_capabilities_by_vector(
+    session: AsyncSession, query_embedding: list[float], limit: int = 5
+) -> list[tuple[Capability, float]]:
+    """按向量与 capability.embedding 余弦排序（TD-030 能力语义去重 §14.4）。返回 (能力, 相似度)。
+
+    仅含 embedding 非空的能力；相似度 = 1 - cosine_distance。供 activate_capability 把拟新增能力
+    解析到最近的已有 key（防 report.gen/report.make 同义爆炸）。
+    """
+    dist = Capability.embedding.cosine_distance(query_embedding)
+    rows = (
+        await session.execute(
+            select(Capability, dist)
+            .where(Capability.embedding.isnot(None))
+            .order_by(dist)
+            .limit(limit)
+        )
+    ).all()
+    return [(c, 1.0 - float(d)) for c, d in rows]
 
 
 async def rank_plan_templates_by_goal(

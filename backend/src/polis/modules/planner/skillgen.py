@@ -136,6 +136,33 @@ async def generate_skill_draft(
     return skill
 
 
+_TAU_DEDUP = 0.86  # 能力语义去重阈值（design §14.6）：≥τ 视为同义、复用已有 key
+
+
+async def resolve_capability(
+    session: AsyncSession, gateway: ModelGateway, name: str, description: str = ""
+) -> str | None:
+    """TD-030/§14.4 能力语义去重：把「拟新增能力」解析到最近的已有 capability key。
+
+    embed(name+description) → 最近已有能力 cosine ≥ τ_dedup → 返回其 key（复用，防同义爆炸）；
+    否则 None（确为新能力，由调用方走登记/生成链）。embed 失败/无回填 → None。
+    **仅用于能力登记期去重**，不用于执行期路由（能力 key 是契约，执行按精确匹配）。
+    """
+    from polis.modules.planner import repository as planner_repo
+
+    try:
+        vec = (await gateway.embed([f"{name} {description}".strip()]))[0]
+    except Exception:
+        logger.warning("resolve_capability embedding 失败", exc_info=True)
+        return None
+    if vec is None:
+        return None
+    ranked = await planner_repo.rank_capabilities_by_vector(session, vec, limit=1)
+    if ranked and ranked[0][1] >= _TAU_DEDUP:
+        return ranked[0][0].key
+    return None
+
+
 async def publish_skill(session: AsyncSession, org_id: uuid.UUID, skill_id: uuid.UUID) -> bool:
     """人审通过后发布草稿 Skill（published/verified）。仅发布本 org 拥有的 draft。返回是否发布。
 
