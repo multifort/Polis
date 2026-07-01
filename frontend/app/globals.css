@@ -630,7 +630,14 @@ a { color: var(--color-accent-text); text-decoration: none; }
 .shell-content { flex: 1; padding: 28px 32px; width: 100%; }   /* 全宽，无 max-width → 不留右白 */
 
 /* 工作台 */
-.wb-hero { background: linear-gradient(135deg, var(--color-primary), #6d5ae6); color: #fff; border-radius: 16px; padding: 28px 32px; margin-bottom: 24px; }
+.wb-hero {
+  position: relative;
+  /* 全出血背景图（无烤圆角）→ 固定 240px 高、cover 铺满，圆角由 CSS 出，任意宽度稳定不变形 */
+  height: 240px; overflow: hidden;
+  background: url("/task-bg.png") center / cover no-repeat, #4340ce;
+  color: #fff; border-radius: 16px; padding: 28px 32px; margin-bottom: 24px;
+}
+.wb-hero > * { position: relative; z-index: 1; }
 .wb-hero h1 { font-size: 22px; margin: 0 0 6px; }
 .wb-hero p { color: rgba(255,255,255,.88); margin: 0 0 16px; font-size: 13px; }
 .wb-goalbar { display: flex; gap: 10px; background: #fff; border-radius: 12px; padding: 8px; }
