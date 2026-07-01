@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import AppShell from "@/components/AppShell";
 import {
   api,
   getAccess,
@@ -319,50 +319,48 @@ export default function PlansPage() {
 
   return (
     <>
-      <div className="topbar">
-        <div className="brand">
-          <div className="logo">A</div>
-          <span className="brand-name">Polis</span>
-        </div>
-        <Link className="back" href={`/orgs/${orgId}`}>
-          ← 返回公司
-        </Link>
-      </div>
-
-      <div className="container wide">
-        <div className="page-head">
-          <div className="title-row">
-            <div className="title-ico">🗂</div>
-            <div>
-              <h1 className="page-title big">任务 / 计划</h1>
-              <p className="muted">输入目标，模板优先出图（DAG），批准后交由编排运行。</p>
-            </div>
-          </div>
-        </div>
-
-        <form className="plan-bar" onSubmit={onCreate}>
-          <input
-            value={goal}
-            onChange={(e) => setGoal(e.target.value)}
-            placeholder="例如：分析供应商交付"
-          />
-          <button className="btn-primary" type="submit" disabled={creating}>
-            {creating ? "出图中…" : "✦ 出图"}
-          </button>
-        </form>
+      <AppShell orgId={orgId} active="work" breadcrumb={plan ? "工作详情" : "新目标"}>
+        {!plan && !creating && (
+          <form className="plan-bar" onSubmit={onCreate}>
+            <input
+              value={goal}
+              onChange={(e) => setGoal(e.target.value)}
+              placeholder="输入一个目标，例如：分析供应商交付准时率并给出改进建议"
+            />
+            <button className="btn-primary" type="submit" disabled={creating}>
+              {creating ? "出图中…" : "✦ 出图"}
+            </button>
+          </form>
+        )}
+        {creating && <p className="muted" style={{ marginTop: 8 }}>正在为「{goal}」出图…</p>}
 
         {error && <p className="error" style={{ marginTop: 14 }}>{error}</p>}
         {notice && <p className="notice" style={{ marginTop: 14 }}>{notice}</p>}
 
         {plan && (
           <>
-            <div className="plan-meta">
-              <span className="role-chip">模板 {plan.template}</span>
-              <span className="role-chip">预估 {(plan.estimated_cost_cents / 100).toFixed(2)} 元</span>
-              <span className="role-chip">{plan.dag.nodes.length} 个节点</span>
-              <span className={`pill ${run ? run.status : "active"}`}>
-                {run ? STATUS_LABEL[run.status] ?? run.status : "校验通过"}
-              </span>
+            <div className="wd-head">
+              <div className="wd-head-main">
+                <h1 className="wd-title">{plan.goal}</h1>
+                <div className="plan-meta">
+                  <span className="role-chip">模板 {plan.template}</span>
+                  <span className="role-chip">
+                    预估 ¥{(plan.estimated_cost_cents / 100).toFixed(2)}
+                  </span>
+                  <span className="role-chip">{plan.dag.nodes.length} 个节点</span>
+                  <span className={`pill ${run ? run.status : "active"}`}>
+                    {run ? STATUS_LABEL[run.status] ?? run.status : "校验通过"}
+                  </span>
+                </div>
+              </div>
+              <button
+                className="btn-run"
+                onClick={() => void createWith(plan.goal)}
+                disabled={creating}
+                title="用同一目标重新出图运行"
+              >
+                ↻ 再次运行
+              </button>
             </div>
 
             <div className="ops-grid">
@@ -571,7 +569,7 @@ export default function PlansPage() {
             </div>
           </>
         )}
-      </div>
+      </AppShell>
 
       {showLog && obs && (
         <LogModal obs={obs} nodeMetaById={nodeMetaById} onClose={() => setShowLog(false)} />

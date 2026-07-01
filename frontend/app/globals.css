@@ -671,3 +671,9 @@ a { color: var(--color-accent-text); text-decoration: none; }
 .member-meta { flex: 1; }
 .member-name { font-weight: 600; font-size: 14px; }
 .member-email { font-size: 12px; color: var(--color-text-secondary); }
+
+/* C0-3 工作详情头部（在 AppShell 内）*/
+.wd-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.wd-head-main { min-width: 0; }
+.wd-title { font-size: 22px; font-weight: 700; margin: 0 0 10px; }
+.wd-head .plan-meta { margin: 0; }
