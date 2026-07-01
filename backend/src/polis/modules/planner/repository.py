@@ -180,13 +180,17 @@ async def get_task(session: AsyncSession, org_id: uuid.UUID, task_id: uuid.UUID)
 
 async def list_task_runs(
     session: AsyncSession, org_id: uuid.UUID, task_id: uuid.UUID
-) -> list[TaskRun]:
+) -> list[tuple[TaskRun, int | None]]:
+    """返回 (task_run, plan.estimated_cost_cents) 列表。"""
+
     q = (
-        select_org_scoped(TaskRun, org_id)
-        .where(TaskRun.task_id == task_id)
+        select(TaskRun, Plan.estimated_cost_cents)
+        .outerjoin(Plan, Plan.id == TaskRun.plan_id)
+        .where(TaskRun.org_id == org_id, TaskRun.task_id == task_id)
         .order_by(TaskRun.created_at.desc())
     )
-    return list((await session.scalars(q)).all())
+    rows = (await session.execute(q)).all()
+    return [(r, cost) for r, cost in rows]
 
 
 async def count_active_runs(session: AsyncSession, org_id: uuid.UUID) -> int:
@@ -232,6 +236,60 @@ async def get_task_run_by_plan(
         .order_by(TaskRun.created_at.desc())
     )
     return run
+
+
+async def list_workspace_runs(
+    session: AsyncSession, org_id: uuid.UUID, *, active_limit: int = 6, recent_limit: int = 6
+) -> tuple[
+    list[tuple[TaskRun, Task | None, int, int | None]],
+    list[tuple[TaskRun, Task | None, int, int | None]],
+]:
+    """工作台用：活跃运行（running/pending） + 最近完成（done/failed/needs_review）。
+
+    分别返回 (task_run, task_or_none, node_count, estimated_cost_cents) 列表。
+    活跃按 started_at 降序（最近先启动），完成按 finished_at 降序（最近先完成）。
+    """
+    # 活跃运行：left join task + plan 补名称/目标/节点数/成本
+    active_q = (
+        select(TaskRun, Task, Plan.estimated_cost_cents, Plan.dag)
+        .outerjoin(Task, Task.id == TaskRun.task_id)
+        .outerjoin(Plan, Plan.id == TaskRun.plan_id)
+        .where(
+            TaskRun.org_id == org_id,
+            TaskRun.status.in_(("running", "pending")),
+        )
+        .order_by(TaskRun.started_at.desc().nullslast(), TaskRun.created_at.desc())
+        .limit(active_limit)
+    )
+    active_rows = (await session.execute(active_q)).all()
+
+    # 最近完成
+    recent_q = (
+        select(TaskRun, Task, Plan.estimated_cost_cents, Plan.dag)
+        .outerjoin(Task, Task.id == TaskRun.task_id)
+        .outerjoin(Plan, Plan.id == TaskRun.plan_id)
+        .where(
+            TaskRun.org_id == org_id,
+            TaskRun.status.in_(("done", "failed", "needs_review")),
+        )
+        .order_by(TaskRun.finished_at.desc().nullslast(), TaskRun.created_at.desc())
+        .limit(recent_limit)
+    )
+    recent_rows = (await session.execute(recent_q)).all()
+
+    def _node_count(dag: Any) -> int:
+        if dag is None:
+            return 0
+        nodes = dag.get("nodes") if isinstance(dag, dict) else []
+        return len(nodes) if isinstance(nodes, list) else 0
+
+    active: list[tuple[TaskRun, Task | None, int, int | None]] = [
+        (r, t, _node_count(dag), cost) for r, t, cost, dag in active_rows
+    ]
+    recent: list[tuple[TaskRun, Task | None, int, int | None]] = [
+        (r, t, _node_count(dag), cost) for r, t, cost, dag in recent_rows
+    ]
+    return active, recent
 
 
 async def finish_task_run(session: AsyncSession, run: TaskRun, new_status: str) -> None:

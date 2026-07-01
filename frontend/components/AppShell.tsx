@@ -118,9 +118,11 @@ export default function AppShell({
             <span className="cur">{breadcrumb ?? "工作台"}</span>
           </div>
           <div className="shell-top-actions">
-            <Link className="btn-primary" href={`/orgs/${orgId}`}>
-              ＋ 新目标
-            </Link>
+            {active === "home" && (
+              <Link className="btn-primary" href="/dashboard">
+                ＋ 新建公司
+              </Link>
+            )}
           </div>
         </header>
         <main className="shell-content">{children}</main>

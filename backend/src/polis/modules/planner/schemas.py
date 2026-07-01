@@ -148,6 +148,35 @@ class TaskRunOut(BaseModel):
     task_id: uuid.UUID | None = None
     plan_id: uuid.UUID | None = None
     status: str
+    created_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    estimated_cost_cents: int | None = None
+    actual_cost: float | None = None  # 真实 LLM 调用费用（元）
+
+
+# ── C0-4 工作台 workspace runs ──────────────────────────────────────────────────
+
+
+class WorkspaceRunItem(BaseModel):
+    """工作台展示用：一次运行的摘要（关联任务信息）。"""
+
+    run_id: uuid.UUID
+    task_id: uuid.UUID | None = None
+    task_name: str | None = None
+    task_goal: str | None = None
+    plan_id: uuid.UUID | None = None
+    run_status: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    node_count: int = 0
+    estimated_cost_cents: int | None = None
+    actual_cost: float | None = None  # 真实 LLM 调用费用（元）
+
+
+class WorkspaceRuns(BaseModel):
+    active: list[WorkspaceRunItem] = []
+    recent: list[WorkspaceRunItem] = []
 
 
 def derive_overall_status(node_statuses: list[str]) -> str:

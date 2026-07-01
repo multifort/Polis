@@ -26,9 +26,11 @@ from polis.modules.observability.audit import write_audit
 from polis.modules.org.deps import CurrentOrg, CurrentUserId, OrgContext, require_role
 from polis.modules.planner import repository as repo
 from polis.modules.planner import service
+from polis.modules.planner.composer import route_or_compose
 from polis.modules.planner.schemas import (
     ApproveResult,
     PlanCreateIn,
+    PlanDag,
     PlanResult,
     RunNodeState,
     RunStatusResult,
@@ -36,6 +38,8 @@ from polis.modules.planner.schemas import (
     TaskCreateIn,
     TaskOut,
     TaskRunOut,
+    WorkspaceRunItem,
+    WorkspaceRuns,
     derive_overall_status,
 )
 from polis.modules.planner.workflow import TASK_QUEUE, TaskWorkflow
@@ -199,7 +203,105 @@ async def list_task_runs(
     if await repo.get_task(session, org.org_id, task_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "任务不存在")
     rows = await repo.list_task_runs(session, org.org_id, task_id)
-    return [TaskRunOut.model_validate(r, from_attributes=True) for r in rows]
+
+    # 批量拉取实际费用（Langfuse generations → model_catalog 价目）
+    out: list[TaskRunOut] = []
+    for r, est_cost in rows:
+        actual: float | None = None
+        try:
+            calls = await langfuse_client.fetch_generations(str(r.id))
+        except Exception:
+            calls = []
+        await _fill_actual_cost(session, calls)
+        total = sum(c.get("cost", 0) or 0 for c in calls)
+        if total > 0:
+            actual = round(total, 6)
+        out.append(
+            TaskRunOut(
+                id=r.id,
+                task_id=r.task_id,
+                plan_id=r.plan_id,
+                status=r.status,
+                created_at=r.created_at.isoformat() if r.created_at else None,
+                started_at=r.started_at.isoformat() if r.started_at else None,
+                finished_at=r.finished_at.isoformat() if r.finished_at else None,
+                estimated_cost_cents=est_cost,
+                actual_cost=actual,
+            )
+        )
+    return out
+
+
+@router.get("/runs/workspace", response_model=WorkspaceRuns)
+async def workspace_runs(
+    org: CurrentOrg,
+    session: SessionDep,
+    active_limit: int = 6,
+    recent_limit: int = 6,
+) -> WorkspaceRuns:
+    """C0-4 工作台：活跃运行 + 最近完成，跨任务聚合。"""
+    active_rows, recent_rows = await repo.list_workspace_runs(
+        session, org.org_id, active_limit=active_limit, recent_limit=recent_limit
+    )
+
+    # 批量拉取实际费用（Langfuse generations → 按 model_catalog 价目算）
+    all_runs = [r for r, t, nc, cost in active_rows] + [r for r, t, nc, cost in recent_rows]
+    actual_costs: dict[uuid.UUID, float | None] = {}
+    for run in all_runs:
+        try:
+            calls = await langfuse_client.fetch_generations(str(run.id))
+        except Exception:
+            calls = []
+        await _fill_actual_cost(session, calls)
+        total = sum(c.get("cost", 0) or 0 for c in calls)
+        actual_costs[run.id] = round(total, 6) if total > 0 else None
+
+    def _item(run: Any, t: Any, node_count: int, est_cost: Any) -> WorkspaceRunItem:
+        started: str | None = run.started_at.isoformat() if run.started_at is not None else None
+        finished: str | None = run.finished_at.isoformat() if run.finished_at is not None else None
+        return WorkspaceRunItem(
+            run_id=run.id,
+            task_id=run.task_id,
+            task_name=t.name if t is not None else None,
+            task_goal=t.goal if t is not None else None,
+            plan_id=run.plan_id,
+            run_status=run.status,
+            started_at=started,
+            finished_at=finished,
+            node_count=node_count,
+            estimated_cost_cents=est_cost,
+            actual_cost=actual_costs.get(run.id),
+        )
+
+    return WorkspaceRuns(
+        active=[_item(r, t, nc, cost) for r, t, nc, cost in active_rows],
+        recent=[_item(r, t, nc, cost) for r, t, nc, cost in recent_rows],
+    )
+
+
+@router.get("/plans/{plan_id}", response_model=PlanResult)
+async def get_plan(plan_id: uuid.UUID, org: CurrentOrg, session: SessionDep) -> PlanResult:
+    """加载已有计划（C0 工作详情入口）。重新路由以展示 Agent 分配。"""
+    row = await repo.get_plan(session, org.org_id, plan_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "计划不存在或不属于当前公司")
+    try:
+        dag = PlanDag.model_validate(row.dag)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "计划 DAG 数据已损坏") from exc
+
+    # 重新路由：为每个节点查找当前可用的 Agent（不传 gateway，跳过 compose 背书）
+    routing = await route_or_compose(session, org.org_id, dag, gateway=None)
+
+    return PlanResult(
+        id=row.id,
+        goal=row.goal or "",
+        status=row.status,
+        template=row.version or "",
+        estimated_cost_cents=row.estimated_cost_cents or 0,
+        dag=dag,
+        routing=routing,
+    )
 
 
 @router.post(

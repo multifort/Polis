@@ -1,122 +1,167 @@
 "use client";
 
+// C0 设置页：公司信息 + 模型配置（并排）+ 删除公司（对照原型）。
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
-import { api, getAccess, type ApiError, type ModelCatalogItem } from "@/lib/api";
+import AppShell from "@/components/AppShell";
+import { api, getAccess, type ApiError, type Me, type ModelCatalogItem } from "@/lib/api";
+
+function statusPill(ok: boolean) {
+  return ok
+    ? { label: "凭证就绪", color: "#1b5e20", bg: "#e8f5e9" }
+    : { label: "待配置", color: "#7a3e00", bg: "#fff4e5" };
+}
 
 export default function OrgSettingsPage() {
   const router = useRouter();
-  const params = useParams<{ id: string }>();
-  const orgId = params.id;
+  const orgId = useParams<{ id: string }>().id;
 
+  const [me, setMe] = useState<Me | null>(null);
   const [models, setModels] = useState<ModelCatalogItem[]>([]);
   const [modelId, setModelId] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  const [savingInfo, setSavingInfo] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    if (!getAccess()) {
-      router.replace("/");
-      return;
-    }
-    (async () => {
-      try {
-        const all = await api.listModels();
-        // 只列可配置 Key 的文本生成模型（embedding 走本地，无需 Key）
-        const chat = all.filter((m) => (m.capabilities ?? []).includes("text-gen"));
-        setModels(chat);
-        if (chat[0]) setModelId(chat[0].id);
-      } catch (e) {
-        setErr(e instanceof Error ? e.message : "加载模型目录失败");
-      }
-    })();
-  }, [router]);
+    if (!getAccess()) { router.replace("/"); return; }
+    // 拉公司信息
+    api.me().then((m) => {
+      setMe(m);
+      const o = m.orgs.find((x) => x.id === orgId);
+      if (o) { setName(o.name); setDesc(o.description || ""); }
+    }).catch(() => undefined);
+    // 拉模型目录
+    api.listModels().then((all) => {
+      const chat = all.filter((m) => (m.capabilities ?? []).includes("text-gen"));
+      setModels(chat);
+      if (chat[0]) setModelId(chat[0].id);
+    }).catch(() => setErr("加载模型目录失败"));
+  }, [orgId, router]);
 
-  const onSave = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!modelId || !apiKey.trim()) return;
-      setSaving(true);
-      setMsg("");
-      setErr("");
-      try {
-        await api.configureCredential(orgId, modelId, apiKey.trim());
-        setMsg(`已保存「${modelId}」的密钥（信封加密存储，明文不入库）`);
-        setApiKey("");
-      } catch (e2) {
-        const status = (e2 as ApiError).status;
-        setErr(
-          status === 403
-            ? "仅公司所有者可配置模型密钥"
-            : e2 instanceof Error
-              ? e2.message
-              : "保存失败",
-        );
-      } finally {
-        setSaving(false);
-      }
-    },
-    [orgId, modelId, apiKey],
-  );
+  const onSaveKey = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!modelId || !apiKey.trim()) return;
+    setSaving(true); setMsg(""); setErr("");
+    try {
+      await api.configureCredential(orgId, modelId, apiKey.trim());
+      setMsg(`已保存「${modelId}」的密钥（信封加密存储，明文不入库）`);
+      setApiKey("");
+    } catch (e2) {
+      const s = (e2 as ApiError).status;
+      setErr(s === 403 ? "仅公司所有者可配置模型密钥" : e2 instanceof Error ? e2.message : "保存失败");
+    } finally { setSaving(false); }
+  }, [orgId, modelId, apiKey]);
+
+  const onSaveInfo = useCallback(async () => {
+    setSavingInfo(true); setMsg(""); setErr("");
+    try {
+      await api.updateOrg(orgId, name.trim(), desc.trim() || null);
+      setMsg("公司信息已保存");
+    } catch (e2) {
+      setErr(e2 instanceof Error ? e2.message : "保存失败");
+    } finally { setSavingInfo(false); }
+  }, [orgId, name, desc]);
+
+  const onDelete = useCallback(async () => {
+    if (!confirm("确定删除这家公司？其角色、Agent、记忆与运行历史将一并删除，不可恢复。")) return;
+    setDeleting(true); setErr("");
+    try {
+      await api.deleteOrg(orgId);
+      router.replace("/dashboard");
+    } catch (e2) {
+      setErr(e2 instanceof Error ? e2.message : "删除失败");
+      setDeleting(false);
+    }
+  }, [orgId, router]);
 
   return (
-    <>
-      <div className="topbar">
-        <div className="brand">
-          <div className="logo">A</div>
-          <span className="brand-name">Polis</span>
-        </div>
-        <Link className="back" href={`/orgs/${orgId}`}>
-          ← 返回公司
-        </Link>
+    <AppShell orgId={orgId} active="settings" breadcrumb="设置">
+      <div style={{ marginBottom: 20 }}>
+        <h1 className="page-title big">设置</h1>
       </div>
 
-      <div className="container">
-        <div className="page-head">
-          <div>
-            <h1 className="page-title">模型配置</h1>
-            <p className="muted">
-              为公司配置大模型密钥（BYO-Key，信封加密存储）。Agent 运行时按需短时注入，用完即焚。
-            </p>
+      {/* 并排双卡：公司信息 + 模型配置 */}
+      <div className="settings-grid">
+        {/* 公司信息 */}
+        <div className="settings-card">
+          <h3>公司信息</h3>
+          <label>公司名称</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} />
+          <label>公司描述</label>
+          <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={3} />
+          <div className="settings-actions">
+            <button className="btn-primary" onClick={onSaveInfo} disabled={savingInfo}>
+              {savingInfo ? "保存中…" : "保存"}
+            </button>
           </div>
         </div>
 
-        {err && <p className="error">{err}</p>}
-        {msg && <p className="notice">{msg}</p>}
+        {/* 模型配置 */}
+        <div className="settings-card">
+          <h3>模型配置</h3>
+          {models.map((m) => {
+            const ok = true; // 后端无"是否已配 Key"查询，统一显示名/状态
+            const p = statusPill(ok);
+            return (
+              <div className="settings-model-row" key={m.id}>
+                <div className="settings-model-info">
+                  <div className="settings-model-name">
+                    {m.capabilities?.includes("text-gen") ? "推理 · " : ""}{m.id}
+                  </div>
+                  <div className="settings-model-id mono">{m.provider || ""}</div>
+                </div>
+                <span style={{ fontSize: 11, color: p.color, background: p.bg, padding: "2px 8px", borderRadius: 8 }}>
+                  {p.label}
+                </span>
+              </div>
+            );
+          })}
 
-        <div className="wizard">
-          <h3>
-            <span className="dot" />
-            配置聊天模型密钥
-          </h3>
-          <form className="provision" onSubmit={onSave} style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <select value={modelId} onChange={(e) => setModelId(e.target.value)}>
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.id}
-                  {m.provider ? ` (${m.provider})` : ""}
-                </option>
-              ))}
-            </select>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="API Key（如 sk-…）"
-              autoComplete="off"
-            />
-            <button className="btn-primary" type="submit" disabled={saving || !modelId}>
-              {saving ? "保存中…" : "保存密钥"}
-            </button>
-          </form>
-          <p className="hint">
-            embedding 模型走本地服务（无需密钥）。当前为「单模型」配置；多模型 / 主模型 / 按 Agent 选模型为后续版本。
-          </p>
+          {/* 新增密钥 */}
+          <div style={{ marginTop: 14, borderTop: "1px solid #f1f2f8", paddingTop: 14 }}>
+            <label>新增 / 更新密钥</label>
+            <form onSubmit={onSaveKey} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <select value={modelId} onChange={(e) => setModelId(e.target.value)} style={{ flex: 1, minWidth: 140 }}>
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>{m.id}</option>
+                ))}
+              </select>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="API Key（sk-…）"
+                autoComplete="off"
+                style={{ flex: 2, minWidth: 160 }}
+              />
+              <button className="btn-primary" type="submit" disabled={saving || !modelId} style={{ width: "auto", height: 42, padding: "0 16px" }}>
+                {saving ? "…" : "保存"}
+              </button>
+            </form>
+            {msg && <p className="notice" style={{ marginTop: 8 }}>{msg}</p>}
+            {err && <p className="error" style={{ marginTop: 8 }}>{err}</p>}
+          </div>
         </div>
       </div>
-    </>
+
+      {/* 删除公司（危险区） */}
+      <div className="settings-danger">
+        <div className="settings-danger-body">
+          <div className="settings-danger-title">删除这家公司</div>
+          <div className="settings-danger-desc">
+            该公司下的角色、Agent、记忆与运行历史将一并删除，且不可恢复。
+          </div>
+        </div>
+        <button className="btn-danger-outline" onClick={onDelete} disabled={deleting}>
+          {deleting ? "删除中…" : "删除公司"}
+        </button>
+      </div>
+    </AppShell>
   );
 }

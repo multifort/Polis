@@ -1,16 +1,14 @@
 "use client";
 
+// C0-2 工作列表：tabs 筛选 + 表格布局（对照原型）。
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import AppShell from "@/components/AppShell";
 import {
   api,
   getAccess,
   type ApiError,
-  type Observability,
   type Task,
   type TaskRunRow,
 } from "@/lib/api";
@@ -24,9 +22,52 @@ const STATUS_LABEL: Record<string, string> = {
   active: "可用",
   needs_review: "待复核",
   needs_rework: "待返工",
+  waiting_human: "待人审",
 };
-const fmtCost = (y: number | null | undefined) => (y == null ? "—" : `¥${y.toFixed(4)}`);
-const fmtNum = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString());
+const TAB_LABELS: Record<string, string> = {
+  running: "执行中",
+  pending: "待处理",
+  done: "已完成",
+  needs_review: "待复核",
+  failed: "失败",
+};
+
+type TabKey = "all" | "running" | "pending_or_review" | "done";
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "all", label: "全部" },
+  { key: "running", label: "进行中" },
+  { key: "pending_or_review", label: "待处理" },
+  { key: "done", label: "已完成" },
+];
+
+function timeAgo(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "刚刚";
+  if (mins < 60) return `${mins} 分钟前`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} 小时前`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days} 天前`;
+  return new Date(iso).toLocaleDateString("zh-CN");
+}
+
+interface TaskRowData {
+  task: Task;
+  latestRun: TaskRunRow | null;
+  runCount: number;
+}
+
+// 按最新 run 的状态归类 tab key
+function tabOf(run: TaskRunRow | null): TabKey {
+  if (!run) return "all";
+  if (run.status === "running") return "running";
+  if (run.status === "pending" || run.status === "needs_review") return "pending_or_review";
+  if (run.status === "done") return "done";
+  return "all"; // failed etc. go to all
+}
 
 export default function TasksPage() {
   const router = useRouter();
@@ -37,11 +78,9 @@ export default function TasksPage() {
   const [goal, setGoal] = useState("");
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState("");
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [runs, setRuns] = useState<Record<string, TaskRunRow[]>>({});
+  const [tab, setTab] = useState<TabKey>("all");
+  const [runsByTask, setRunsByTask] = useState<Record<string, TaskRunRow[]>>({});
   const [runningId, setRunningId] = useState<string | null>(null);
-  const [obs, setObs] = useState<Observability | null>(null);
-  const [obsLoading, setObsLoading] = useState(false);
 
   useEffect(() => {
     if (!getAccess()) router.replace("/");
@@ -49,7 +88,20 @@ export default function TasksPage() {
 
   const loadTasks = useCallback(async () => {
     try {
-      setTasks(await api.listTasks(orgId));
+      const ts = await api.listTasks(orgId);
+      setTasks(ts);
+      // 批量拉取每个 task 的 runs，供表格显示最新运行状态
+      const runsMap: Record<string, TaskRunRow[]> = {};
+      await Promise.all(
+        ts.map(async (t) => {
+          try {
+            runsMap[t.id] = await api.taskRuns(orgId, t.id);
+          } catch {
+            runsMap[t.id] = [];
+          }
+        }),
+      );
+      setRunsByTask(runsMap);
     } catch {
       setNotice("加载任务失败");
     }
@@ -76,35 +128,12 @@ export default function TasksPage() {
     }
   }
 
-  const loadRuns = useCallback(
-    async (taskId: string) => {
-      try {
-        setRuns((m) => ({ ...m, [taskId]: [] }));
-        const r = await api.taskRuns(orgId, taskId);
-        setRuns((m) => ({ ...m, [taskId]: r }));
-      } catch {
-        setNotice("加载执行记录失败");
-      }
-    },
-    [orgId],
-  );
-
-  async function onToggle(taskId: string) {
-    if (expanded === taskId) {
-      setExpanded(null);
-      return;
-    }
-    setExpanded(taskId);
-    await loadRuns(taskId);
-  }
-
   async function onRun(taskId: string) {
     setRunningId(taskId);
     setNotice("");
     try {
       await api.runTask(orgId, taskId);
-      setExpanded(taskId);
-      await loadRuns(taskId);
+      await loadTasks();
     } catch (err) {
       const s = (err as ApiError).status;
       setNotice(
@@ -119,144 +148,185 @@ export default function TasksPage() {
     }
   }
 
-  async function viewRun(planId: string | null | undefined) {
-    if (!planId) return;
-    setObsLoading(true);
-    setObs(null);
-    try {
-      setObs(await api.planObservability(orgId, planId));
-    } catch (err) {
-      const s = (err as ApiError).status;
-      setNotice(s === 404 ? "该运行暂无观测数据" : "加载观测失败");
-    } finally {
-      setObsLoading(false);
-    }
-  }
+  // 组装表格行数据
+  const rows: TaskRowData[] = tasks.map((t) => {
+    const runs = runsByTask[t.id] ?? [];
+    const latestRun = runs.length > 0 ? runs[0] : null;
+    return { task: t, latestRun, runCount: runs.length };
+  });
+
+  // 按 tab 筛选 + 排序（有最新运行的排前面）
+  const filtered =
+    tab === "all"
+      ? rows
+      : rows.filter((r) => tabOf(r.latestRun) === tab);
+  // 有 run 的排前面，按最近运行时间倒序
+  const sorted = [...filtered].sort((a, b) => {
+    if (a.latestRun && !b.latestRun) return -1;
+    if (!a.latestRun && b.latestRun) return 1;
+    return 0;
+  });
 
   return (
-    <>
-      <AppShell orgId={orgId} active="work" breadcrumb="工作">
-        <div className="page-head">
-          <div>
-            <h1 className="page-title big">工作</h1>
-            <p className="muted">保存的任务可反复运行；每条工作保留完整运行历史。</p>
-          </div>
-          <Link className="btn-primary" href={`/orgs/${orgId}`}>
-            ＋ 新目标
-          </Link>
+    <AppShell orgId={orgId} active="work" breadcrumb="工作">
+      {/* 页面头部 */}
+      <div className="work-head">
+        <div>
+          <h1 className="page-title big">工作</h1>
+          <p className="muted">保存的任务可反复运行；每条工作保留完整运行历史。</p>
         </div>
+      </div>
 
-        <form className="task-create" onSubmit={onCreate}>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="任务名称，如：供应商交付分析"
-          />
-          <input
-            value={goal}
-            onChange={(e) => setGoal(e.target.value)}
-            placeholder="目标，如：分析供应商交付"
-          />
-          <button className="btn-primary" type="submit" disabled={creating}>
-            {creating ? "创建中…" : "＋ 新建任务"}
+      {/* 新建任务（紧凑行） */}
+      <form className="task-create" onSubmit={onCreate}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="任务名称，如：供应商交付分析"
+        />
+        <input
+          value={goal}
+          onChange={(e) => setGoal(e.target.value)}
+          placeholder="目标，如：分析供应商交付"
+        />
+        <button className="btn-primary" type="submit" disabled={creating}>
+          {creating ? "创建中…" : "＋ 新建任务"}
+        </button>
+      </form>
+
+      {notice && <p className="notice" style={{ marginTop: 14 }}>{notice}</p>}
+
+      {/* Tabs */}
+      <div className="work-tabs">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            className={`work-tab${tab === t.key ? " on" : ""}`}
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
           </button>
-        </form>
+        ))}
+      </div>
 
-        {notice && <p className="notice" style={{ marginTop: 14 }}>{notice}</p>}
-
-        <div className="task-list">
-          {tasks.length === 0 && <p className="empty">还没有任务，先新建一个。</p>}
-          {tasks.map((t) => (
-            <div className="task-card" key={t.id}>
-              <div className="task-row">
-                <div className="task-meta" onClick={() => onToggle(t.id)}>
-                  <span className="task-name">{t.name}</span>
-                  <span className="task-goal">{t.goal}</span>
-                </div>
-                <div className="task-actions">
-                  <button
-                    className="btn-run"
-                    onClick={() => onRun(t.id)}
-                    disabled={runningId === t.id}
-                  >
-                    {runningId === t.id ? "启动中…" : "▶ 运行"}
-                  </button>
-                  <button className="icon-btn" onClick={() => onToggle(t.id)}>
-                    {expanded === t.id ? "收起" : "执行记录"}
-                  </button>
-                </div>
-              </div>
-
-              {expanded === t.id && (
-                <div className="task-runs">
-                  {(runs[t.id] ?? []).length === 0 && (
-                    <p className="hint">暂无执行记录（点「运行」开始一次）。</p>
-                  )}
-                  {(runs[t.id] ?? []).map((r, i) => (
-                    <div className="run-row" key={r.id}>
-                      <span className="run-idx">#{(runs[t.id] ?? []).length - i}</span>
-                      <span className={`pill ${r.status}`}>
-                        {STATUS_LABEL[r.status] ?? r.status}
-                      </span>
-                      <span className="run-id">run {r.id.slice(0, 8)}</span>
-                      <button className="link-btn" onClick={() => viewRun(r.plan_id)}>
-                        查看观测 ›
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+      {/* 表格 */}
+      {sorted.length === 0 ? (
+        <div className="empty" style={{ marginTop: 12 }}>
+          {tab === "all"
+            ? "还没有任务，先新建一个或从工作台输入目标出图。"
+            : `没有${TABS.find((t) => t.key === tab)?.label ?? ""}的任务。`}
         </div>
-      </AppShell>
-
-      {(obs || obsLoading) && (
-        <div className="modal-overlay" onClick={() => setObs(null)}>
-          <div className="modal log-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h3>运行观测</h3>
-              <button className="modal-x" onClick={() => setObs(null)}>
-                ×
-              </button>
-            </div>
-            {obsLoading && <p className="hint">加载中…</p>}
-            {obs && (
-              <>
-                <div className="obs-chips" style={{ marginBottom: 12 }}>
-                  <span className="role-chip">{STATUS_LABEL[obs.status] ?? obs.status}</span>
-                  <span className="role-chip">{obs.nodes.length} 节点产出</span>
-                  <span className="role-chip">
-                    {fmtNum(obs.totals.total_tokens)} tokens · {fmtCost(obs.totals.cost)}
+      ) : (
+        <div className="work-table-wrap">
+          <div className="work-table-head">
+            <span>工作</span>
+            <span>状态</span>
+            <span>最近运行</span>
+            <span>节点</span>
+            <span>成本</span>
+            <span className="right">操作</span>
+          </div>
+          {sorted.map((r) => {
+            const run = r.latestRun;
+            const runStatus = run?.status ?? "active";
+            return (
+              <div
+                className="work-row"
+                key={r.task.id}
+              >
+                {/* 工作 */}
+                <div className="work-row-name">
+                  <Link
+                    href={`/orgs/${orgId}/plans${run?.plan_id ? `?plan=${run.plan_id}` : ""}`}
+                    className="work-row-title"
+                  >
+                    {r.task.name}
+                  </Link>
+                  <div className="work-row-goal">{r.task.goal}</div>
+                </div>
+                {/* 状态 */}
+                <div>
+                  <span className={`pill ${runStatus}`}>
+                    {STATUS_LABEL[runStatus] ?? runStatus}
                   </span>
                 </div>
-                <div className="log-body">
-                  {obs.nodes.map((n, i) => (
-                    <details className={`obs-node ${n.status}`} key={n.node_id} open={i === 0}>
-                      <summary>
-                        <span className="oid">{n.node_id}</span>
-                        <span className={`pill ${n.status}`}>
-                          {STATUS_LABEL[n.status] ?? n.status}
-                        </span>
-                      </summary>
-                      <div className="md">
-                        {(n.content ?? n.summary) ? (
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {n.content ?? n.summary}
-                          </ReactMarkdown>
-                        ) : (
-                          <p className="hint">（无产出文本）</p>
-                        )}
-                      </div>
-                    </details>
-                  ))}
-                  {obs.nodes.length === 0 && <p className="hint">该运行暂无节点产出。</p>}
+                {/* 最近运行 */}
+                <div className="work-row-time">
+                  {run
+                    ? run.started_at
+                      ? timeAgo(run.started_at)
+                      : run.created_at
+                        ? timeAgo(run.created_at)
+                        : "—"
+                    : "—"}
                 </div>
-              </>
-            )}
-          </div>
+                {/* 节点 */}
+                <div className="work-row-nodes">{r.runCount > 0 ? `${r.runCount} 次` : "—"}</div>
+                {/* 成本 */}
+                <div className="work-row-cost">
+                  {run?.actual_cost != null
+                    ? `¥${run.actual_cost.toFixed(4)}`
+                    : run?.estimated_cost_cents != null
+                      ? `¥${(run.estimated_cost_cents / 100).toFixed(2)}`
+                      : "—"}
+                </div>
+                {/* 操作 */}
+                <div className="work-row-actions">
+                  {runStatus === "waiting_human" || runStatus === "needs_review" ? (
+                    <Link
+                      className="btn-mini warn"
+                      href={`/orgs/${orgId}/plans${run?.plan_id ? `?plan=${run.plan_id}` : ""}`}
+                    >
+                      去审批
+                    </Link>
+                  ) : null}
+                  {runStatus === "running" || runStatus === "pending" ? (
+                    <Link
+                      className="btn-mini"
+                      href={`/orgs/${orgId}/plans${run?.plan_id ? `?plan=${run.plan_id}` : ""}`}
+                    >
+                      查看进度
+                    </Link>
+                  ) : null}
+                  {runStatus === "failed" ? (
+                    <button
+                      className="btn-mini danger"
+                      onClick={() => onRun(r.task.id)}
+                      disabled={runningId === r.task.id}
+                    >
+                      重试
+                    </button>
+                  ) : null}
+                  {runStatus === "done" ? (
+                    <button
+                      className="btn-mini"
+                      onClick={() => onRun(r.task.id)}
+                      disabled={runningId === r.task.id}
+                    >
+                      再次运行
+                    </button>
+                  ) : null}
+                  {!run && (
+                    <button
+                      className="btn-mini"
+                      onClick={() => onRun(r.task.id)}
+                      disabled={runningId === r.task.id}
+                    >
+                      ▶ 运行
+                    </button>
+                  )}
+                  <Link
+                    className="btn-mini ghost"
+                    href={`/orgs/${orgId}/plans${run?.plan_id ? `?plan=${run.plan_id}` : ""}`}
+                  >
+                    查看
+                  </Link>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
-    </>
+    </AppShell>
   );
 }

@@ -1,12 +1,11 @@
 "use client";
 
-// C0-1 工作台首屏：问候 + 目标输入「出图」+ 快捷 chips + 需要你处理(审批) + 最近工作。
-// （进行中/最近产出 的逐 run 卡片留 C0-4，需跨任务 run 列表端点）
+// C0-1/C0-4 工作台首屏：问候 + 目标输入「出图」+ 快捷 chips + 需要你处理(审批) + 进行中 + 最近产出。
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
-import { api, getAccess, type ApprovalRow, type Me, type Task } from "@/lib/api";
+import { api, getAccess, type ApprovalRow, type Me, type WorkspaceRuns, type WorkspaceRunItem } from "@/lib/api";
 
 const CHIPS = ["分析本季度供应商交付准时率，并给出改进建议", "对 3 家供应商询价比价并出采购建议", "生成本月支出结构报告"];
 const STATUS_LABEL: Record<string, string> = {
@@ -19,13 +18,38 @@ function greeting(): string {
   return h < 6 ? "凌晨好" : h < 12 ? "上午好" : h < 14 ? "中午好" : h < 18 ? "下午好" : "晚上好";
 }
 
+function elapsed(iso: string | null): string {
+  if (!iso) return "";
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "刚刚";
+  if (mins < 60) return `${mins} 分钟`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} 小时`;
+  const days = Math.floor(hrs / 24);
+  return `${days} 天`;
+}
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return "";
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "刚刚";
+  if (mins < 60) return `${mins} 分钟前`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} 小时前`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days} 天前`;
+  return new Date(iso).toLocaleDateString("zh-CN");
+}
+
 export default function WorkbenchPage() {
   const router = useRouter();
   const orgId = useParams<{ id: string }>().id;
   const [me, setMe] = useState<Me | null>(null);
   const [goal, setGoal] = useState("");
   const [approvals, setApprovals] = useState<ApprovalRow[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [runs, setRuns] = useState<WorkspaceRuns>({ active: [], recent: [] });
 
   useEffect(() => {
     if (!getAccess()) {
@@ -34,7 +58,7 @@ export default function WorkbenchPage() {
     }
     api.me().then(setMe).catch(() => undefined);
     api.listApprovals(orgId).then(setApprovals).catch(() => setApprovals([]));
-    api.listTasks(orgId).then(setTasks).catch(() => setTasks([]));
+    api.workspaceRuns(orgId).then(setRuns).catch(() => setRuns({ active: [], recent: [] }));
   }, [orgId, router]);
 
   const org = me?.orgs.find((o) => o.id === orgId) ?? null;
@@ -45,6 +69,9 @@ export default function WorkbenchPage() {
     if (!g) return;
     router.push(`/orgs/${orgId}/plans?goal=${encodeURIComponent(g)}`);
   }, [goal, orgId, router]);
+
+  const activeRuns = runs.active;
+  const recentRuns = runs.recent;
 
   return (
     <AppShell orgId={orgId} active="home" breadcrumb="工作台" workBadge={approvals.length || undefined}>
@@ -100,30 +127,105 @@ export default function WorkbenchPage() {
         </section>
       )}
 
-      {/* 最近工作（C0-4 将拆「进行中 / 最近产出」逐 run 卡）*/}
-      <section className="wb-block">
-        <div className="wb-block-head">
-          <h2>最近工作</h2>
-          <Link className="wb-more" href={`/orgs/${orgId}/tasks`}>
-            查看全部 ›
-          </Link>
-        </div>
-        {tasks.length === 0 ? (
-          <p className="wb-empty">还没有工作。在上面输入一个目标试试 →</p>
-        ) : (
-          <div className="wb-work-list">
-            {tasks.slice(0, 6).map((t) => (
-              <Link className="wb-work" key={t.id} href={`/orgs/${orgId}/tasks`}>
-                <div className="wb-work-main">
-                  <span className="wb-work-name">{t.name}</span>
-                  <span className="wb-work-goal">{t.goal}</span>
-                </div>
-                <span className={`pill ${t.status}`}>{STATUS_LABEL[t.status] ?? t.status}</span>
-              </Link>
-            ))}
+      {/* 进行中 + 最近产出（双栏）*/}
+      <div className="wb-duo">
+        {/* 进行中 */}
+        <section className="wb-block">
+          <div className="wb-recent-box">
+            <div className="wb-recent-head">
+              <h2>进行中</h2>
+              {activeRuns.length > 0 && <span className="wb-count">{activeRuns.length}</span>}
+            </div>
+            {activeRuns.length === 0 ? (
+              <div className="wb-empty-state">
+                <div className="wb-empty-ico">⚡</div>
+                <p>暂无进行中的工作</p>
+                <p className="wb-empty-sub">输入目标出图并批准后，进行中的运行会出现在这里</p>
+              </div>
+            ) : (
+              <div className="wb-active-list">
+                {activeRuns.map((r) => (
+                  <RunCard key={r.run_id} run={r} orgId={orgId} active />
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </section>
+        </section>
+
+        {/* 最近产出 */}
+        <section className="wb-block">
+          <div className="wb-recent-box">
+            <div className="wb-recent-head">
+              <h2>最近产出</h2>
+              <Link className="wb-more" href={`/orgs/${orgId}/tasks`}>
+                查看全部 ›
+              </Link>
+            </div>
+            {recentRuns.length === 0 ? (
+              <div className="wb-empty-state">
+                <div className="wb-empty-ico">📋</div>
+                <p>暂无完成的产出</p>
+                <p className="wb-empty-sub">运行完成后的产出摘要会出现在这里</p>
+              </div>
+            ) : (
+              <div className="wb-recent-cards">
+                {recentRuns.map((r) => (
+                  <RunCard key={r.run_id} run={r} orgId={orgId} />
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
     </AppShell>
+  );
+}
+
+function RunCard({ run, orgId, active }: { run: WorkspaceRunItem; orgId: string; active?: boolean }) {
+  const name = run.task_name || "临时运行";
+  const href = run.task_id
+    ? `/orgs/${orgId}/tasks`
+    : `/orgs/${orgId}/plans${run.plan_id ? `?plan=${run.plan_id}` : ""}`;
+
+  if (active) {
+    // 进行中：卡片 + 进度条 + 节点/成本信息
+    const costStr = run.actual_cost != null ? `¥${run.actual_cost.toFixed(4)}` : null;
+    const sub = [
+      run.run_status === "pending" ? "等待启动" : `已运行 ${elapsed(run.started_at)}`,
+      run.node_count > 0 ? `${run.node_count} 个节点` : null,
+      costStr,
+    ].filter(Boolean).join(" · ");
+    return (
+      <Link className="wb-active-card" href={href}>
+        <div className="wb-active-top">
+          <span className="wb-active-name">{name}</span>
+          <span className={`pill ${run.run_status}`}>
+            {STATUS_LABEL[run.run_status] ?? run.run_status}
+          </span>
+        </div>
+        <div className="wb-active-bar"><div className="wb-active-fill" /></div>
+        <div className="wb-active-sub">{sub}</div>
+      </Link>
+    );
+  }
+
+  // 最近产出：紧凑行（✓ + 名称 + 时间·成本·节点 + 查看按钮）
+  const costStr = run.actual_cost != null ? `¥${run.actual_cost.toFixed(4)}` : null;
+  const meta = [
+    timeAgo(run.finished_at),
+    costStr,
+    run.node_count > 0 ? `${run.node_count} 节点` : null,
+    run.run_status === "failed" ? STATUS_LABEL[run.run_status] : null,
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <Link className="wb-recent-card" href={href}>
+      <span className="wb-recent-check">✓</span>
+      <div className="wb-recent-main">
+        <div className="wb-recent-name">{name}</div>
+        <div className="wb-recent-sub">{meta}</div>
+      </div>
+      <span className="wb-recent-btn">查看</span>
+    </Link>
   );
 }

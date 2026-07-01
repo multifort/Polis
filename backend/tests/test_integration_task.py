@@ -68,7 +68,7 @@ def test_task_crud_and_run_link(client: TestClient) -> None:
                 await s.flush()
                 assert run.task_id == uuid.UUID(task_id)
                 linked = await repo.list_task_runs(s, oid, uuid.UUID(task_id))
-                assert any(x.id == run.id for x in linked)
+                assert any(x[0].id == run.id for x in linked)
         finally:
             await engine.dispose()
 

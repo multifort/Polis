@@ -240,6 +240,11 @@ export interface TaskRunRow {
   task_id?: string | null;
   plan_id?: string | null;
   status: string;
+  created_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  estimated_cost_cents?: number | null;
+  actual_cost?: number | null;
 }
 
 export interface Observability {
@@ -304,6 +309,8 @@ export const api = {
   roles: (orgId: string) => request<Role[]>("/api/orgs/current/roles", {}, true, orgId),
   createPlan: (orgId: string, goal: string) =>
     request<PlanResult>("/api/plans", { method: "POST", body: JSON.stringify({ goal }) }, true, orgId),
+  getPlan: (orgId: string, planId: string) =>
+    request<PlanResult>(`/api/plans/${planId}`, {}, true, orgId),
   approvePlan: (orgId: string, planId: string) =>
     request<ApproveResult>(`/api/plans/${planId}/approve`, { method: "POST" }, true, orgId),
   planRun: (orgId: string, planId: string) =>
@@ -335,6 +342,9 @@ export const api = {
       true,
       orgId,
     ),
+  // ── C0-4 工作台 ──
+  workspaceRuns: (orgId: string) =>
+    request<WorkspaceRuns>("/api/runs/workspace", {}, true, orgId),
 };
 
 export interface ApprovalRow {
@@ -343,4 +353,23 @@ export interface ApprovalRow {
   ref_id: string | null;
   payload: Record<string, unknown> | null;
   status: string;
+}
+
+// ── C0-4 工作台 workspace runs ─────────────────────────────────────────
+export interface WorkspaceRunItem {
+  run_id: string;
+  task_id: string | null;
+  task_name: string | null;
+  task_goal: string | null;
+  plan_id: string | null;
+  run_status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  node_count: number;
+  estimated_cost_cents: number | null;
+  actual_cost: number | null;
+}
+export interface WorkspaceRuns {
+  active: WorkspaceRunItem[];
+  recent: WorkspaceRunItem[];
 }

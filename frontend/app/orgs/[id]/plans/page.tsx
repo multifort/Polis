@@ -49,11 +49,11 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 // ── SVG 流程图布局 ──────────────────────────────────────────────
-const NODE_W = 252;
-const NODE_H = 142;
-const H_GAP = 28;
-const V_GAP = 58;
-const PAD = 14;
+const NODE_W = 270;
+const NODE_H = 128;
+const H_GAP = 18;
+const V_GAP = 32;
+const PAD = 10;
 
 type Pos = { x: number; y: number };
 function layoutFlow(layers: PlanNode[][]) {
@@ -157,6 +157,7 @@ export default function PlansPage() {
   const [obsLoading, setObsLoading] = useState(false);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [showLog, setShowLog] = useState(false);
+  const [workTab, setWorkTab] = useState<"plan" | "log" | "cost">("plan"); // C0-3 tabs
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentModal, setAgentModal] = useState<Agent | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -216,16 +217,35 @@ export default function PlansPage() {
   }
 
   // C0-1：工作台「出图」带 ?goal= 跳来 → 预填并自动出图一次。
+  // C0-2：工作列表「查看」带 ?plan= 跳来 → 加载已有计划 + 运行状态 + 观测。
   const sp = useSearchParams();
   const bootedRef = useRef(false);
   useEffect(() => {
+    if (bootedRef.current) return;
     const g = sp.get("goal");
-    if (g && !bootedRef.current) {
+    const pid = sp.get("plan");
+    if (pid) {
+      bootedRef.current = true;
+      (async () => {
+        try {
+          const p = await api.getPlan(orgId, pid);
+          setPlan(p);
+          setGoal(p.goal);
+          // 同时拉运行状态
+          try { setRun(await api.planRun(orgId, p.id)); } catch { /* 尚未运行 */ }
+          // 拉观测（不含轮询）
+          try { setObs(await api.planObservability(orgId, p.id)); } catch { /* 尚无观测数据 */ }
+        } catch {
+          setError("加载计划失败");
+        }
+      })();
+    } else if (g) {
       bootedRef.current = true;
       setGoal(g);
       void createWith(g);
     }
-  }, [sp, createWith]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const poll = useCallback(async () => {
     if (!plan) return;
@@ -319,7 +339,7 @@ export default function PlansPage() {
 
   return (
     <>
-      <AppShell orgId={orgId} active="work" breadcrumb={plan ? "工作详情" : "新目标"}>
+      <AppShell orgId={orgId} active="work" breadcrumb={plan ? "工作详情" : "出图"}>
         {!plan && !creating && (
           <form className="plan-bar" onSubmit={onCreate}>
             <input
@@ -363,172 +383,258 @@ export default function PlansPage() {
               </button>
             </div>
 
-            <div className="ops-grid">
-              {/* ── 左：执行计划 DAG ── */}
-              <section className="panel">
-                <div className="panel-head">
-                  <h2>执行计划（DAG）</h2>
-                  <div className="head-actions">
-                    <div className="seg">
-                      <button
-                        className={view === "graph" ? "on" : ""}
-                        onClick={() => setView("graph")}
-                        title="流程图"
-                      >
-                        ⛓ 图
-                      </button>
-                      <button
-                        className={view === "list" ? "on" : ""}
-                        onClick={() => setView("list")}
-                        title="列表"
-                      >
-                        ☰ 表
-                      </button>
+            {/* C0-3 Tabs：计划与运行 / 完整日志 / 用量与成本 */}
+            <div className="workdetail-tabs">
+              {[
+                ["plan", "计划与运行"],
+                ["log", "完整日志"],
+                ["cost", "用量与成本"],
+              ].map(([k, label]) => (
+                <button
+                  key={k}
+                  className={`workdetail-tab${workTab === k ? " on" : ""}`}
+                  onClick={() => setWorkTab(k as "plan" | "log" | "cost")}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {workTab === "plan" ? (
+              <div className="ops-grid">
+                {/* ── 左：执行计划 DAG ── */}
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>执行计划（DAG）</h2>
+                    <div className="head-actions">
+                      <div className="seg">
+                        <button
+                          className={view === "graph" ? "on" : ""}
+                          onClick={() => setView("graph")}
+                          title="流程图"
+                        >
+                          ⛓ 图
+                        </button>
+                        <button
+                          className={view === "list" ? "on" : ""}
+                          onClick={() => setView("list")}
+                          title="列表"
+                        >
+                          ☰ 表
+                        </button>
+                      </div>
+                      {(plan.status === "draft" || plan.status === "approved") && !run && (
+                        <button className="btn-run" onClick={onApprove} disabled={approving}>
+                          {approving ? "启动中…" : "✓ 批准并运行"}
+                        </button>
+                      )}
                     </div>
-                    {(plan.status === "draft" || plan.status === "approved") && !run && (
-                      <button className="btn-run" onClick={onApprove} disabled={approving}>
-                        {approving ? "启动中…" : "✓ 批准并运行"}
-                      </button>
-                    )}
                   </div>
-                </div>
 
-                {view === "graph" ? (
-                  <FlowGraph
-                    layers={layers}
-                    plan={plan}
-                    statusOf={flowStatus}
-                    timeOf={timeOf}
-                    agentOf={agentOf}
-                    onAgentClick={openAgent}
-                    selectedId={selectedNode}
-                    onSelect={selectNode}
-                    onSignal={onSignal}
-                  />
-                ) : (
-                  <ListView
-                    layers={layers}
-                    plan={plan}
-                    statusOf={flowStatus}
-                    timeOf={timeOf}
-                    agentOf={agentOf}
-                    onAgentClick={openAgent}
-                    selectedId={selectedNode}
-                    onSelect={selectNode}
-                    onSignal={onSignal}
-                  />
-                )}
-
-                {/* 计划级统计卡 */}
-                <div className="stat-row">
-                  {obs ? (
-                    <Stat ico="¥" label="实际费用" value={fmtCost(obs.totals.cost)} />
+                  {view === "graph" ? (
+                    <FlowGraph
+                      layers={layers}
+                      plan={plan}
+                      statusOf={flowStatus}
+                      timeOf={timeOf}
+                      agentOf={agentOf}
+                      onAgentClick={openAgent}
+                      selectedId={selectedNode}
+                      onSelect={selectNode}
+                      onSignal={onSignal}
+                    />
                   ) : (
-                    <Stat ico="¥" label="预估费用" value={`${(plan.estimated_cost_cents / 100).toFixed(2)} 元`} />
+                    <ListView
+                      layers={layers}
+                      plan={plan}
+                      statusOf={flowStatus}
+                      timeOf={timeOf}
+                      agentOf={agentOf}
+                      onAgentClick={openAgent}
+                      selectedId={selectedNode}
+                      onSelect={selectNode}
+                      onSignal={onSignal}
+                    />
                   )}
-                  <Stat ico="◇" label="节点数量" value={String(plan.dag.nodes.length)} />
-                  <Stat ico="⏱" label="总耗时" value={obs ? fmtDuration(obs.duration_seconds) : "—"} />
-                  <Stat
-                    ico="✓"
-                    label="状态"
-                    value={run ? STATUS_LABEL[run.status] ?? run.status : "未运行"}
-                  />
-                </div>
-              </section>
 
-              {/* ── 右：运行观测 ── */}
-              <aside className="panel obs-panel">
-                <div className="panel-head">
-                  <h2>运行观测</h2>
-                  <button className="icon-btn" onClick={loadObs} disabled={obsLoading || !run}>
-                    {obsLoading ? "加载中…" : "↻ 刷新"}
-                  </button>
-                </div>
+                  {/* 计划级统计卡 */}
+                  <div className="stat-row">
+                    {obs ? (
+                      <Stat ico="¥" label="实际费用" value={fmtCost(obs.totals.cost)} />
+                    ) : (
+                      <Stat ico="¥" label="预估费用" value={`${(plan.estimated_cost_cents / 100).toFixed(2)} 元`} />
+                    )}
+                    <Stat ico="◇" label="节点数量" value={String(plan.dag.nodes.length)} />
+                    <Stat ico="⏱" label="总耗时" value={obs ? fmtDuration(obs.duration_seconds) : "—"} />
+                    <Stat
+                      ico="✓"
+                      label="状态"
+                      value={run ? STATUS_LABEL[run.status] ?? run.status : "未运行"}
+                    />
+                  </div>
+                </section>
 
-                {!run && <p className="hint">批准并运行后，这里展示节点产出与 Token / 成本统计。</p>}
+                {/* ── 右：运行观测 ── */}
+                <aside className="panel obs-panel">
+                  <div className="panel-head">
+                    <h2>运行观测</h2>
+                    <button className="icon-btn" onClick={loadObs} disabled={obsLoading || !run}>
+                      {obsLoading ? "加载中…" : "↻ 刷新"}
+                    </button>
+                  </div>
 
+                  {!run && <p className="hint">批准并运行后，这里展示节点产出与 Token / 成本统计。</p>}
+
+                  {run && !obs && (
+                    <p className="hint">
+                      {obsLoading ? "正在加载观测数据…" : "运行中，点「刷新」查看产出与用量。"}
+                    </p>
+                  )}
+
+                  {obs && (
+                    <>
+                      <div className="obs-chips">
+                        {obs.manifest?.models_used && (
+                          <span className="role-chip">
+                            模型 {Object.values(obs.manifest.models_used).join(", ")}
+                          </span>
+                        )}
+                        <span className="role-chip">{obs.nodes.length} 个节点产出</span>
+                        <span className="role-chip">{obs.totals.calls} 次 LLM 调用</span>
+                      </div>
+
+                      {/* 节点产出：折叠卡 + markdown 渲染（图标 / 时间 / 折叠箭头） */}
+                      <div className="obs-nodes">
+                        {obs.nodes.map((n, i) => {
+                          const meta = nodeMetaById.get(n.node_id);
+                          const kind = meta ? nodeKind(meta) : "agent";
+                          const agent = n.provenance?.agent;
+                          const open = selectedNode ? selectedNode === n.node_id : i === 0;
+                          return (
+                            <details
+                              id={`obs-node-${n.node_id}`}
+                              className={`obs-node ${n.status} ${selectedNode === n.node_id ? "sel" : ""}`}
+                              key={n.node_id}
+                              open={open}
+                            >
+                              <summary
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setSelectedNode(selectedNode === n.node_id ? null : n.node_id);
+                                }}
+                              >
+                                <NodeIcon kind={kind} className="sm" />
+                                <span className="oid">{n.node_id}</span>
+                                {agent != null && <span className="oagent">{String(agent)}</span>}
+                                <span className={`pill ${n.status}`}>
+                                  {STATUS_LABEL[n.status] ?? n.status}
+                                </span>
+                                {n.needs_human && <span className="pill waiting_human">需人审</span>}
+                                {timeOf(n.node_id) && (
+                                  <span className="otime">⏱ {timeOf(n.node_id)}</span>
+                                )}
+                              </summary>
+                              <div className="md">
+                                {(n.content ?? n.summary) ? (
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {n.content ?? n.summary}
+                                  </ReactMarkdown>
+                                ) : (
+                                  <p className="hint">（无产出文本）</p>
+                                )}
+                              </div>
+                            </details>
+                          );
+                        })}
+                      </div>
+
+                      {obs.nodes.length === 0 && (
+                        <p className="hint">该运行暂无节点产出记录。</p>
+                      )}
+                    </>
+                  )}
+                </aside>
+              </div>
+            ) : workTab === "log" ? (
+              /* 完整日志（终端深色风格） */
+              <div className="log-terminal">
+                {!run && <p className="hint" style={{ color: "#7a7fa8" }}>批准并运行后，这里展示完整执行日志。</p>}
                 {run && !obs && (
-                  <p className="hint">
-                    {obsLoading ? "正在加载观测数据…" : "运行中，点「刷新」查看产出与用量。"}
+                  <p className="hint" style={{ color: "#7a7fa8" }}>
+                    {obsLoading ? "正在加载…" : "运行中，点「计划与运行」tab 查看实时状态。"}
                   </p>
                 )}
-
                 {obs && (
-                  <>
-                    <div className="obs-chips">
-                      {obs.manifest?.models_used && (
-                        <span className="role-chip">
-                          模型 {Object.values(obs.manifest.models_used).join(", ")}
-                        </span>
-                      )}
-                      <span className="role-chip">{obs.nodes.length} 个节点产出</span>
-                      <span className="role-chip">{obs.totals.calls} 次 LLM 调用</span>
-                    </div>
-
-                    {/* 节点产出：折叠卡 + markdown 渲染（图标 / 时间 / 折叠箭头） */}
-                    <div className="obs-nodes">
-                      {obs.nodes.map((n, i) => {
-                        const meta = nodeMetaById.get(n.node_id);
-                        const kind = meta ? nodeKind(meta) : "agent";
-                        const agent = n.provenance?.agent;
-                        const open = selectedNode ? selectedNode === n.node_id : i === 0;
-                        return (
-                          <details
-                            id={`obs-node-${n.node_id}`}
-                            className={`obs-node ${n.status} ${selectedNode === n.node_id ? "sel" : ""}`}
-                            key={n.node_id}
-                            open={open}
-                          >
-                            <summary
-                              onClick={(e) => {
-                                e.preventDefault();
-                                setSelectedNode(selectedNode === n.node_id ? null : n.node_id);
-                              }}
-                            >
-                              <NodeIcon kind={kind} className="sm" />
-                              <span className="oid">{n.node_id}</span>
-                              {agent != null && <span className="oagent">{String(agent)}</span>}
-                              <span className={`pill ${n.status}`}>
-                                {STATUS_LABEL[n.status] ?? n.status}
-                              </span>
-                              {n.needs_human && <span className="pill waiting_human">需人审</span>}
-                              {timeOf(n.node_id) && (
-                                <span className="otime">⏱ {timeOf(n.node_id)}</span>
-                              )}
-                            </summary>
-                            <div className="md">
-                              {(n.content ?? n.summary) ? (
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                  {n.content ?? n.summary}
-                                </ReactMarkdown>
-                              ) : (
-                                <p className="hint">（无产出文本）</p>
-                              )}
-                            </div>
-                          </details>
-                        );
-                      })}
-                    </div>
-
-                    {obs.nodes.length === 0 && (
-                      <p className="hint">该运行暂无节点产出记录。</p>
-                    )}
-
-                    {/* 用量统计（token/成本，对标 Langfuse Dashboard）— 默认收纳折叠 */}
-                    <details className="usage-fold">
-                      <summary>
-                        <span>用量统计</span>
-                        <span className="usage-sum">
-                          {fmtNum(obs.totals.total_tokens)} tokens · {obs.totals.calls} 次调用 ·{" "}
-                          {fmtCost(obs.totals.cost)}
-                        </span>
-                      </summary>
-                      <div className="usage-cards">
-                        <UsageCard label="总 Token" value={fmtNum(obs.totals.total_tokens)} />
-                        <UsageCard label="总成本" value={fmtCost(obs.totals.cost)} />
-                        <UsageCard label="LLM 调用" value={`${obs.totals.calls} 次`} />
+                  <div className="log-terminal-body">
+                    {obs.nodes.map((n) => {
+                      const meta = nodeMetaById.get(n.node_id);
+                      const kind = meta ? nodeKind(meta) : "agent";
+                      const agent = n.provenance?.agent;
+                      const ts = fmtTime(n.created_at) || "—";
+                      const icon = kind === "rfq" ? "▸" : kind === "report" ? "▹" : "▸";
+                      const color = n.status === "waiting_human"
+                        ? "#ffb74d"
+                        : n.status === "done"
+                          ? "#a5d6a7"
+                          : n.status === "failed"
+                            ? "#ef9a9a"
+                            : "#c7cbed";
+                      return (
+                        <div key={n.node_id} className="log-line" style={{ color }}>
+                          <span className="log-ts">{ts}</span>
+                          <span className="log-icon">{icon}</span>
+                          <span className="log-node">{n.node_id}</span>
+                          {agent != null && <span className="log-agent">{String(agent)}</span>}
+                          <span className="log-status">{n.status}</span>
+                        </div>
+                      );
+                    })}
+                    {obs.llm_calls.length > 0 && (
+                      <div style={{ marginTop: 16, borderTop: "1px solid rgba(255,255,255,.08)", paddingTop: 14 }}>
+                        {obs.llm_calls.map((c, i) => (
+                          <div key={i} className="log-line" style={{ color: "#94a3c9" }}>
+                            <span className="log-ts">{c.model || "—"}</span>
+                            <span className="log-icon">◉</span>
+                            <span className="log-node">{c.name || `调用 ${i + 1}`}</span>
+                            <span className="log-tok">
+                              in {fmtNum(c.input_tokens)} · out {fmtNum(c.output_tokens)} · {fmtCost(c.cost)}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                      {obs.by_model.length > 0 ? (
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* 用量与成本（按节点统计） */
+              <div className="cost-panel">
+                <h3>用量与成本</h3>
+                {!obs ? (
+                  <p className="hint">批准并运行后，这里展示各节点与模型的 Token / 成本明细。</p>
+                ) : (
+                  <>
+                    <div className="cost-summary">
+                      <span>合计</span>
+                      <span className="mono">{fmtNum(obs.totals.total_tokens)} tokens · {fmtCost(obs.totals.cost)}</span>
+                    </div>
+                    <div className="cost-list">
+                      {obs.nodes.map((n) => (
+                        <div key={n.node_id} className="cost-row">
+                          <div className="cost-node">
+                            <span className="cost-name">{n.node_id}</span>
+                            <span className={`pill ${n.status}`}>{STATUS_LABEL[n.status] ?? n.status}</span>
+                          </div>
+                          <span className="cost-tok mono">— tok</span>
+                          <span className="cost-val mono">—</span>
+                        </div>
+                      ))}
+                    </div>
+                    {obs.by_model.length > 0 && (
+                      <>
+                        <h4 style={{ margin: "20px 0 10px", fontSize: 13, fontWeight: 600, color: "#1f2440" }}>
+                          按模型
+                        </h4>
                         <table className="usage-tbl">
                           <thead>
                             <tr>
@@ -553,20 +659,17 @@ export default function PlansPage() {
                             ))}
                           </tbody>
                         </table>
-                      ) : (
-                        <p className="hint">
-                          暂无 LLM 调用用量（Langfuse 未启用或本次无真实模型调用）。
-                        </p>
-                      )}
-                    </details>
-
-                    <button className="full-log" onClick={() => setShowLog(true)}>
-                      查看完整日志 <span className="chev">›</span>
-                    </button>
+                      </>
+                    )}
+                    <div className="usage-cards" style={{ marginTop: 16 }}>
+                      <UsageCard label="总 Token" value={fmtNum(obs.totals.total_tokens)} />
+                      <UsageCard label="总成本" value={fmtCost(obs.totals.cost)} />
+                      <UsageCard label="LLM 调用" value={`${obs.totals.calls} 次`} />
+                    </div>
                   </>
                 )}
-              </aside>
-            </div>
+              </div>
+            )}
           </>
         )}
       </AppShell>
@@ -765,7 +868,7 @@ function FlowGraph({
 
   return (
     <div className="flow-wrap">
-      <svg viewBox={`0 0 ${width} ${height}`} className="flow-svg" style={{ width: "100%" }}>
+      <svg viewBox={`0 0 ${width} ${height}`} className="flow-svg" style={{ width: Math.min(width, 700), maxWidth: "100%" }}>
         <defs>
           <marker id="arrow" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto">
             <path d="M0,0 L7,3 L0,6 Z" fill="var(--color-border-strong)" />
