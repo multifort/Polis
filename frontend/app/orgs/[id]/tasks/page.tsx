@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import AppShell from "@/components/AppShell";
 import {
   api,
   getAccess,
@@ -134,27 +135,14 @@ export default function TasksPage() {
 
   return (
     <>
-      <div className="topbar">
-        <div className="brand">
-          <div className="logo">A</div>
-          <span className="brand-name">Polis</span>
-        </div>
-        <Link className="back" href={`/orgs/${orgId}`}>
-          ← 返回公司
-        </Link>
-      </div>
-
-      <div className="container">
+      <AppShell orgId={orgId} active="work" breadcrumb="工作">
         <div className="page-head">
-          <div className="title-row">
-            <div className="title-ico">🗂</div>
-            <div>
-              <h1 className="page-title big">任务</h1>
-              <p className="muted">保存可复用的任务，按需运行；每次运行留一条执行记录。</p>
-            </div>
+          <div>
+            <h1 className="page-title big">工作</h1>
+            <p className="muted">保存的任务可反复运行；每条工作保留完整运行历史。</p>
           </div>
-          <Link className="icon-btn" href={`/orgs/${orgId}/plans`}>
-            ✦ 临时出图
+          <Link className="btn-primary" href={`/orgs/${orgId}`}>
+            ＋ 新目标
           </Link>
         </div>
 
@@ -221,7 +209,7 @@ export default function TasksPage() {
             </div>
           ))}
         </div>
-      </div>
+      </AppShell>
 
       {(obs || obsLoading) && (
         <div className="modal-overlay" onClick={() => setObs(null)}>

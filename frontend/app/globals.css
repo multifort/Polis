@@ -677,3 +677,8 @@ a { color: var(--color-accent-text); text-decoration: none; }
 .wd-head-main { min-width: 0; }
 .wd-title { font-size: 22px; font-weight: 700; margin: 0 0 10px; }
 .wd-head .plan-meta { margin: 0; }
+
+/* C0-2 修正：page-head / shell-top 里的 btn-primary 不该全宽 */
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.page-head .btn-primary,
+.shell-top .btn-primary { width: auto; padding: 0 18px; height: 40px; }
