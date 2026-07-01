@@ -143,6 +143,25 @@ class TaskOut(BaseModel):
     status: str
 
 
+class AttachmentOut(BaseModel):
+    """任务附件（登记为 artifact_descriptor，文件存 MinIO）。"""
+
+    id: uuid.UUID
+    filename: str
+    mime: str | None = None
+    size: int
+    uri: str
+    field: str | None = None
+    created_at: str | None = None
+
+
+class AttachmentUrlOut(BaseModel):
+    """预签名下载链接（短时）。"""
+
+    url: str
+    expires_seconds: int
+
+
 class TaskRunOut(BaseModel):
     id: uuid.UUID
     task_id: uuid.UUID | None = None

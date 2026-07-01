@@ -10,9 +10,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.db.org_scoped import select_org_scoped, visible_clause
+from polis.modules.memory.models import ArtifactDescriptor
 from polis.modules.org.models import Agent, AgentCapability
 from polis.modules.planner.models import Capability, Plan, PlanTemplate, Task, TaskRun
 from polis.modules.runtime.models import Skill
+
+# 任务级附件：登记为 artifact_descriptor(modality='file')；归属任务记 meta（task_id 列 FK→task_run，
+# 附件在 run 前不属任何 run，故列置 NULL，用 meta.owner_task_id 关联可复用任务）。
+ATTACHMENT_KIND = "attachment"
 
 
 async def available_capabilities(session: AsyncSession, org_id: uuid.UUID) -> set[str]:
@@ -176,6 +181,81 @@ async def list_tasks(session: AsyncSession, org_id: uuid.UUID) -> list[Task]:
 async def get_task(session: AsyncSession, org_id: uuid.UUID, task_id: uuid.UUID) -> Task | None:
     t: Task | None = await session.scalar(select_org_scoped(Task, org_id).where(Task.id == task_id))
     return t
+
+
+async def create_attachment(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    *,
+    task_id: uuid.UUID,
+    filename: str,
+    uri: str,
+    mime: str | None,
+    size: int,
+    uploaded_by: uuid.UUID | None = None,
+    field: str | None = None,
+) -> ArtifactDescriptor:
+    """登记一个任务附件（覆盖同名：先删旧行再插，与 MinIO 覆盖语义一致）。"""
+    existing = await get_attachment(session, org_id, task_id, filename)
+    if existing is not None:
+        await session.delete(existing)
+        await session.flush()
+    meta: dict[str, Any] = {
+        "kind": ATTACHMENT_KIND,
+        "owner_task_id": str(task_id),
+        "filename": filename,
+        "size": size,
+    }
+    if field:
+        meta["field"] = field
+    art = ArtifactDescriptor(
+        org_id=org_id,
+        task_id=None,  # 列 FK→task_run；任务级附件在 run 前，归属记 meta.owner_task_id
+        modality="file",
+        uri=uri,
+        mime=mime,
+        caption=filename,
+        provenance={"uploaded_by": str(uploaded_by)} if uploaded_by else None,
+        meta=meta,
+    )
+    session.add(art)
+    await session.flush()
+    return art
+
+
+def _attachment_scope(org_id: uuid.UUID, task_id: uuid.UUID) -> Any:
+    return select_org_scoped(ArtifactDescriptor, org_id).where(
+        ArtifactDescriptor.meta["kind"].astext == ATTACHMENT_KIND,
+        ArtifactDescriptor.meta["owner_task_id"].astext == str(task_id),
+    )
+
+
+async def list_attachments(
+    session: AsyncSession, org_id: uuid.UUID, task_id: uuid.UUID
+) -> list[ArtifactDescriptor]:
+    q = _attachment_scope(org_id, task_id).order_by(ArtifactDescriptor.created_at)
+    return list((await session.scalars(q)).all())
+
+
+async def get_attachment(
+    session: AsyncSession, org_id: uuid.UUID, task_id: uuid.UUID, filename: str
+) -> ArtifactDescriptor | None:
+    q = _attachment_scope(org_id, task_id).where(
+        ArtifactDescriptor.meta["filename"].astext == filename
+    )
+    a: ArtifactDescriptor | None = await session.scalar(q)
+    return a
+
+
+async def delete_attachment(
+    session: AsyncSession, org_id: uuid.UUID, task_id: uuid.UUID, filename: str
+) -> bool:
+    a = await get_attachment(session, org_id, task_id, filename)
+    if a is None:
+        return False
+    await session.delete(a)
+    await session.flush()
+    return True
 
 
 async def list_task_runs(

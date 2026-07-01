@@ -21,6 +21,7 @@ dependencies = [
     "langfuse<3",
     "socksio>=1.0.0",
     "minio>=7.2",
+    "python-multipart>=0.0.9",
 ]
 
 [dependency-groups]

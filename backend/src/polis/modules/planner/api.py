@@ -9,11 +9,12 @@ POST /api/plans/{id}/signal         → 审批 human 节点（signal workflow）
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +30,8 @@ from polis.modules.planner import service
 from polis.modules.planner.composer import route_or_compose
 from polis.modules.planner.schemas import (
     ApproveResult,
+    AttachmentOut,
+    AttachmentUrlOut,
     PlanCreateIn,
     PlanDag,
     PlanResult,
@@ -43,6 +46,8 @@ from polis.modules.planner.schemas import (
     derive_overall_status,
 )
 from polis.modules.planner.workflow import TASK_QUEUE, TaskWorkflow
+from polis.modules.storage.client import StorageError
+from polis.modules.storage.deps import ObjectStoreDep
 
 router = APIRouter(prefix="/api", tags=["planner"])
 logger = logging.getLogger(__name__)
@@ -230,6 +235,124 @@ async def list_task_runs(
             )
         )
     return out
+
+
+# ── 任务附件（V2-P2b）：上传 → MinIO → artifact 登记；供运行时按需注入 ──────────────
+
+MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024  # 25MB 上限（MVP）
+_PRESIGN_TTL = 900  # 预签名下载有效期（秒，15min）
+
+
+def _sanitize_filename(raw: str) -> str:
+    """取 basename 去路径分隔，防目录穿越。"""
+    return (raw or "").replace("\\", "/").split("/")[-1].strip()
+
+
+def _attachment_out(art: Any) -> AttachmentOut:
+    meta = art.meta or {}
+    return AttachmentOut(
+        id=art.id,
+        filename=meta.get("filename") or art.caption or "",
+        mime=art.mime,
+        size=int(meta.get("size") or 0),
+        uri=art.uri or "",
+        field=meta.get("field"),
+        created_at=art.created_at.isoformat() if art.created_at else None,
+    )
+
+
+@router.post(
+    "/tasks/{task_id}/attachments",
+    response_model=AttachmentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_attachment(
+    task_id: uuid.UUID,
+    org: CurrentOrg,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    store: ObjectStoreDep,
+    file: Annotated[UploadFile, File()],
+    field: Annotated[str | None, Form()] = None,
+) -> AttachmentOut:
+    """上传任务附件：落 MinIO `{org}/{task}/{文件名}` + 登记 artifact（同名覆盖）。"""
+    task = await repo.get_task(session, org.org_id, task_id)
+    if task is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务不存在")
+    filename = _sanitize_filename(file.filename or "")
+    if not filename:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件名非法或缺失")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "空文件")
+    if len(data) > MAX_ATTACHMENT_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "文件超过 25MB 上限")
+    try:
+        await store.ensure_bucket()
+        uri = await store.put(
+            str(org.org_id),
+            str(task_id),
+            filename,
+            data,
+            content_type=file.content_type or "application/octet-stream",
+        )
+    except StorageError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"对象存储不可用：{exc}") from exc
+    art = await repo.create_attachment(
+        session,
+        org.org_id,
+        task_id=task_id,
+        filename=filename,
+        uri=uri,
+        mime=file.content_type,
+        size=len(data),
+        uploaded_by=user_id,
+        field=field,
+    )
+    return _attachment_out(art)
+
+
+@router.get("/tasks/{task_id}/attachments", response_model=list[AttachmentOut])
+async def list_task_attachments(
+    task_id: uuid.UUID, org: CurrentOrg, session: SessionDep
+) -> list[AttachmentOut]:
+    if await repo.get_task(session, org.org_id, task_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务不存在")
+    rows = await repo.list_attachments(session, org.org_id, task_id)
+    return [_attachment_out(a) for a in rows]
+
+
+@router.get("/tasks/{task_id}/attachments/{filename}/url", response_model=AttachmentUrlOut)
+async def attachment_download_url(
+    task_id: uuid.UUID,
+    filename: str,
+    org: CurrentOrg,
+    session: SessionDep,
+    store: ObjectStoreDep,
+) -> AttachmentUrlOut:
+    """签发短时预签名下载链接（不公开读）。"""
+    if await repo.get_attachment(session, org.org_id, task_id, filename) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "附件不存在")
+    try:
+        url = await store.presigned_get_url(str(org.org_id), str(task_id), filename, _PRESIGN_TTL)
+    except StorageError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"对象存储不可用：{exc}") from exc
+    return AttachmentUrlOut(url=url, expires_seconds=_PRESIGN_TTL)
+
+
+@router.delete("/tasks/{task_id}/attachments/{filename}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_task_attachment(
+    task_id: uuid.UUID,
+    filename: str,
+    org: CurrentOrg,
+    session: SessionDep,
+    store: ObjectStoreDep,
+) -> None:
+    if await repo.get_attachment(session, org.org_id, task_id, filename) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "附件不存在")
+    with contextlib.suppress(StorageError):  # 对象可能已不存在；仍清理登记行
+        await store.delete(str(org.org_id), str(task_id), filename)
+    await repo.delete_attachment(session, org.org_id, task_id, filename)
 
 
 @router.get("/runs/workspace", response_model=WorkspaceRuns)
