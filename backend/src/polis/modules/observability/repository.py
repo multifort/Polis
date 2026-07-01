@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.db.org_scoped import select_org_scoped
@@ -91,6 +92,23 @@ async def get_approval(
     q = select_org_scoped(Approval, org_id).where(Approval.id == approval_id)
     ap: Approval | None = await session.scalar(q)
     return ap
+
+
+async def approval_decision_counts(session: AsyncSession, org_id: uuid.UUID) -> dict[str, int]:
+    """人审已决数（approved/rejected 计数，P4 看板"人审通过率"用）。kind 含 plan/rework 均计入。"""
+    from sqlalchemy import func
+
+    rows = (
+        await session.execute(
+            select(Approval.status, func.count())
+            .where(
+                Approval.org_id == org_id,
+                Approval.status.in_(["approved", "rejected"]),
+            )
+            .group_by(Approval.status)
+        )
+    ).all()
+    return {status: int(count) for status, count in rows}
 
 
 async def decide_approval(

@@ -193,6 +193,37 @@ class WorkspaceRunItem(BaseModel):
     actual_cost: float | None = None  # 真实 LLM 调用费用（元）
 
 
+# ── P4 看板：跨任务/场景运营统计 ──────────────────────────────────────────────────
+
+
+class TemplateDistItem(BaseModel):
+    """按场景(模板)分布的一行：模板名/命中次数/是否为模板命中(否则=生成)。"""
+
+    template: str
+    count: int
+    is_template_hit: bool
+
+
+class DashboardStats(BaseModel):
+    """跨 task_run 聚合的运营统计（design v2/05 §8）。"""
+
+    total_runs: int
+    by_status: dict[str, int]
+    success_rate: float | None = None  # done / 全部终态（done+failed+needs_review+needs_rework）
+    avg_duration_seconds: float | None = None
+    active_runs: int
+    org_max_concurrent_runs: int
+    reuse_hit_rate: float | None = None  # 模板命中次数 / 全部运行次数（飞轮指标）
+    approval_pass_rate: float | None = None  # 人审通过 / 人审已决（approved+rejected）
+    by_template: list[TemplateDistItem]
+    # 近期窗口（最近 N 条运行）实测成本/token 聚合，避免全量 langfuse 拉取过慢
+    recent_window: int
+    recent_total_cost: float | None = None
+    recent_total_tokens: int | None = None
+    budget_cents: int = 0  # 0=未设预算（S3 仅提示）
+    estimated_cost_cents: int = 0  # 累计预估成本（分）
+
+
 class WorkspaceRuns(BaseModel):
     active: list[WorkspaceRunItem] = []
     recent: list[WorkspaceRunItem] = []

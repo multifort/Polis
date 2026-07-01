@@ -259,6 +259,29 @@ export interface TaskRunRow {
   actual_cost?: number | null;
 }
 
+// ── P4 看板（跨任务/场景运营统计）─────────────────────────────────────
+export interface TemplateDistItem {
+  template: string;
+  count: number;
+  is_template_hit: boolean;
+}
+export interface DashboardStats {
+  total_runs: number;
+  by_status: Record<string, number>;
+  success_rate: number | null;
+  avg_duration_seconds: number | null;
+  active_runs: number;
+  org_max_concurrent_runs: number;
+  reuse_hit_rate: number | null;
+  approval_pass_rate: number | null;
+  by_template: TemplateDistItem[];
+  recent_window: number;
+  recent_total_cost: number | null;
+  recent_total_tokens: number | null;
+  budget_cents: number;
+  estimated_cost_cents: number;
+}
+
 export interface Observability {
   task_id: string;
   status: string;
@@ -357,6 +380,8 @@ export const api = {
     request<ApproveResult>(`/api/tasks/${taskId}/run`, { method: "POST" }, true, orgId),
   taskRuns: (orgId: string, taskId: string) =>
     request<TaskRunRow[]>(`/api/tasks/${taskId}/runs`, {}, true, orgId),
+  // ── 看板（V2-P4）──
+  dashboard: (orgId: string) => request<DashboardStats>("/api/dashboard", {}, true, orgId),
   // ── 审批收件箱（M6-G / 工作台「需要你处理」）──
   listApprovals: (orgId: string, status = "pending") =>
     request<ApprovalRow[]>(`/api/approvals?status=${status}`, {}, true, orgId),

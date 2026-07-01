@@ -1124,3 +1124,24 @@ a { color: var(--color-accent-text); text-decoration: none; }
   white-space: nowrap;
 }
 .btn-danger-outline:hover { background: #fdecea; }
+
+/* P4 看板 */
+.dash-stat-row {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px; margin-top: 12px;
+}
+.dash-stat-row .stat-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-status-list { display: flex; flex-direction: column; gap: 10px; }
+.dash-status-row { display: grid; grid-template-columns: 110px 1fr 32px; align-items: center; gap: 10px; }
+.dash-template-name {
+  font-size: 12px; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dash-bar-track { height: 8px; border-radius: 5px; background: #eef0f8; overflow: hidden; }
+.dash-bar-fill { height: 100%; border-radius: 5px; background: var(--color-primary); }
+.dash-bar-fill.done { background: #2e7d32; }
+.dash-bar-fill.failed { background: #b3261e; }
+.dash-bar-fill.needs_review { background: #ed6c02; }
+.dash-bar-fill.running { background: var(--color-primary); }
+.dash-bar-fill.paused { background: #9aa0b4; }
+.dash-status-count { font-size: 12px; color: var(--color-text-secondary); text-align: right; }
+.dash-budget-hint { margin-top: 14px; font-size: 12px; color: var(--color-text-secondary); }

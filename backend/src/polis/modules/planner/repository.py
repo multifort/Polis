@@ -326,6 +326,65 @@ async def org_estimated_cost_cents(session: AsyncSession, org_id: uuid.UUID) -> 
     return int(total or 0)
 
 
+async def dashboard_status_counts(session: AsyncSession, org_id: uuid.UUID) -> dict[str, int]:
+    """org 全部 task_run 按状态分布计数（P4 看板：成功率/吞吐）。"""
+    from sqlalchemy import func
+
+    rows = (
+        await session.execute(
+            select(TaskRun.status, func.count())
+            .where(TaskRun.org_id == org_id)
+            .group_by(TaskRun.status)
+        )
+    ).all()
+    return {status: int(count) for status, count in rows}
+
+
+async def dashboard_avg_duration_seconds(session: AsyncSession, org_id: uuid.UUID) -> float | None:
+    """org 已完成运行的平均耗时（秒），仅统计 started_at/finished_at 均已回写的行（P4）。"""
+    from sqlalchemy import func
+
+    avg = await session.scalar(
+        select(func.avg(func.extract("epoch", TaskRun.finished_at - TaskRun.started_at))).where(
+            TaskRun.org_id == org_id,
+            TaskRun.started_at.isnot(None),
+            TaskRun.finished_at.isnot(None),
+        )
+    )
+    return float(avg) if avg is not None else None
+
+
+async def dashboard_template_distribution(
+    session: AsyncSession, org_id: uuid.UUID
+) -> list[tuple[str, int, bool]]:
+    """按场景(模板)分布：(模板名或'generated', 次数, 是否模板命中)。
+    P4 场景分布 + 复用命中率来源。
+    """
+    from sqlalchemy import func
+
+    # 按原始（可空）version 分组：Postgres 把所有 NULL 聚成一组，天然对应「生成」；
+    # 分组表达式与派生名称在 Python 侧处理，避免多表达式 GROUP BY 的严格匹配问题。
+    rows = (
+        await session.execute(
+            select(Plan.version, func.count())
+            .select_from(TaskRun)
+            .join(Plan, Plan.id == TaskRun.plan_id)
+            .where(TaskRun.org_id == org_id)
+            .group_by(Plan.version)
+            .order_by(func.count().desc())
+        )
+    ).all()
+    return [(version or "generated", int(count), version is not None) for version, count in rows]
+
+
+async def dashboard_recent_runs(
+    session: AsyncSession, org_id: uuid.UUID, limit: int = 50
+) -> list[TaskRun]:
+    """近期运行（供成本/token 聚合，逐条拉 langfuse，限量避免过慢，P4）。"""
+    q = select_org_scoped(TaskRun, org_id).order_by(TaskRun.created_at.desc()).limit(limit)
+    return list((await session.scalars(q)).all())
+
+
 async def get_task_run(
     session: AsyncSession, org_id: uuid.UUID, run_id: uuid.UUID
 ) -> TaskRun | None:

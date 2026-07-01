@@ -33,6 +33,7 @@ from polis.modules.planner.schemas import (
     ApproveResult,
     AttachmentOut,
     AttachmentUrlOut,
+    DashboardStats,
     PlanCreateIn,
     PlanDag,
     PlanResult,
@@ -42,6 +43,7 @@ from polis.modules.planner.schemas import (
     TaskCreateIn,
     TaskOut,
     TaskRunOut,
+    TemplateDistItem,
     WorkspaceRunItem,
     WorkspaceRuns,
     derive_overall_status,
@@ -429,6 +431,81 @@ async def workspace_runs(
     return WorkspaceRuns(
         active=[_item(r, t, nc, cost) for r, t, nc, cost in active_rows],
         recent=[_item(r, t, nc, cost) for r, t, nc, cost in recent_rows],
+    )
+
+
+# task_run.status 的 CHECK 允许值（无 needs_rework，那是节点级状态）
+_TERMINAL_STATUSES = ("done", "failed", "needs_review")
+_DASHBOARD_RECENT_WINDOW = 50
+
+
+@router.get("/dashboard", response_model=DashboardStats)
+async def get_dashboard(org: CurrentOrg, session: SessionDep) -> DashboardStats:
+    """P4 看板：跨任务/场景运营统计（design v2/05 §8）。"""
+    settings = get_settings()
+    by_status = await repo.dashboard_status_counts(session, org.org_id)
+    total_runs = sum(by_status.values())
+    terminal = sum(by_status.get(s, 0) for s in _TERMINAL_STATUSES)
+    success_rate = (by_status.get("done", 0) / terminal) if terminal > 0 else None
+
+    avg_duration = await repo.dashboard_avg_duration_seconds(session, org.org_id)
+
+    dist = await repo.dashboard_template_distribution(session, org.org_id)
+    by_template = [
+        TemplateDistItem(template=name, count=count, is_template_hit=hit)
+        for name, count, hit in dist
+    ]
+    hit_total = sum(c for _, c, hit in dist if hit)
+    dist_total = sum(c for _, c, _ in dist)
+    reuse_hit_rate = (hit_total / dist_total) if dist_total > 0 else None
+
+    approval_counts = await obs_repo.approval_decision_counts(session, org.org_id)
+    decided = approval_counts.get("approved", 0) + approval_counts.get("rejected", 0)
+    approval_pass_rate = (approval_counts.get("approved", 0) / decided) if decided > 0 else None
+
+    active_runs = await repo.count_active_runs(session, org.org_id)
+    estimated_cents = await repo.org_estimated_cost_cents(session, org.org_id)
+
+    # 近期窗口实测成本/token（逐条拉 langfuse，限量避免过慢）
+    recent_runs = await repo.dashboard_recent_runs(
+        session, org.org_id, limit=_DASHBOARD_RECENT_WINDOW
+    )
+    recent_total_cost: float | None = None
+    recent_total_tokens: int | None = None
+    if recent_runs:
+        cost_sum = 0.0
+        token_sum = 0
+        any_calls = False
+        for run in recent_runs:
+            try:
+                calls = await langfuse_client.fetch_generations(str(run.id))
+            except Exception:
+                calls = []
+            if not calls:
+                continue
+            any_calls = True
+            await _fill_actual_cost(session, calls)
+            cost_sum += sum(c.get("cost", 0) or 0 for c in calls)
+            token_sum += sum(c.get("total_tokens", 0) or 0 for c in calls)
+        if any_calls:
+            recent_total_cost = round(cost_sum, 6)
+            recent_total_tokens = token_sum
+
+    return DashboardStats(
+        total_runs=total_runs,
+        by_status=by_status,
+        success_rate=success_rate,
+        avg_duration_seconds=avg_duration,
+        active_runs=active_runs,
+        org_max_concurrent_runs=settings.org_max_concurrent_runs,
+        reuse_hit_rate=reuse_hit_rate,
+        approval_pass_rate=approval_pass_rate,
+        by_template=by_template,
+        recent_window=_DASHBOARD_RECENT_WINDOW,
+        recent_total_cost=recent_total_cost,
+        recent_total_tokens=recent_total_tokens,
+        budget_cents=settings.org_budget_cents,
+        estimated_cost_cents=estimated_cents,
     )
 
 
