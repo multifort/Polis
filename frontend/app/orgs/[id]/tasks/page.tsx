@@ -5,8 +5,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
+import { Modal } from "@/components/Modal";
 import {
   api,
+  downloadBlob,
   getAccess,
   type ApiError,
   type Task,
@@ -81,6 +83,8 @@ export default function TasksPage() {
   const [tab, setTab] = useState<TabKey>("all");
   const [runsByTask, setRunsByTask] = useState<Record<string, TaskRunRow[]>>({});
   const [runningId, setRunningId] = useState<string | null>(null);
+  const [historyTask, setHistoryTask] = useState<TaskRowData | null>(null);
+  const [exportingRun, setExportingRun] = useState<string | null>(null);
 
   useEffect(() => {
     if (!getAccess()) router.replace("/");
@@ -145,6 +149,18 @@ export default function TasksPage() {
       );
     } finally {
       setRunningId(null);
+    }
+  }
+
+  async function onExportRun(planId: string, fmt: "md" | "pdf") {
+    setExportingRun(planId + fmt);
+    try {
+      const blob = await api.exportPlan(orgId, planId, fmt);
+      downloadBlob(blob, `report_${planId}.${fmt}`);
+    } catch {
+      setNotice("导出失败");
+    } finally {
+      setExportingRun(null);
     }
   }
 
@@ -260,8 +276,20 @@ export default function TasksPage() {
                         : "—"
                     : "—"}
                 </div>
-                {/* 节点 */}
-                <div className="work-row-nodes">{r.runCount > 0 ? `${r.runCount} 次` : "—"}</div>
+                {/* 节点：执行记录条数，点击查看全部历次运行（P3a） */}
+                <div className="work-row-nodes">
+                  {r.runCount > 0 ? (
+                    <button
+                      className="linklike"
+                      onClick={() => setHistoryTask(r)}
+                      title="查看全部执行记录"
+                    >
+                      {r.runCount} 次
+                    </button>
+                  ) : (
+                    "—"
+                  )}
+                </div>
                 {/* 成本 */}
                 <div className="work-row-cost">
                   {run?.actual_cost != null
@@ -326,6 +354,52 @@ export default function TasksPage() {
             );
           })}
         </div>
+      )}
+
+      {/* 执行记录（P3a）：某任务的全部历次运行，各条可查看观测/导出 */}
+      {historyTask && (
+        <Modal title={`执行记录 · ${historyTask.task.name}`} onClose={() => setHistoryTask(null)}>
+          <div className="run-history">
+            {(runsByTask[historyTask.task.id] ?? []).map((r) => (
+              <div className="run-history-row" key={r.id}>
+                <span className={`pill ${r.status}`}>{STATUS_LABEL[r.status] ?? r.status}</span>
+                <span className="run-history-time">
+                  {r.started_at ? timeAgo(r.started_at) : r.created_at ? timeAgo(r.created_at) : "—"}
+                </span>
+                <span className="run-history-cost">
+                  {r.actual_cost != null
+                    ? `¥${r.actual_cost.toFixed(4)}`
+                    : r.estimated_cost_cents != null
+                      ? `¥${(r.estimated_cost_cents / 100).toFixed(2)}`
+                      : "—"}
+                </span>
+                <div className="run-history-actions">
+                  {r.plan_id && (
+                    <>
+                      <Link className="btn-mini ghost" href={`/orgs/${orgId}/plans?plan=${r.plan_id}`}>
+                        查看观测
+                      </Link>
+                      <button
+                        className="btn-mini ghost"
+                        onClick={() => void onExportRun(r.plan_id as string, "md")}
+                        disabled={exportingRun === r.plan_id + "md"}
+                      >
+                        导出md
+                      </button>
+                      <button
+                        className="btn-mini ghost"
+                        onClick={() => void onExportRun(r.plan_id as string, "pdf")}
+                        disabled={exportingRun === r.plan_id + "pdf"}
+                      >
+                        导出pdf
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Modal>
       )}
     </AppShell>
   );

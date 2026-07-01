@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     minio_bucket: str = "polis"
     minio_secure: bool = False  # 本地 http；生产 TLS 置 true
 
+    # 结果导出 PDF（V2-P3b）：需一个内嵌真实轮廓的中文字体文件（TTF/TTC），不用引用式 CID 字体
+    # （如 reportlab 内置 STSong-Light 不内嵌字形，很多环境会渲染成空白，已实测踩坑）。
+    # 留空则按常见路径自动探测（见 planner/export.py）；生产 Linux 建议装 fonts-noto-cjk。
+    pdf_cjk_font_path: str = ""
+
     # 预算治理（V2-B4）：分层可配置（节点>任务>全局）缺省。tokens 为粗估，非精确计费。
     default_ctx_budget_tokens: int = 4000  # 每节点输入上下文预算（截输入，绝不截输出）
     default_output_max_tokens: int = 2500  # 每节点输出上限（max_tokens）

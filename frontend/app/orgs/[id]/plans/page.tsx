@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import AppShell from "@/components/AppShell";
 import {
   api,
+  downloadBlob,
   getAccess,
   type Agent,
   type ApiError,
@@ -152,6 +153,7 @@ export default function PlansPage() {
 
   const [run, setRun] = useState<RunStatus | null>(null);
   const [approving, setApproving] = useState(false);
+  const [exporting, setExporting] = useState<"md" | "pdf" | null>(null);
   const [notice, setNotice] = useState(""); // 503 等降级提示
   const [obs, setObs] = useState<Observability | null>(null);
   const [obsLoading, setObsLoading] = useState(false);
@@ -292,6 +294,20 @@ export default function PlansPage() {
     }
   }
 
+  async function onExport(fmt: "md" | "pdf") {
+    if (!plan) return;
+    setExporting(fmt);
+    setNotice("");
+    try {
+      const blob = await api.exportPlan(orgId, plan.id, fmt);
+      downloadBlob(blob, `report_${plan.id}.${fmt}`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "导出失败");
+    } finally {
+      setExporting(null);
+    }
+  }
+
   async function onSignal(nodeId: string) {
     if (!plan) return;
     try {
@@ -373,14 +389,36 @@ export default function PlansPage() {
                   </span>
                 </div>
               </div>
-              <button
-                className="btn-run"
-                onClick={() => void createWith(plan.goal)}
-                disabled={creating}
-                title="用同一目标重新出图运行"
-              >
-                ↻ 再次运行
-              </button>
+              <div className="wd-head-actions">
+                {obs && obs.nodes.length > 0 && (
+                  <>
+                    <button
+                      className="btn-mini ghost"
+                      onClick={() => void onExport("md")}
+                      disabled={exporting !== null}
+                      title="导出为 Markdown"
+                    >
+                      {exporting === "md" ? "导出中…" : "⇩ 导出 md"}
+                    </button>
+                    <button
+                      className="btn-mini ghost"
+                      onClick={() => void onExport("pdf")}
+                      disabled={exporting !== null}
+                      title="导出为 PDF"
+                    >
+                      {exporting === "pdf" ? "导出中…" : "⇩ 导出 pdf"}
+                    </button>
+                  </>
+                )}
+                <button
+                  className="btn-run"
+                  onClick={() => void createWith(plan.goal)}
+                  disabled={creating}
+                  title="用同一目标重新出图运行"
+                >
+                  ↻ 再次运行
+                </button>
+              </div>
             </div>
 
             {/* C0-3 Tabs：计划与运行 / 完整日志 / 用量与成本 */}

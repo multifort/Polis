@@ -4,6 +4,18 @@ const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 const ACCESS = "polis_access";
 const REFRESH = "polis_refresh";
 
+// 触发浏览器保存一个 blob（导出下载用）。
+export function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function setTokens(access: string, refresh: string) {
   localStorage.setItem(ACCESS, access);
   localStorage.setItem(REFRESH, refresh);
@@ -324,6 +336,19 @@ export const api = {
       true,
       orgId,
     ),
+  // 结果导出（V2-P3b）：md/pdf，直接拿文件 blob（非 JSON），触发浏览器下载。
+  exportPlan: async (orgId: string, planId: string, fmt: "md" | "pdf"): Promise<Blob> => {
+    const token = getAccess();
+    const res = await fetch(`${BASE}/api/plans/${planId}/export?fmt=${fmt}`, {
+      method: "POST",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        "X-Org-Id": orgId,
+      },
+    });
+    if (!res.ok) throw new Error(`导出失败（${res.status}）`);
+    return res.blob();
+  },
   // ── 任务实体（V2-P1）──
   createTask: (orgId: string, body: { name: string; goal: string; scenario_ref?: string }) =>
     request<Task>("/api/tasks", { method: "POST", body: JSON.stringify(body) }, true, orgId),

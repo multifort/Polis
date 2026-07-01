@@ -22,6 +22,7 @@ dependencies = [
     "socksio>=1.0.0",
     "minio>=7.2",
     "python-multipart>=0.0.9",
+    "reportlab>=5.0.0",
 ]
 
 [dependency-groups]
@@ -60,7 +61,7 @@ strict = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["pgvector.*", "litellm.*", "minio.*"]
+module = ["pgvector.*", "litellm.*", "minio.*", "reportlab.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

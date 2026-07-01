@@ -14,7 +14,7 @@ import logging
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ from polis.modules.observability import langfuse_client
 from polis.modules.observability import repository as obs_repo
 from polis.modules.observability.audit import write_audit
 from polis.modules.org.deps import CurrentOrg, CurrentUserId, OrgContext, require_role
+from polis.modules.planner import export as export_mod
 from polis.modules.planner import repository as repo
 from polis.modules.planner import service
 from polis.modules.planner.composer import route_or_compose
@@ -541,16 +542,18 @@ async def signal_plan(
     )
 
 
-@router.get("/plans/{plan_id}/observability")
-async def get_plan_observability(
-    plan_id: uuid.UUID, org: CurrentOrg, session: SessionDep
-) -> dict[str, Any]:
-    """运行观测聚合（H-2）：任务状态 + manifest + 节点产出(出处) + LLM 调用明细(Langfuse)。"""
-    run = await repo.get_task_run_by_plan(session, org.org_id, plan_id)
+async def _gather_run_data(
+    session: AsyncSession, org_id: uuid.UUID, plan_id: uuid.UUID
+) -> dict[str, Any] | None:
+    """观测聚合的公共取数（H-2）：任务状态 + manifest + 节点产出 + LLM 调用明细。
+
+    `get_plan_observability` 与导出（P3b）共用，避免两处重复查询/聚合逻辑。
+    """
+    run = await repo.get_task_run_by_plan(session, org_id, plan_id)
     if run is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "该计划尚未启动")
-    manifest = await obs_repo.get_run_manifest(session, org.org_id, run.id)
-    envelopes = await obs_repo.get_envelopes_by_task(session, org.org_id, run.id)
+        return None
+    manifest = await obs_repo.get_run_manifest(session, org_id, run.id)
+    envelopes = await obs_repo.get_envelopes_by_task(session, org_id, run.id)
     llm_calls = await langfuse_client.fetch_generations(str(run.id))
     await _fill_actual_cost(session, llm_calls)
     # started/finished_at 可能未回写（TD-019）→ 用节点产出时间兜底，保证「总耗时」可算。
@@ -559,6 +562,7 @@ async def get_plan_observability(
     finished = run.finished_at or (max(env_times) if env_times else None)
     duration = (finished - started).total_seconds() if started and finished else None
     return {
+        "run": run,
         "task_id": str(run.id),
         "status": run.status,
         "started_at": started.isoformat() if started is not None else None,
@@ -589,6 +593,81 @@ async def get_plan_observability(
         "llm_calls": llm_calls,
         **_aggregate_usage(llm_calls),
     }
+
+
+@router.get("/plans/{plan_id}/observability")
+async def get_plan_observability(
+    plan_id: uuid.UUID, org: CurrentOrg, session: SessionDep
+) -> dict[str, Any]:
+    """运行观测聚合（H-2）：任务状态 + manifest + 节点产出(出处) + LLM 调用明细(Langfuse)。"""
+    data = await _gather_run_data(session, org.org_id, plan_id)
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "该计划尚未启动")
+    data.pop("run")  # 内部字段，不对外暴露
+    return data
+
+
+_EXPORT_MIME = {"md": "text/markdown; charset=utf-8", "pdf": "application/pdf"}
+
+
+@router.post("/plans/{plan_id}/export")
+async def export_plan_result(
+    plan_id: uuid.UUID,
+    org: CurrentOrg,
+    session: SessionDep,
+    store: ObjectStoreDep,
+    fmt: str = "md",
+) -> Response:
+    """导出执行结果为 md/pdf（V2-P3b）：渲染 → 落 MinIO + 登记 artifact → 直接返回文件下载。"""
+    if fmt not in _EXPORT_MIME:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "fmt 仅支持 md 或 pdf")
+    data = await _gather_run_data(session, org.org_id, plan_id)
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "该计划尚未启动")
+    run = data["run"]
+    plan_row = await repo.get_plan(session, org.org_id, plan_id)
+    goal = plan_row.goal if plan_row is not None and plan_row.goal else "（未命名目标）"
+
+    markdown_text = export_mod.build_markdown(
+        goal=goal,
+        status=data["status"],
+        started_at=data["started_at"],
+        finished_at=data["finished_at"],
+        duration_seconds=data["duration_seconds"],
+        nodes=data["nodes"],
+        usage=data.get("totals"),
+    )
+    filename = f"report_{run.id}.{fmt}"
+    if fmt == "pdf":
+        try:
+            file_bytes = export_mod.render_pdf(markdown_text)
+        except export_mod.ExportError as exc:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    else:
+        file_bytes = markdown_text.encode("utf-8")
+
+    mime = _EXPORT_MIME[fmt]
+    try:
+        await store.ensure_bucket()
+        uri = await store.put(str(org.org_id), str(run.id), filename, file_bytes, content_type=mime)
+        await repo.create_export_artifact(
+            session,
+            org.org_id,
+            run_id=run.id,
+            filename=filename,
+            uri=uri,
+            mime=mime,
+            size=len(file_bytes),
+            fmt=fmt,
+        )
+    except StorageError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"对象存储不可用：{exc}") from exc
+
+    return Response(
+        content=file_bytes,
+        media_type=mime,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 async def _fill_actual_cost(session: AsyncSession, calls: list[dict[str, Any]]) -> None:

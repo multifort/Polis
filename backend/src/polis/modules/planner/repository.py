@@ -258,6 +258,34 @@ async def delete_attachment(
     return True
 
 
+async def create_export_artifact(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    *,
+    run_id: uuid.UUID,
+    filename: str,
+    uri: str,
+    mime: str,
+    size: int,
+    fmt: str,
+) -> ArtifactDescriptor:
+    """登记一份结果导出产物（V2-P3b）。task_id 直接用 run.id——不同于附件（挂在 task 上），
+    导出是**某次运行**的结果，天然落在 artifact_descriptor.task_id（FK→task_run）本意上。
+    """
+    art = ArtifactDescriptor(
+        org_id=org_id,
+        task_id=run_id,
+        modality="file",
+        uri=uri,
+        mime=mime,
+        caption=filename,
+        meta={"kind": "export", "format": fmt, "filename": filename, "size": size},
+    )
+    session.add(art)
+    await session.flush()
+    return art
+
+
 async def list_task_runs(
     session: AsyncSession, org_id: uuid.UUID, task_id: uuid.UUID
 ) -> list[tuple[TaskRun, int | None]]:

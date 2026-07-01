@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Annotated, Protocol
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException, status
 
-from polis.modules.storage.client import ObjectStore
+from polis.modules.storage.client import ObjectStore, StorageError
 
 
 class ObjectStoreLike(Protocol):
@@ -25,8 +25,11 @@ class ObjectStoreLike(Protocol):
 
 
 def get_object_store() -> ObjectStoreLike:
-    """构造对象存储客户端（MinIO 未配置会抛 StorageError）。"""
-    return ObjectStore()
+    """构造对象存储客户端。MinIO 未配置时转 503（而非未捕获异常→裸 500）。"""
+    try:
+        return ObjectStore()
+    except StorageError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
 
 
 ObjectStoreDep = Annotated[ObjectStoreLike, Depends(get_object_store)]
