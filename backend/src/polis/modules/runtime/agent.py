@@ -53,6 +53,8 @@ async def run_loop(
     user = ctx.node.get("input_hint") or ""
     if ctx.deps_brief:  # V2-B1：直接依赖的上游产出摘要，确定性注入（修 F3）
         user += "\n\n" + ctx.deps_brief
+    if ctx.attachments_brief:  # P2b-2：任务附件清单，确定性注入（正文经 read_attachment 懒加载）
+        user += "\n\n" + ctx.attachments_brief
     if ctx.memory_slice:
         user += "\n\n" + ctx.memory_slice
     # B4：输入上下文超预算 → 截断（token≈chars/2；input_hint 在前，优先保留）。绝不截输出。

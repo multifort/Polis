@@ -30,6 +30,7 @@ class ExecCtx:
     cred: ScopedCredential
     node: dict[str, Any]
     deps_brief: str = ""  # 直接依赖的上游产出摘要（V2-B1 黑板，默认注入下游）
+    attachments_brief: str = ""  # 任务附件清单（P2b-2，默认注入；正文经 read_attachment 懒加载）
 
 
 async def build(

@@ -104,8 +104,14 @@ async def execute(
     ctx.deps_brief = await blackboard.dep_briefs(
         session, org_uuid, task_uuid, node.get("deps") or []
     )
+    # P2b-2：附件挂在可复用任务(task)上，本次运行(task_run)需先反查其所属 task 才能定位附件。
+    owner_task_id = await blackboard.resolve_owner_task_id(session, org_uuid, task_uuid)
+    ctx.attachments_brief = await blackboard.attachments_brief(session, org_uuid, owner_task_id)
     blackboard.register_blackboard_tools(registry)
-    runtime = McpRuntime(registry, ctx=blackboard.ToolCtx(session, org_uuid, task_uuid))
+    runtime = McpRuntime(
+        registry,
+        ctx=blackboard.ToolCtx(session, org_uuid, task_uuid, attachment_task_id=owner_task_id),
+    )
     loop = await run_loop(
         gateway,
         runtime,

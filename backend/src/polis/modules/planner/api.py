@@ -261,6 +261,35 @@ def _attachment_out(art: Any) -> AttachmentOut:
     )
 
 
+async def _require_attachments(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    task_id: uuid.UUID,
+    input_schema: dict[str, Any] | None,
+) -> None:
+    """校验 `input_schema.attachments[*].required` 声明的必填附件均已上传（按 field 匹配）。
+
+    input_schema 约定（可选，纯前端/建任务时声明）：
+        {"attachments": [{"field": "quote", "label": "供应商报价单", "required": true}, ...]}
+    缺任一必填 → 422，报缺失的 label/field，供前端引导用户补传。
+    """
+    schema = input_schema or {}
+    required = [
+        a for a in (schema.get("attachments") or []) if isinstance(a, dict) and a.get("required")
+    ]
+    if not required:
+        return
+    rows = await repo.list_attachments(session, org_id, task_id)
+    have_fields = {(a.meta or {}).get("field") for a in rows if a.meta}
+    missing = [a for a in required if a.get("field") and a["field"] not in have_fields]
+    if missing:
+        labels = [str(a.get("label") or a.get("field")) for a in missing]
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "缺少必填附件", "missing": labels},
+        )
+
+
 @router.post(
     "/tasks/{task_id}/attachments",
     response_model=AttachmentOut,
@@ -437,6 +466,7 @@ async def run_task(
     task = await repo.get_task(session, org.org_id, task_id)
     if task is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "任务不存在")
+    await _require_attachments(session, org.org_id, task_id, task.input_schema)
     try:
         plan_result = await service.plan(session, org.org_id, task.goal, gateway=LiteLLMGateway())
     except service.NoTemplateMatch as exc:

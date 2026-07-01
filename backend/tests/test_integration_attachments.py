@@ -154,3 +154,50 @@ def test_upload_guards(client: Any) -> None:
         assert r.status_code == 400
     finally:
         app.dependency_overrides.pop(get_object_store, None)
+
+
+def test_run_task_requires_declared_attachments(client: Any) -> None:
+    """input_schema 声明必填附件时，运行任务前先挡（P2b-2）：缺附件 → 422 报缺失项。"""
+    from polis.main import app
+    from polis.modules.storage.deps import get_object_store
+
+    app.dependency_overrides[get_object_store] = lambda: FakeStore()
+    try:
+        asyncio.run(seed())
+        c = client
+        auth = _auth(c, f"att_{uuid.uuid4().hex[:8]}@polis.dev")
+        org_id = c.post(
+            "/api/provision", json={"name": "采购", "preset": "采购分析公司"}, headers=auth
+        ).json()["org"]["id"]
+        h = {**auth, "X-Org-Id": org_id}
+
+        r = c.post(
+            "/api/tasks",
+            json={
+                "name": "带必填附件的任务",
+                "goal": "分析报价",
+                "input_schema": {
+                    "attachments": [{"field": "quote", "label": "供应商报价单", "required": True}]
+                },
+            },
+            headers=h,
+        )
+        assert r.status_code == 201, r.text
+        task_id = r.json()["id"]
+
+        # 未传附件就运行 → 422，报缺失的 label
+        run = c.post(f"/api/tasks/{task_id}/run", headers=h)
+        assert run.status_code == 422, run.text
+        assert "供应商报价单" in str(run.json()["detail"])
+
+        # 补传附件（field 匹配）后不再因「缺附件」被拦（后续是否成功依赖 Temporal，不在本测试范围）
+        c.post(
+            f"/api/tasks/{task_id}/attachments",
+            files={"file": ("quote.csv", b"A,12000", "text/csv")},
+            data={"field": "quote"},
+            headers=h,
+        )
+        run2 = c.post(f"/api/tasks/{task_id}/run", headers=h)
+        assert run2.status_code != 422 or "缺少必填附件" not in str(run2.json().get("detail", ""))
+    finally:
+        app.dependency_overrides.pop(get_object_store, None)
