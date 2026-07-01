@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     embedding_base_url: str = "http://localhost:8082"  # 本地 TEI(bge-large-zh-v1.5, arm64)
     kms_master_key: str = ""  # 信封加密主密钥（base64 32B）；生产必填
 
+    # 对象存储（MinIO/S3 兼容，V2-P2a）。附件 + 结果产物；凭证走 env，永不入库/日志（§4）。
+    # 多租户隔离靠 key 前缀 {org_id}/{task_id}/{name}（单桶），不按 org 建桶。
+    minio_endpoint: str = "localhost:9000"  # host:port（无协议前缀）
+    minio_access_key: str = ""
+    minio_secret_key: str = ""
+    minio_bucket: str = "polis"
+    minio_secure: bool = False  # 本地 http；生产 TLS 置 true
+
     # 预算治理（V2-B4）：分层可配置（节点>任务>全局）缺省。tokens 为粗估，非精确计费。
     default_ctx_budget_tokens: int = 4000  # 每节点输入上下文预算（截输入，绝不截输出）
     default_output_max_tokens: int = 2500  # 每节点输出上限（max_tokens）
@@ -84,6 +92,8 @@ class Settings(BaseSettings):
             problems.append("POLIS_CORS_ORIGINS 含通配 '*'，生产须收紧到具体域")
         if not self.kms_master_key:
             problems.append("POLIS_KMS_MASTER_KEY 未设置（凭证信封加密必需）")
+        # 对象存储（MinIO）的生产 fail-closed 校验随 P2b 接进启动链时再加
+        # （届时配置了 endpoint 则要求 secret 已设 + SECURE=true）。当前仅引入存储层，未接线。
         if problems:
             raise RuntimeError(f"生产配置不安全（env={self.env}）：" + "；".join(problems))
 
