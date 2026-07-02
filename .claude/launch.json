@@ -7,6 +7,12 @@
       "runtimeArgs": ["--dir", "/Users/lining/workspace/polis/frontend", "dev"],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "polis-api",
+      "runtimeExecutable": "make",
+      "runtimeArgs": ["-C", "/Users/lining/workspace/polis/backend", "dev"],
+      "port": 8000
     }
   ]
 }

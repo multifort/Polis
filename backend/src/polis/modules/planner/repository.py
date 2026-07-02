@@ -41,12 +41,16 @@ async def available_capabilities(session: AsyncSession, org_id: uuid.UUID) -> se
     return {c for (c,) in agent_rows.all()} | {c for (c,) in skill_rows.all() if c}
 
 
-async def list_plan_templates(session: AsyncSession) -> list[PlanTemplate]:
-    """全局计划模板（无 org_id），按 name/version 稳定排序。"""
+async def list_plan_templates(session: AsyncSession, org_id: uuid.UUID) -> list[PlanTemplate]:
+    """可见计划模板（自己私有 ∪ 公共，V2-R1），按 name/version 稳定排序。
+
+    R3 引入私有(用户存为模板)后，不加可见性过滤会跨租户泄露——必须走 select_visible。
+    """
+    q = visible_clause(PlanTemplate, org_id)
     return list(
         (
             await session.scalars(
-                select(PlanTemplate).order_by(PlanTemplate.name, PlanTemplate.version)
+                select(PlanTemplate).where(q).order_by(PlanTemplate.name, PlanTemplate.version)
             )
         ).all()
     )
@@ -73,15 +77,16 @@ async def rank_capabilities_by_vector(
 
 
 async def rank_plan_templates_by_goal(
-    session: AsyncSession, query_embedding: list[float], limit: int = 10
+    session: AsyncSession, org_id: uuid.UUID, query_embedding: list[float], limit: int = 10
 ) -> list[PlanTemplate]:
     """按 goal 向量与模板 embedding 的余弦距离升序返回候选模板（A1 语义检索）。
 
     仅含 embedding 非空的模板（未回填的走 service 兜底确定性路径）；用 hnsw 索引。
+    可见性过滤（V2-R1/R3）：自己私有 ∪ 公共，不泄露他 org 私有场景模板。
     """
     q = (
         select(PlanTemplate)
-        .where(PlanTemplate.embedding.isnot(None))
+        .where(PlanTemplate.embedding.isnot(None), visible_clause(PlanTemplate, org_id))
         .order_by(PlanTemplate.embedding.cosine_distance(query_embedding))
         .limit(limit)
     )

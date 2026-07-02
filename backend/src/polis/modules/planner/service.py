@@ -62,21 +62,22 @@ async def _embed_goal(goal: str, gateway: ModelGateway | None) -> list[float] | 
 
 
 async def _retrieve_template(
-    session: AsyncSession, available: set[str], query_vec: list[float] | None
+    session: AsyncSession, org_id: uuid.UUID, available: set[str], query_vec: list[float] | None
 ) -> tuple[PlanTemplate | None, float]:
     """检索最佳「能力可行」模板，返回 (模板, 相似度)。
 
     - 有 query_vec：按 goal 语义排序取第一个可行模板，相似度=goal↔模板余弦（驱动 τ 阈值判命中）。
     - 无 query_vec（TEI 不可达/桩）：确定性「第一个可行」兜底，相似度记 1.0（视为命中，沿用 A1）。
+    可见集 = 自己私有(R3 存为模板) ∪ 公共，由 repository 层过滤。
     """
     if query_vec is not None:
-        for tpl in await repo.rank_plan_templates_by_goal(session, query_vec, limit=10):
+        for tpl in await repo.rank_plan_templates_by_goal(session, org_id, query_vec, limit=10):
             if _feasible(tpl, available):
                 emb = tpl.embedding
                 # pgvector 取回是 numpy 数组，须显式 is not None（数组真值有歧义）
                 sim = _cosine(query_vec, list(emb)) if emb is not None else 1.0
                 return tpl, sim
-    for tpl in await repo.list_plan_templates(session):
+    for tpl in await repo.list_plan_templates(session, org_id):
         if _feasible(tpl, available):
             return tpl, 1.0
     return None, 0.0
@@ -115,6 +116,7 @@ async def _retrieve_org_memory(
 
 async def _generate_dag(
     session: AsyncSession,
+    org_id: uuid.UUID,
     goal: str,
     available: set[str],
     query_vec: list[float],
@@ -127,7 +129,9 @@ async def _generate_dag(
     model = await resolve_model(session, get_settings().default_chat_model)
     exemplars = [
         t.dag_skeleton
-        for t in await repo.rank_plan_templates_by_goal(session, query_vec, limit=_EXEMPLAR_K)
+        for t in await repo.rank_plan_templates_by_goal(
+            session, org_id, query_vec, limit=_EXEMPLAR_K
+        )
     ]
     return await generate_dag(gateway, model, goal, available, exemplars, org_memory=org_memory)
 
@@ -146,7 +150,7 @@ async def plan(
         raise NoTemplateMatch
 
     query_vec = await _embed_goal(goal, gateway)
-    chosen, sim = await _retrieve_template(session, available, query_vec)
+    chosen, sim = await _retrieve_template(session, org_id, available, query_vec)
 
     # ② 命中模板（相似度达阈值，或无向量时的确定性兜底）→ 填模板；否则 RAG 生成
     if chosen is not None and (query_vec is None or sim >= TAU_TPL):
@@ -157,7 +161,7 @@ async def plan(
         # 未命中（无可行模板 / 相似度不足）+ 具备生成条件 → A2 生成（内部已双校验+自修复）
         # B2：检索 org 记忆作先验喂给生成（消费 B3 沉淀的公司知识）
         org_memory = await _retrieve_org_memory(session, org_id, goal, query_vec)
-        dag = await _generate_dag(session, goal, available, query_vec, gateway, org_memory)
+        dag = await _generate_dag(session, org_id, goal, available, query_vec, gateway, org_memory)
         template_name = "generated"
         version = None
     elif chosen is not None:
