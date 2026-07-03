@@ -524,6 +524,12 @@ async def list_workspace_runs(
     return active, recent
 
 
+async def delete_task_run(session: AsyncSession, run: TaskRun) -> None:
+    """删除一条 task_run（如 approve 时清理旧的 pending run）。"""
+    await session.delete(run)
+    await session.flush()
+
+
 async def finish_task_run(session: AsyncSession, run: TaskRun, new_status: str) -> None:
     """工作流到达终态时回写 task_run + 关联 plan 的状态（保持 DB 与编排一致）。"""
     run.status = new_status

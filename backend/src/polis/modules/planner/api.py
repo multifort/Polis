@@ -179,13 +179,28 @@ async def _start_plan(
 async def approve_plan(
     plan_id: uuid.UUID, org: ApproverOrg, user_id: CurrentUserId, session: SessionDep
 ) -> ApproveResult:
-    """审批计划并启动 Temporal TaskWorkflow（仅 owner/approver）。"""
+    """审批计划并启动 Temporal TaskWorkflow（仅 owner/approver）。
+
+    如果存在关联的 pending task_run（从任务列表出图时创建），自动贯通 task_id。
+    """
     plan = await repo.get_plan(session, org.org_id, plan_id)
     if plan is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "计划不存在")
     if plan.status not in ("draft", "approved"):
         raise HTTPException(status.HTTP_409_CONFLICT, f"计划当前状态为 {plan.status!r}，无法启动")
-    run = await _start_plan(session, org.org_id, plan, user_id)
+
+    # 查找关联的 pending task_run（从任务列表「出图」时创建），贯通 task_id
+    pending_run = await repo.get_task_run_by_plan(session, org.org_id, plan_id)
+    task_id = pending_run.task_id if pending_run and pending_run.status == "pending" else None
+
+    # 如果找到了 pending run，把它的状态改为 running（不重复建 run）
+    if task_id is not None and pending_run is not None:
+        run = await _start_plan(session, org.org_id, plan, user_id, task_id=task_id)
+        # 删除旧的 pending run（已被新的 running run 替代）
+        await repo.delete_task_run(session, pending_run)
+    else:
+        run = await _start_plan(session, org.org_id, plan, user_id)
+
     return ApproveResult(task_id=run.id, status="running")
 
 
