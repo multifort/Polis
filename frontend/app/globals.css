@@ -1154,7 +1154,7 @@ a { color: var(--color-accent-text); text-decoration: none; }
 
 .scenario-domain-actions {
   display: none; align-items: center; gap: 2px; flex-shrink: 0;
-  margin-left: auto;
+  width: 52px; justify-content: flex-end;
 }
 .scenario-domain-btn.on ~ .scenario-domain-actions { display: flex; }
 
@@ -1177,7 +1177,8 @@ a { color: var(--color-accent-text); text-decoration: none; }
 }
 .scenario-sub-row:hover { background: #f5f6fa; }
 
-.scenario-sub-row { gap: 6px; }
+.scenario-sub-row { display: flex; align-items: center; gap: 8px; padding: 2px 4px; border-radius: 7px; }
+.scenario-sub-row:hover { background: #f5f6fa; }
 .scenario-sub-btn {
   flex: 1; background: none; border: none; cursor: pointer;
   font-size: 12.5px; color: #44464f; text-align: left;
@@ -1186,8 +1187,10 @@ a { color: var(--color-accent-text); text-decoration: none; }
 }
 .scenario-sub-btn.on { background: var(--color-primary-subtle); color: var(--color-primary); font-weight: 600; }
 
-.scenario-sub-actions { display: none; align-items: center; gap: 1px; flex-shrink: 0; margin-left: auto; }
+.scenario-sub-actions { display: none; align-items: center; gap: 1px; flex-shrink: 0; }
 .scenario-sub-btn.on ~ .scenario-sub-actions { display: flex; }
+/* 子类行右侧保留 52px 占位，确保与 domain 行右对齐 */
+.scenario-sub-placeholder { width: 52px; flex-shrink: 0; }
 
 /* 空态 & 内联编辑 & 新增大类 */
 .scenario-sub-empty {
