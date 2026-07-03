@@ -930,11 +930,15 @@ async def update_category(
     )
 
 
-@router.delete("/catalog/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_category(category_id: uuid.UUID, org: CurrentOrg, session: SessionDep) -> None:
-    """删除本 org 的私有分类（平台内置不可删）。"""
-    if not await repo.delete_scene_category(session, org.org_id, category_id):
+@router.delete("/catalog/categories/{category_id}")
+async def delete_category(
+    category_id: uuid.UUID, org: CurrentOrg, session: SessionDep
+) -> dict[str, Any]:
+    """删除私有分类，级联删除该分类下的模板。返回影响范围。"""
+    result = await repo.delete_scene_category(session, org.org_id, category_id)
+    if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "分类不存在或不属于当前公司")
+    return result
 
 
 async def _fill_actual_cost(session: AsyncSession, calls: list[dict[str, Any]]) -> None:

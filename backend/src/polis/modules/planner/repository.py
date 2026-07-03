@@ -608,12 +608,26 @@ async def update_scene_category(
 
 async def delete_scene_category(
     session: AsyncSession, org_id: uuid.UUID, category_id: uuid.UUID
-) -> bool:
+) -> dict[str, Any] | None:
+    """删除私有分类及其关联的模板。返回 {domain, subcategory, deleted_templates: int} 或 None。"""
     cat = await session.scalar(
         select(SceneCategory).where(SceneCategory.id == category_id, SceneCategory.org_id == org_id)
     )
     if cat is None:
-        return False
+        return None
+
+    # 级联删除该分类下的模板（匹配 domain + subcategory）
+    from sqlalchemy import delete as sqla_delete
+
+    tpl_cond: list[Any] = [
+        PlanTemplate.domain == cat.domain,
+        PlanTemplate.owner_org_id == org_id,
+    ]
+    if cat.subcategory:
+        tpl_cond.append(PlanTemplate.subcategory == cat.subcategory)
+    result = await session.execute(sqla_delete(PlanTemplate).where(*tpl_cond))
+    deleted_tpls: int = getattr(result, "rowcount", 0) or 0
+
     await session.delete(cat)
     await session.flush()
-    return True
+    return {"domain": cat.domain, "subcategory": cat.subcategory, "deleted_templates": deleted_tpls}

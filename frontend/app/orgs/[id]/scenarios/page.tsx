@@ -33,6 +33,8 @@ export default function ScenariosPage() {
   const [editing, setEditing] = useState<string | null>(null); // category id being edited
   const [editName, setEditName] = useState("");
   const [newName, setNewName] = useState("");
+  const [delConfirm, setDelConfirm] = useState<{ id: string; label: string; domain: string; subcategory: string | null; tplCount: number } | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { if (!getAccess()) router.replace("/"); }, [router]);
@@ -99,11 +101,33 @@ export default function ScenariosPage() {
     } catch (err) { setNotice(err instanceof Error ? err.message : "新增失败"); }
   }
 
-  // 删除
-  async function onDelete(id: string, label: string) {
-    if (!confirm(`删除「${label}」？`)) return;
-    try { await api.deleteCategory(orgId, id); await load(); }
-    catch (err) { setNotice(err instanceof Error ? err.message : "删除失败"); }
+  // 删除确认（弹模态框）
+  function confirmDelete(id: string, domain: string, subcategory: string | null) {
+    const label = subcategory ? `${domain} / ${subcategory}` : domain;
+    // 统计该分类下的模板数
+    const tplCount = subcategory
+      ? templates.filter((t) => t.domain === domain && t.subcategory === subcategory).length
+      : templates.filter((t) => t.domain === domain).length;
+    setDelConfirm({ id, label, domain, subcategory, tplCount });
+  }
+
+  async function onDeleteConfirmed() {
+    if (!delConfirm) return;
+    setDeleting(true);
+    try {
+      const result: any = await api.deleteCategory(orgId, delConfirm.id);
+      setNotice(`已删除「${delConfirm.label}」${result.deleted_templates ? `，同步清理 ${result.deleted_templates} 个模板` : ""}` as any);
+      setDelConfirm(null);
+      await load();
+    } catch (err) { setNotice(err instanceof Error ? err.message : "删除失败"); }
+    finally { setDeleting(false); }
+  }
+
+  // 统计某分类下的模板数
+  function tplCount(domain: string, subcategory: string | null) {
+    return subcategory
+      ? templates.filter((t) => t.domain === domain && t.subcategory === subcategory).length
+      : templates.filter((t) => t.domain === domain && !t.subcategory).length;
   }
 
   // 双击开始编辑
@@ -187,7 +211,7 @@ export default function ScenariosPage() {
                         const domainCat = cats.find((c) => c.domain === node.domain && !c.subcategory);
                         return domainCat && canDel(domainCat) ? (
                           <button className="scenario-tree-del" title="删除"
-                            onClick={(e) => { e.stopPropagation(); onDelete(domainCat.id, node.domain); }}>−</button>
+                            onClick={(e) => { e.stopPropagation(); confirmDelete(domainCat.id, node.domain, null); }}>−</button>
                         ) : null;
                       })()}
                     </div>
@@ -232,7 +256,7 @@ export default function ScenariosPage() {
                                 onClick={(e) => { e.stopPropagation(); startEdit(sub); }}
                                 style={{ width: 20, height: 20, fontSize: 12 }}>✎</button>
                               <button className="scenario-tree-del" title="删除"
-                                onClick={() => onDelete(sub.id, `${node.domain} / ${sub.subcategory}`)}>−</button>
+                                onClick={() => confirmDelete(sub.id, node.domain, sub.subcategory ?? null)}>−</button>
                             </>
                           )}
                         </div>
@@ -301,6 +325,31 @@ export default function ScenariosPage() {
               </div>
             )}
           </section>
+        </div>
+      )}
+      {/* 删除确认模态框 */}
+      {delConfirm && (
+        <div className="modal-overlay" onClick={() => setDelConfirm(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>确认删除</h3>
+              <button className="modal-x" onClick={() => setDelConfirm(null)}>×</button>
+            </div>
+            <p className="modal-desc">
+              确定删除分类「<strong>{delConfirm.label}</strong>」？
+            </p>
+            {delConfirm.tplCount > 0 && (
+              <p className="modal-desc" style={{ color: "#b71c1c", marginTop: 4 }}>
+                该分类下有 <strong>{delConfirm.tplCount}</strong> 个场景模板将被同步删除，不可恢复。
+              </p>
+            )}
+            <div className="modal-actions">
+              <button className="btn-ghost2" onClick={() => setDelConfirm(null)}>取消</button>
+              <button className="btn-danger" onClick={onDeleteConfirmed} disabled={deleting}>
+                {deleting ? "删除中…" : "确认删除"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </AppShell>
