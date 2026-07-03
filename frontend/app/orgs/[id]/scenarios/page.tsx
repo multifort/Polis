@@ -251,13 +251,13 @@ export default function ScenariosPage() {
                             </button>
                           )}
                           {canDel(sub) && (
-                            <>
+                            <span className="scenario-sub-actions">
                               <button className="scenario-tree-add" title="编辑名称"
                                 onClick={(e) => { e.stopPropagation(); startEdit(sub); }}
-                                style={{ width: 20, height: 20, fontSize: 12 }}>✎</button>
+                                style={{ width: 18, height: 18, fontSize: 11 }}>✎</button>
                               <button className="scenario-tree-del" title="删除"
                                 onClick={() => confirmDelete(sub.id, node.domain, sub.subcategory ?? null)}>−</button>
-                            </>
+                            </span>
                           )}
                         </div>
                       ))}
