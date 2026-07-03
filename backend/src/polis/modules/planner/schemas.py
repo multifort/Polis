@@ -106,7 +106,7 @@ def validate(dag: PlanDag, available_capabilities: set[str]) -> ValidationResult
 
 class ApproveResult(BaseModel):
     task_id: uuid.UUID
-    status: str  # "running"
+    status: str  # "running" or "pending"
 
 
 class RunNodeState(BaseModel):

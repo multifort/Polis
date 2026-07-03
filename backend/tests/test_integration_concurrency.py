@@ -1,4 +1,4 @@
-"""集成测试（V2-S3 并发闸）：org 在跑数达上限 → 运行被拒（429）；count/cost 聚合正确。"""
+"""集成测试（V2-S3 并发队列）：org 在跑数达上限 → pending 入队；count/cost 聚合正确。"""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def _auth(c: Any, email: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
-def test_concurrency_admission_rejects_when_full(client: TestClient) -> None:
+def test_concurrency_admission_queues_when_full(client: TestClient) -> None:
     c = cast(Any, client)
     asyncio.run(seed())
     auth = _auth(c, f"cc_{uuid.uuid4().hex[:8]}@polis.dev")
@@ -57,7 +57,21 @@ def test_concurrency_admission_rejects_when_full(client: TestClient) -> None:
 
     asyncio.run(_fill())
 
-    # 已达上限 → 运行被拒 429（在连 Temporal 之前就拦下）
+    # 已达上限 → 不再 429，而是入队 pending（在连 Temporal 之前就返回）
     r = c.post(f"/api/tasks/{task_id}/run", headers=h)
-    assert r.status_code == 429, r.text
-    assert "并发上限" in r.json()["detail"]
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["status"] == "pending"
+
+    async def _assert_queued() -> None:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                rows = await repo.list_task_runs(s, oid, uuid.UUID(task_id))
+                statuses = [run.status for run, _ in rows]
+                assert statuses.count("running") == limit
+                assert statuses.count("pending") == 1
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_assert_queued())

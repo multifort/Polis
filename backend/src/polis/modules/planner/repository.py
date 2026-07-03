@@ -159,13 +159,14 @@ async def create_task_run(
     plan_id: uuid.UUID,
     temporal_workflow_id: str,
     task_id: uuid.UUID | None = None,
+    status: str = "running",
 ) -> TaskRun:
     run = TaskRun(
         org_id=org_id,
         task_id=task_id,  # V2-P1：关联可复用任务（nullable，兼容直接出图的旧/临时运行）
         plan_id=plan_id,
         temporal_workflow_id=temporal_workflow_id,
-        status="running",
+        status=status,
     )
     session.add(run)
     await session.flush()

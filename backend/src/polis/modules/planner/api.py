@@ -108,19 +108,39 @@ async def _start_plan(
     plan: Any,
     user_id: uuid.UUID,
     task_id: uuid.UUID | None = None,
+    queued_run: Any | None = None,
 ) -> Any:
     """启动一个 plan 的 Temporal 工作流：建 task_run（贯通 task_id，TD-028）+ Run Manifest + 审计。
 
     approve_plan（直接出图后审批）与 run_task（任务驱动）共用。Temporal 不可达 → 503。
     """
     settings = get_settings()
-    # S3 并发闸（真实限制，§6.1）：org 在跑数达上限 → 拒绝（429），保资源公平。
+    # S3 公平队列（一刀）：org 在跑数达上限 → 登记 pending run 入队，而不是直接 429。
     active = await repo.count_active_runs(session, org_id)
     if active >= settings.org_max_concurrent_runs:
-        raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            f"已达并发上限（{active}/{settings.org_max_concurrent_runs}），请待运行结束后重试",
+        run = queued_run or await repo.create_task_run(
+            session,
+            org_id,
+            plan.id,
+            f"queued-plan-{plan.id}",
+            task_id=task_id,
+            status="pending",
         )
+        await repo.update_plan_status(session, org_id, plan.id, "approved")
+        await write_audit(
+            session,
+            action="plan.queue",
+            actor=str(user_id),
+            org_id=org_id,
+            target=str(plan.id),
+            detail={
+                "task_id": str(run.id),
+                "task": str(task_id) if task_id else None,
+                "active": active,
+                "limit": settings.org_max_concurrent_runs,
+            },
+        )
+        return run
     # S3 预算提示（只提示不阻断，§6.2）：累计预估成本超阈值 → 记一条告警，照常执行。
     if settings.org_budget_cents > 0:
         spent = await repo.org_estimated_cost_cents(session, org_id)
@@ -197,13 +217,16 @@ async def approve_plan(
 
     # 如果找到了 pending run，把它的状态改为 running（不重复建 run）
     if task_id is not None and pending_run is not None:
-        run = await _start_plan(session, org.org_id, plan, user_id, task_id=task_id)
-        # 删除旧的 pending run（已被新的 running run 替代）
-        await repo.delete_task_run(session, pending_run)
+        run = await _start_plan(
+            session, org.org_id, plan, user_id, task_id=task_id, queued_run=pending_run
+        )
+        if run.status == "running":
+            # 删除旧的 pending run（已被新的 running run 替代）
+            await repo.delete_task_run(session, pending_run)
     else:
         run = await _start_plan(session, org.org_id, plan, user_id)
 
-    return ApproveResult(task_id=run.id, status="running")
+    return ApproveResult(task_id=run.id, status=run.status)
 
 
 @router.post(
@@ -637,7 +660,7 @@ async def run_task(
     if plan is None:  # 理论不会（刚建）
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "计划快照丢失")
     run = await _start_plan(session, org.org_id, plan, user_id, task_id=task.id)
-    return ApproveResult(task_id=run.id, status="running")
+    return ApproveResult(task_id=run.id, status=run.status)
 
 
 @router.get("/plans/{plan_id}/run", response_model=RunStatusResult)
@@ -646,6 +669,8 @@ async def get_plan_run(plan_id: uuid.UUID, org: CurrentOrg, session: SessionDep)
     run = await repo.get_task_run_by_plan(session, org.org_id, plan_id)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "该计划尚未启动")
+    if run.status == "pending":
+        return RunStatusResult(status="pending", nodes=[])
 
     client = await _temporal_client()
 
