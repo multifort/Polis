@@ -1186,8 +1186,11 @@ a { color: var(--color-accent-text); text-decoration: none; }
 }
 .scenario-sub-btn.on { background: var(--color-primary-subtle); color: var(--color-primary); font-weight: 600; }
 
-.scenario-sub-actions { display: none; align-items: center; gap: 1px; flex-shrink: 0; }
+.scenario-sub-actions { display: none; align-items: center; gap: 1px; flex-shrink: 0; width: 50px; }
 .scenario-sub-btn.on ~ .scenario-sub-actions { display: flex; }
+/* 子类无操作时保持与 domain 同宽的占位，确保底色右边界对齐 */
+.scenario-sub-row::after { content: ""; width: 50px; flex-shrink: 0; }
+.scenario-sub-row:has(.scenario-sub-actions)::after { content: none; }
 
 /* 空态 & 内联编辑 & 新增大类 */
 .scenario-sub-empty {
