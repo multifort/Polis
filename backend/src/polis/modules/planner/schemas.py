@@ -229,6 +229,25 @@ class WorkspaceRuns(BaseModel):
     recent: list[WorkspaceRunItem] = []
 
 
+# ── R3 场景模板沉淀 ──────────────────────────────────────────────────
+
+
+class SaveAsTemplateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    domain: str | None = None
+    subcategory: str | None = None
+
+
+class TemplateOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    version: str
+    domain: str | None = None
+    subcategory: str | None = None
+    source: str = "builtin"
+    visibility: str = "public"
+
+
 def derive_overall_status(node_statuses: list[str]) -> str:
     """从节点状态派生顶层运行状态：有 failed→failed；全 done→done；否则 running。
 

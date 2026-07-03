@@ -51,6 +51,12 @@ class PlanTemplate(UUIDPkMixin, Base):
     # V2-R1 可见性：public=全 org 可见（默认/平台内置）；private=仅属主 org
     visibility: Mapped[str] = mapped_column(Text, server_default="public")
     owner_org_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("org.id"))
+    # R3 场景库树导航：大类 > 小类 > 具体场景
+    domain: Mapped[str | None] = mapped_column(Text, nullable=True)
+    subcategory: Mapped[str | None] = mapped_column(Text, nullable=True)
+    acceptance_criteria: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 来源：builtin(平台内置) / user_saved(用户存为模板)
+    source: Mapped[str] = mapped_column(Text, server_default="builtin")
 
     __table_args__ = (
         UniqueConstraint("name", "version", name="uq_plan_template_name_version"),

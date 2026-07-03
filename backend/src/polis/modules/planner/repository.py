@@ -473,3 +473,61 @@ async def finish_task_run(session: AsyncSession, run: TaskRun, new_status: str) 
         plan_status = new_status if new_status in ("done", "needs_review") else "failed"
         await update_plan_status(session, run.org_id, run.plan_id, plan_status)
     await session.flush()
+
+
+async def save_plan_as_template(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    plan: Plan,
+    *,
+    name: str,
+    domain: str | None = None,
+    subcategory: str | None = None,
+) -> PlanTemplate:
+    """将已有计划的 DAG 存为私有场景模板（R3 场景库飞轮）。
+
+    幂等：同名模板已存在则覆盖（version 递增），同一 org 内 name 唯一。
+    """
+    existing = (
+        await session.scalars(
+            select(PlanTemplate).where(
+                PlanTemplate.name == name, PlanTemplate.owner_org_id == org_id
+            )
+        )
+    ).first()
+
+    if existing is not None:
+        # 覆盖：更新 DAG + bump version
+        existing.dag_skeleton = plan.dag
+        existing.acceptance_criteria = (
+            plan.dag.get("acceptance_criteria") if isinstance(plan.dag, dict) else None
+        )
+        existing.domain = domain
+        existing.subcategory = subcategory
+        existing.visibility = "private"
+        # bump minor version
+        parts = existing.version.split(".")
+        try:
+            minor = int(parts[-1]) + 1
+            existing.version = ".".join(parts[:-1] + [str(minor)])
+        except (ValueError, IndexError):
+            existing.version = f"{existing.version}.1"
+        await session.flush()
+        return existing
+
+    tpl = PlanTemplate(
+        name=name,
+        version="1.0",
+        dag_skeleton=plan.dag,
+        visibility="private",
+        owner_org_id=org_id,
+        source="user_saved",
+        domain=domain,
+        subcategory=subcategory,
+        acceptance_criteria=plan.dag.get("acceptance_criteria")
+        if isinstance(plan.dag, dict)
+        else None,
+    )
+    session.add(tpl)
+    await session.flush()
+    return tpl

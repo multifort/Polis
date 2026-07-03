@@ -395,6 +395,11 @@ export const api = {
   // ── C0-4 工作台 ──
   workspaceRuns: (orgId: string) =>
     request<WorkspaceRuns>("/api/runs/workspace", {}, true, orgId),
+  // ── R3 场景模板 ──
+  saveAsTemplate: (orgId: string, planId: string, body: { name: string; domain?: string; subcategory?: string }) =>
+    request<TemplateOut>(`/api/plans/${planId}/save-as-template`, { method: "POST", body: JSON.stringify(body) }, true, orgId),
+  listTemplates: (orgId: string, domain?: string) =>
+    request<TemplateOut[]>(`/api/catalog/templates${domain ? `?domain=${encodeURIComponent(domain)}` : ""}`, {}, true, orgId),
 };
 
 export interface ApprovalRow {
@@ -422,4 +427,15 @@ export interface WorkspaceRunItem {
 export interface WorkspaceRuns {
   active: WorkspaceRunItem[];
   recent: WorkspaceRunItem[];
+}
+
+// ── R3 场景模板 ──
+export interface TemplateOut {
+  id: string;
+  name: string;
+  version: string;
+  domain?: string | null;
+  subcategory?: string | null;
+  source: string;
+  visibility: string;
 }

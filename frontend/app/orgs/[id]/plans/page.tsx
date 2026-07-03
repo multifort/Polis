@@ -15,6 +15,7 @@ import {
   type PlanNode,
   type PlanResult,
   type RunStatus,
+  type TemplateOut,
 } from "@/lib/api";
 
 // 按依赖把节点分层（拓扑层级）：无依赖在第 0 层，其余取所有前驱层级 +1。
@@ -154,6 +155,8 @@ export default function PlansPage() {
   const [run, setRun] = useState<RunStatus | null>(null);
   const [approving, setApproving] = useState(false);
   const [exporting, setExporting] = useState<"md" | "pdf" | null>(null);
+  const [savingTpl, setSavingTpl] = useState(false);
+  const [tplMsg, setTplMsg] = useState("");
   const [notice, setNotice] = useState(""); // 503 等降级提示
   const [obs, setObs] = useState<Observability | null>(null);
   const [obsLoading, setObsLoading] = useState(false);
@@ -308,6 +311,18 @@ export default function PlansPage() {
     }
   }
 
+  async function saveAsTemplate() {
+    if (!plan) return;
+    setSavingTpl(true); setTplMsg("");
+    const name = plan.goal.length > 40 ? plan.goal.slice(0, 40) : plan.goal;
+    try {
+      await api.saveAsTemplate(orgId, plan.id, { name });
+      setTplMsg(`已存为模板「${name}」`);
+    } catch (err) {
+      setTplMsg(err instanceof Error ? err.message : "保存失败");
+    } finally { setSavingTpl(false); }
+  }
+
   async function onSignal(nodeId: string) {
     if (!plan) return;
     try {
@@ -372,6 +387,7 @@ export default function PlansPage() {
 
         {error && <p className="error" style={{ marginTop: 14 }}>{error}</p>}
         {notice && <p className="notice" style={{ marginTop: 14 }}>{notice}</p>}
+        {tplMsg && <p className="notice" style={{ marginTop: 14, background: "#e8f5e9", color: "#1b5e20" }}>{tplMsg}</p>}
 
         {plan && (
           <>
@@ -417,6 +433,15 @@ export default function PlansPage() {
                   title="用同一目标重新出图运行"
                 >
                   ↻ 再次运行
+                </button>
+                <button
+                  className="btn-run"
+                  style={{ background: "#fff", color: "#3F51B5", border: "1px solid #3F51B5", boxShadow: "none" }}
+                  onClick={() => saveAsTemplate()}
+                  disabled={savingTpl}
+                  title="将该计划存为可复用场景模板"
+                >
+                  {savingTpl ? "保存中…" : "💾 存为模板"}
                 </button>
               </div>
             </div>

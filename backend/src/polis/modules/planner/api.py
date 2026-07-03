@@ -39,11 +39,13 @@ from polis.modules.planner.schemas import (
     PlanResult,
     RunNodeState,
     RunStatusResult,
+    SaveAsTemplateIn,
     SignalIn,
     TaskCreateIn,
     TaskOut,
     TaskRunOut,
     TemplateDistItem,
+    TemplateOut,
     WorkspaceRunItem,
     WorkspaceRuns,
     derive_overall_status,
@@ -745,6 +747,70 @@ async def export_plan_result(
         media_type=mime,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── R3 场景模板沉淀 ──────────────────────────────────────────────────
+
+
+@router.post(
+    "/plans/{plan_id}/save-as-template",
+    response_model=TemplateOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def save_plan_as_template(
+    plan_id: uuid.UUID,
+    data: SaveAsTemplateIn,
+    org: CurrentOrg,
+    session: SessionDep,
+) -> TemplateOut:
+    """将已有计划存为私有场景模板（R3 存为模板）。幂等：同名覆盖+bump version。"""
+    plan = await repo.get_plan(session, org.org_id, plan_id)
+    if plan is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "计划不存在")
+    tpl = await repo.save_plan_as_template(
+        session,
+        org.org_id,
+        plan,
+        name=data.name,
+        domain=data.domain,
+        subcategory=data.subcategory,
+    )
+    return TemplateOut(
+        id=tpl.id,
+        name=tpl.name,
+        version=tpl.version,
+        domain=tpl.domain,
+        subcategory=tpl.subcategory,
+        source=tpl.source or "user_saved",
+        visibility=tpl.visibility or "private",
+    )
+
+
+@router.get("/catalog/templates", response_model=list[TemplateOut])
+async def list_catalog_templates(
+    org: CurrentOrg,
+    session: SessionDep,
+    domain: str | None = None,
+) -> list[TemplateOut]:
+    """场景库货架：列出可见模板（私有 ∪ 公共），可选按 domain 筛选（R3/P5 场景库树）。"""
+    rows = await repo.list_plan_templates(session, org.org_id)
+    if domain:
+        rows = [r for r in rows if r.domain == domain]
+    return [
+        TemplateOut(
+            id=r.id,
+            name=r.name,
+            version=r.version,
+            domain=r.domain,
+            subcategory=r.subcategory,
+            source=r.source or "builtin",
+            visibility=r.visibility or "public",
+        )
+        for r in rows
+    ]
+
+
+# ── helpers ──────────────────────────────────────────────────────────
 
 
 async def _fill_actual_cost(session: AsyncSession, calls: list[dict[str, Any]]) -> None:
