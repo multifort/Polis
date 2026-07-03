@@ -85,6 +85,8 @@ export default function TasksPage() {
   const [runningId, setRunningId] = useState<string | null>(null);
   const [historyTask, setHistoryTask] = useState<TaskRowData | null>(null);
   const [exportingRun, setExportingRun] = useState<string | null>(null);
+  const [delTask, setDelTask] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!getAccess()) router.replace("/");
@@ -171,13 +173,19 @@ export default function TasksPage() {
   }
 
   async function onDeleteTask(taskId: string, taskName: string) {
-    if (!confirm(`确定删除任务「${taskName}」及其全部执行记录？`)) return;
+    setDelTask({ id: taskId, name: taskName });
+  }
+
+  async function confirmDeleteTask() {
+    if (!delTask) return;
+    setDeleting(true);
     try {
-      await api.deleteTask(orgId, taskId);
+      await api.deleteTask(orgId, delTask.id);
+      setDelTask(null);
       await loadTasks();
     } catch {
       setNotice("删除任务失败");
-    }
+    } finally { setDeleting(false); }
   }
 
   // 首次运行：出图 + 审批 + 启动
@@ -483,6 +491,29 @@ export default function TasksPage() {
             ))}
           </div>
         </Modal>
+      )}
+      {/* 删除任务确认模态框 */}
+      {delTask && (
+        <div className="modal-overlay" onClick={() => setDelTask(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>确认删除任务</h3>
+              <button className="modal-x" onClick={() => setDelTask(null)}>×</button>
+            </div>
+            <p className="modal-desc">
+              确定删除任务「<strong>{delTask.name}</strong>」？
+            </p>
+            <p className="modal-desc" style={{ color: "#b71c1c", marginTop: 4 }}>
+              该任务下的全部执行记录将被同步删除，不可恢复。
+            </p>
+            <div className="modal-actions">
+              <button className="btn-ghost2" onClick={() => setDelTask(null)}>取消</button>
+              <button className="btn-danger" onClick={confirmDeleteTask} disabled={deleting}>
+                {deleting ? "删除中…" : "确认删除"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </AppShell>
   );
