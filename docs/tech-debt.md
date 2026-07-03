@@ -285,10 +285,12 @@ A3 完整定义（docs/design/v2/01 §5.2–5.4）= ① 节点无现成 Agent→
   额外检查 `permissions.sandbox.passed`，未过沙箱即使审批调用也不发布；审批 API 先确认发布条件再标记
   approval approved，避免「审批已通过但 Skill 仍 draft」的脏状态。测试覆盖 sandbox 通过后人审发布、
   权限越界不落库；补纯单测覆盖最小权限校验与本地 MCP 沙箱调用。
-- **剩余（仍 open）**：① **从 goal 端可达**——`validate` 拦不可用能力、A2 又约束只用可用能力，故缺 Skill
-  路径目前只在直接 compose 触发；要从「目标需要全新能力」端打通，需放开 A2 提案新能力 + service.plan
-  路由缺能力到本链（会动 A2 已验 100%，单列谨慎做）。② `activate_capability`/能力提案语义去重
-  接线（§14.4，τ_dedup≈0.86）。
+- **goal 端可达（2026-07-03）**：模板未命中进入 A2 生成前，`service.plan` 先让模型输出最多 2 个
+  缺失能力提案；提案经 `resolve_capability` 语义去重后接 `generate_skill_draft`。manual 自动 eval 过则同轮
+  published 并加入本次 `available`，pending/tool 仍留人审墙、不进入本轮规划。集成测试覆盖「无可用能力 org →
+  goal 提案新能力 → 自动发布 Skill → 同轮生成 DAG → route_or_compose 拼 Agent」。
+- **剩余（后置增强）**：tool 类 Skill 的 LLM 自动 authoring / 外部真实 MCP server 沙箱仍后置；当前已支持
+  显式登记 tool 草稿并过最小权限 + 本地 MCP 沙箱闸。若做公司自定义技能库（TD-034），复用本闸口。
 
 ### TD-033
 **A4 compose-time 自动背书为 advisory（不硬门控激活），「试产出/执行 eval 硬降级」延后。**

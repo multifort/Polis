@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from polis.config import get_settings
 from polis.modules.model.gateway import ChatResponse, StubModelGateway
 from polis.modules.planner.composer import compose_agent
+from polis.modules.planner.service import plan
 from polis.modules.planner.skillgen import (
     ToolSkillSandboxError,
     create_tool_skill_draft,
@@ -51,6 +52,11 @@ def _gen_script(judge: str) -> list[ChatResponse]:
         ChatResponse(content="示例产出：..."),
         ChatResponse(content=judge),
     ]
+
+
+class _EmbeddingGateway(StubModelGateway):
+    async def embed(self, texts: list[str]) -> list[list[float] | None]:
+        return [[0.01] * 1024 for _ in texts]
 
 
 def test_manual_skill_auto_publish_no_human(pg_url: str) -> None:
@@ -317,6 +323,51 @@ def test_tool_skill_without_sandbox_cannot_publish(pg_url: str) -> None:
                     text("SELECT status FROM skill WHERE id = :i").bindparams(i=skill_id)
                 )
                 assert status == "draft"
+                await s.rollback()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+def test_goal_proposes_missing_capability_and_plans_same_run(pg_url: str) -> None:
+    """TD-032 goal 端可达：无可用能力时，提案新能力→自动发布 Skill→同轮生成 DAG/Agent。"""
+    org_id = _seed_org_model(pg_url, get_settings().default_chat_model)
+    cap = f"goal.new_{uuid.uuid4().hex[:6]}"
+
+    async def _run() -> None:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                gw = _EmbeddingGateway(
+                    script=[
+                        ChatResponse(
+                            content=f'[{{"key":"{cap}","description":"目标需要的新能力"}}]'
+                        ),
+                        *_gen_script("0.9"),
+                        ChatResponse(
+                            content=(
+                                '{"workflow_name":"wf","goal":"g","budget_cents":1000,'
+                                '"nodes":[{"id":"n1","type":"agent","deps":[],'
+                                f'"required_capabilities":["{cap}"]'
+                                "}]} "
+                            )
+                        ),
+                        ChatResponse(content="拼装 Agent 示例产出"),
+                        ChatResponse(content="0.9"),
+                    ]
+                )
+                result = await plan(s, org_id, "一个需要全新能力的目标", gateway=gw)
+
+                assert result.template == "generated"
+                assert result.dag.nodes[0].required_capabilities == [cap]
+                assert result.routing["n1"] is not None
+                skill_status = await s.scalar(
+                    text(
+                        "SELECT status FROM skill WHERE owner_org_id = :o AND capability = :c"
+                    ).bindparams(o=org_id, c=cap)
+                )
+                assert skill_status == "published"
                 await s.rollback()
         finally:
             await engine.dispose()
