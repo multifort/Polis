@@ -15,7 +15,8 @@ import pytest
 
 from polis.modules.model.gateway import ChatResponse, ResolvedModel, StubModelGateway
 from polis.modules.planner.errors import PlanInvalid
-from polis.modules.planner.generator import _build_user, generate_dag
+from polis.modules.planner.generator import _build_user, generate_dag, generate_subdag
+from polis.modules.planner.schemas import PlanDag, PlanNode
 
 _MODEL = ResolvedModel(id="m", provider="p", litellm_name="n", context_window=8000)
 
@@ -98,3 +99,62 @@ def test_build_user_injects_org_memory() -> None:
 def test_build_user_no_memory_section_when_empty() -> None:
     prompt = _build_user("目标", {"analysis"}, exemplars=[], org_memory=[])
     assert "公司已知" not in prompt
+
+
+def _base_replan_dag() -> PlanDag:
+    return PlanDag(
+        workflow_name="wf",
+        goal="修复流程",
+        budget_cents=2000,
+        nodes=[
+            PlanNode(id="n1", type="agent", deps=[], required_capabilities=["analysis"]),
+            PlanNode(id="n2", type="agent", deps=["n1"], required_capabilities=["analysis"]),
+            PlanNode(id="n3", type="agent", deps=["n2"], required_capabilities=["report"]),
+        ],
+    )
+
+
+def _replacement_nodes(cap: str = "analysis") -> str:
+    return json.dumps(
+        [
+            {"id": "n2b", "type": "agent", "deps": ["n1"], "required_capabilities": [cap]},
+            {"id": "n3b", "type": "agent", "deps": ["n2b"], "required_capabilities": ["report"]},
+        ]
+    )
+
+
+def test_generate_subdag_valid_first_try() -> None:
+    gw = StubModelGateway(script=[ChatResponse(content=_replacement_nodes())])
+    nodes = asyncio.run(
+        generate_subdag(gw, _MODEL, _base_replan_dag(), "n2", "执行失败", {"analysis", "report"})
+    )
+    assert [n["id"] for n in nodes] == ["n2b", "n3b"]
+
+
+def test_generate_subdag_self_repairs_after_capability_error() -> None:
+    gw = StubModelGateway(
+        script=[
+            ChatResponse(content=_replacement_nodes(cap="missing")),
+            ChatResponse(content=_replacement_nodes(cap="analysis")),
+        ]
+    )
+    nodes = asyncio.run(
+        generate_subdag(gw, _MODEL, _base_replan_dag(), "n2", "执行失败", {"analysis", "report"})
+    )
+    assert nodes[0]["required_capabilities"] == ["analysis"]
+
+
+def test_generate_subdag_gives_up() -> None:
+    gw = StubModelGateway(
+        script=[
+            ChatResponse(content=_replacement_nodes(cap="missing")),
+            ChatResponse(content=_replacement_nodes(cap="missing")),
+        ]
+    )
+    with pytest.raises(PlanInvalid) as ei:
+        asyncio.run(
+            generate_subdag(
+                gw, _MODEL, _base_replan_dag(), "n2", "执行失败", {"analysis", "report"}
+            )
+        )
+    assert any("能力" in e for e in ei.value.errors)

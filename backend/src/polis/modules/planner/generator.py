@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from polis.modules.model.gateway import ChatMessage, ModelGateway, ResolvedModel
 from polis.modules.planner.errors import PlanInvalid
-from polis.modules.planner.schemas import PlanDag, validate
+from polis.modules.planner.schemas import PlanDag, PlanNode, validate
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,16 @@ _SYSTEM = (
     "5) 只输出 JSON，不要解释、不要 markdown 代码围栏。\n"
     "JSON 结构：{workflow_name, goal, acceptance_criteria, budget_cents, nodes:[{id, type, "
     "deps, required_capabilities, executor, input_hint, expected_output, dangerous}]}"
+)
+
+_SUBDAG_SYSTEM = (
+    "你是 Polis 的局部重规划器。给定原 DAG、失败节点、受影响子图和失败原因，"
+    "只输出用于替换该失败子图的 nodes JSON 数组。硬规则（必须全部满足）：\n"
+    "1) replacement nodes 必须能接回未受影响的上游依赖；\n"
+    "2) deps 只能引用 replacement 内节点，或原 DAG 中未受影响且已经存在的节点；\n"
+    "3) required_capabilities 只能取可用能力词表里的 key；\n"
+    f"4) 替换后全图节点数 ≤ {MAX_NODES}；\n"
+    "5) 只输出 JSON 数组，不要解释、不要 markdown 代码围栏。\n"
 )
 
 
@@ -68,6 +78,69 @@ def _parse_json(raw: str) -> Any:
     if start == -1 or end == -1 or end < start:
         raise ValueError("未找到 JSON 对象")
     return json.loads(s[start : end + 1])
+
+
+def _parse_json_array(raw: str) -> Any:
+    """从 LLM 文本里抽 JSON 数组：容忍 ```json 围栏 / 前后噪声。"""
+    s = raw.strip()
+    if s.startswith("```"):
+        s = s.split("```", 2)[1] if s.count("```") >= 2 else s.strip("`")
+        if s.lstrip().lower().startswith("json"):
+            s = s.lstrip()[4:]
+    start, end = s.find("["), s.rfind("]")
+    if start == -1 or end == -1 or end < start:
+        raise ValueError("未找到 JSON 数组")
+    return json.loads(s[start : end + 1])
+
+
+def _affected_ids(dag: PlanDag, failed_node_id: str) -> set[str]:
+    affected = {failed_node_id}
+    changed = True
+    while changed:
+        changed = False
+        for node in dag.nodes:
+            if node.id in affected:
+                continue
+            if any(dep in affected for dep in node.deps):
+                affected.add(node.id)
+                changed = True
+    return affected
+
+
+def _patch_dag(dag: PlanDag, failed_node_id: str, replacement_nodes: list[Any]) -> PlanDag:
+    affected = _affected_ids(dag, failed_node_id)
+    kept = [n for n in dag.nodes if n.id not in affected]
+    return PlanDag(
+        workflow_name=dag.workflow_name,
+        goal=dag.goal,
+        acceptance_criteria=dag.acceptance_criteria,
+        budget_cents=dag.budget_cents,
+        ctx_budget=dag.ctx_budget,
+        output_max_tokens=dag.output_max_tokens,
+        nodes=[*kept, *replacement_nodes],
+    )
+
+
+def _build_subdag_user(
+    dag: PlanDag,
+    failed_node_id: str,
+    failure_reason: str,
+    available: set[str],
+) -> str:
+    affected = _affected_ids(dag, failed_node_id)
+    original = dag.model_dump()
+    impacted = [n.model_dump() for n in dag.nodes if n.id in affected]
+    preserved = [n.id for n in dag.nodes if n.id not in affected]
+    return (
+        f"目标：{dag.goal}\n"
+        f"失败节点：{failed_node_id}\n"
+        f"失败原因：{failure_reason}\n"
+        f"可用能力词表：{'、'.join(sorted(available))}\n"
+        f"保留节点 id（不得替换，deps 可引用）：{preserved}\n"
+        f"受影响子图（需要替换）：{json.dumps(impacted, ensure_ascii=False)}\n"
+        f"原 DAG：{json.dumps(original, ensure_ascii=False)}\n"
+        "请只输出 replacement nodes JSON 数组。"
+    )
 
 
 async def generate_dag(
@@ -121,5 +194,61 @@ async def generate_dag(
         last_errors = errs
         user = "上次生成的 DAG 校验未过：" + "；".join(errs) + "。请修正后重新输出完整 JSON。"
         logger.info("generate_dag 第 %d 次语义校验失败：%s", attempt, errs)
+
+    raise PlanInvalid(last_errors)
+
+
+async def generate_subdag(
+    gateway: ModelGateway,
+    model: ResolvedModel,
+    dag: PlanDag,
+    failed_node_id: str,
+    failure_reason: str,
+    available: set[str],
+    *,
+    attempts: int = DEFAULT_ATTEMPTS,
+) -> list[dict[str, Any]]:
+    """S2b 局部重规划内核：LLM 生成 replacement nodes，拼回全图后用 validate 强校验。
+
+    返回值是可直接喂给 workflow `_local_replan` 的 node dict 列表；N 次仍不过则抛 PlanInvalid。
+    """
+    messages = [ChatMessage(role="system", content=_SUBDAG_SYSTEM)]
+    user = _build_subdag_user(dag, failed_node_id, failure_reason, available)
+    last_errors: list[str] = ["局部重规划失败（无有效输出）"]
+
+    for attempt in range(1, attempts + 1):
+        messages.append(ChatMessage(role="user", content=user))
+        resp = await gateway.chat(model, messages)
+        raw = resp.content or ""
+        messages.append(ChatMessage(role="assistant", content=raw))
+
+        try:
+            raw_nodes = _parse_json_array(raw)
+            if not isinstance(raw_nodes, list):
+                raise ValueError("replacement nodes 不是数组")
+            replacement_nodes = [PlanNode.model_validate(n) for n in raw_nodes]
+            patched = _patch_dag(dag, failed_node_id, replacement_nodes)
+        except (ValueError, ValidationError) as exc:
+            last_errors = [f"输出无法解析为合法 replacement nodes JSON：{exc}"]
+            user = f"上次输出有误：{last_errors[0]}。请只输出修正后的 replacement nodes JSON 数组。"
+            logger.info("generate_subdag 第 %d 次结构校验失败", attempt)
+            continue
+
+        vr = validate(patched, available)
+        errs = list(vr.errors)
+        if len(patched.nodes) > MAX_NODES:
+            errs.append(f"节点数 {len(patched.nodes)} 超过上限 {MAX_NODES}")
+        if not errs:
+            logger.info(
+                "generate_subdag 第 %d 次通过（替换 %s，%d 节点）",
+                attempt,
+                failed_node_id,
+                len(replacement_nodes),
+            )
+            return [n.model_dump() for n in replacement_nodes]
+
+        last_errors = errs
+        user = "上次 replacement nodes 拼回 DAG 后校验未过：" + "；".join(errs) + "。请修正。"
+        logger.info("generate_subdag 第 %d 次语义校验失败：%s", attempt, errs)
 
     raise PlanInvalid(last_errors)
