@@ -55,7 +55,7 @@ export default function DashboardPage() {
     stats && stats.budget_cents > 0 ? stats.estimated_cost_cents / stats.budget_cents : null;
 
   return (
-    <AppShell orgId={orgId} active="dashboard" breadcrumb="看板">
+    <AppShell orgId={orgId} active="work" breadcrumb="看板">
       <div className="page-head">
         <div>
           <h1 className="page-title big">看板</h1>
