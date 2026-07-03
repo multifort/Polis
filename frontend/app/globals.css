@@ -1133,6 +1133,7 @@ a { color: var(--color-accent-text); text-decoration: none; }
 .scenario-domain-row {
   display: flex; align-items: center;
   padding: 2px 4px; border-radius: 8px;
+  gap: 8px;
 }
 .scenario-domain-btn {
   flex: 1; display: flex; align-items: center; gap: 4px;
@@ -1176,7 +1177,7 @@ a { color: var(--color-accent-text); text-decoration: none; }
 .scenario-sub-row:hover { background: #f5f6fa; }
 
 .scenario-sub-list { margin-left: 18px; }
-.scenario-sub-row { display: flex; align-items: center; padding: 2px 4px; border-radius: 7px; }
+.scenario-sub-row { display: flex; align-items: center; padding: 2px 4px; border-radius: 7px; gap: 8px; }
 .scenario-sub-row:hover { background: #f5f6fa; }
 .scenario-sub-btn {
   flex: 1; background: none; border: none; cursor: pointer;
