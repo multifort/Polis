@@ -136,7 +136,7 @@ export default function WorkbenchPage() {
             <Stat ico="Σ" label="总运行次数" value={String(stats.total_runs)} />
             <Stat ico="✓" label="成功率" value={stats.success_rate != null ? `${(stats.success_rate * 100).toFixed(0)}%` : "—"} />
             <Stat ico="⏱" label="平均耗时" value={stats.avg_duration_seconds != null ? `${Math.floor(stats.avg_duration_seconds / 60)}分${Math.round(stats.avg_duration_seconds % 60)}秒` : "—"} />
-            <Stat ico="⚡" label="进行中" value={`${stats.active_runs} / ${stats.org_max_concurrent_runs}`} />
+            <Stat ico="⚡" label="进行中" value={String(stats.active_runs)} />
           </div>
           <div className="dash-stat-row">
             <Stat ico="♻" label="复用命中率" value={stats.reuse_hit_rate != null ? `${(stats.reuse_hit_rate * 100).toFixed(0)}%` : "—"} />
