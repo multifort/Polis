@@ -489,14 +489,30 @@ async def get_task_run_by_plan(
     return run
 
 
-async def next_pending_run(session: AsyncSession, org_id: uuid.UUID) -> TaskRun | None:
-    """S3 自动 dequeue：取最早入队的 pending run（FIFO）。"""
-    run: TaskRun | None = await session.scalar(
+async def next_pending_runs(
+    session: AsyncSession, org_id: uuid.UUID, limit: int = 1
+) -> list[TaskRun]:
+    """S3 自动 dequeue：按优先级取 pending run。
+
+    优先级规则：短作业优先（plan.estimated_cost_cents 升序），同成本按入队时间 FIFO。
+    不新增队列表字段，先复用已有计划成本作为可解释的轻量 priority。
+    """
+    if limit <= 0:
+        return []
+    rows = await session.scalars(
         select_org_scoped(TaskRun, org_id)
+        .outerjoin(Plan, Plan.id == TaskRun.plan_id)
         .where(TaskRun.status == "pending")
-        .order_by(TaskRun.created_at.asc())
+        .order_by(Plan.estimated_cost_cents.asc().nulls_last(), TaskRun.created_at.asc())
+        .limit(limit)
     )
-    return run
+    return list(rows.all())
+
+
+async def next_pending_run(session: AsyncSession, org_id: uuid.UUID) -> TaskRun | None:
+    """S3 自动 dequeue：兼容旧单槽调用，返回当前最高优先级 pending run。"""
+    runs = await next_pending_runs(session, org_id, limit=1)
+    return runs[0] if runs else None
 
 
 async def mark_task_run_running(session: AsyncSession, run: TaskRun, workflow_id: str) -> TaskRun:

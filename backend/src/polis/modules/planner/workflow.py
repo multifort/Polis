@@ -149,12 +149,12 @@ async def finalize_run(run_id: str, org_id: str, overall: str) -> None:
     if overall == "done":
         await _promote_task_memory(org_id, run_id)
 
-    # S3 自动 dequeue：当前 run 释放并发槽后，best-effort 启动最早 pending run。
-    await _dequeue_pending_run(org_id)
+    # S3 自动 dequeue：当前 run 释放并发槽后，best-effort 按优先级填满空槽。
+    await _dequeue_pending_runs(org_id)
 
 
-async def _dequeue_pending_run(org_id: str) -> None:
-    """S3 FIFO 自动 dequeue。失败不影响刚完成 run 的终态。"""
+async def _dequeue_pending_runs(org_id: str) -> None:
+    """S3 多槽优先级自动 dequeue。失败不影响刚完成 run 的终态。"""
     import uuid
 
     from temporalio.client import Client
@@ -169,36 +169,47 @@ async def _dequeue_pending_run(org_id: str) -> None:
         init_engine()
         async with get_sessionmaker()() as session:
             org_uuid = uuid.UUID(org_id)
-            if await repo.count_active_runs(session, org_uuid) >= settings.org_max_concurrent_runs:
+            active = await repo.count_active_runs(session, org_uuid)
+            available_slots = settings.org_max_concurrent_runs - active
+            if available_slots <= 0:
                 return
-            run = await repo.next_pending_run(session, org_uuid)
-            if run is None or run.plan_id is None:
-                return
-            plan = await repo.get_plan(session, org_uuid, run.plan_id)
-            if plan is None:
+            pending_runs = await repo.next_pending_runs(session, org_uuid, limit=available_slots)
+            if not pending_runs:
                 return
 
-            workflow_id = f"plan-{plan.id}-{run.id}"
             client = await Client.connect(settings.temporal_addr)
-            await client.start_workflow(
-                TaskWorkflow.run,
-                args=[plan.dag, org_id, str(run.id)],
-                id=workflow_id,
-                task_queue=TASK_QUEUE,
-            )
-            await repo.mark_task_run_running(session, run, workflow_id)
-            await obs_repo.create_run_manifest(
-                session,
-                task_id=run.id,
-                org_id=org_uuid,
-                plan_snapshot=plan.dag,
-                plan_version=plan.version,
-                models_used={"chat": settings.default_chat_model},
-                agents_used={},
-            )
+            for run in pending_runs:
+                if run.plan_id is None:
+                    continue
+                plan = await repo.get_plan(session, org_uuid, run.plan_id)
+                if plan is None:
+                    continue
+
+                workflow_id = f"plan-{plan.id}-{run.id}"
+                await client.start_workflow(
+                    TaskWorkflow.run,
+                    args=[plan.dag, org_id, str(run.id)],
+                    id=workflow_id,
+                    task_queue=TASK_QUEUE,
+                )
+                await repo.mark_task_run_running(session, run, workflow_id)
+                await obs_repo.create_run_manifest(
+                    session,
+                    task_id=run.id,
+                    org_id=org_uuid,
+                    plan_snapshot=plan.dag,
+                    plan_version=plan.version,
+                    models_used={"chat": settings.default_chat_model},
+                    agents_used={},
+                )
             await session.commit()
     except Exception:
         activity.logger.warning("S3 pending run 自动出队失败（不影响当前 run 终态）", exc_info=True)
+
+
+async def _dequeue_pending_run(org_id: str) -> None:
+    """兼容旧测试/调用：执行一次多槽 dequeue。"""
+    await _dequeue_pending_runs(org_id)
 
 
 async def _promote_task_memory(org_id: str, run_id: str) -> None:
