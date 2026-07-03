@@ -279,10 +279,16 @@ A3 完整定义（docs/design/v2/01 §5.2–5.4）= ① 节点无现成 Agent→
   playbook 过自动 eval(`_auto_eval` 沙箱试用 + judge≥0.6) → **自动 published(community)、无人卡、同轮可用**
   （`compose_agent` 对自动放行能力同轮拼装）；`tool` 类才保留人审墙。留审计痕(approved/decided_by NULL)。
   实测 live：生成 playbook → judge 0.98 → 自动发布。解决「每个任务都等人审、不智能」。
+- **tool/MCP 草稿沙箱闸（2026-07-03）**：`create_tool_skill_draft` 支持登记 tool 类私有草稿，强制最小权限
+  （`effects ∈ none/read/compute`、无凭证、无网络、无文件系统、`allowed_tools` 只能含当前工具）+ 本地
+  `McpRegistry` 沙箱试跑；通过后只创建 `skill_review` pending，**绝不自动发布**。`publish_skill` 对 tool
+  额外检查 `permissions.sandbox.passed`，未过沙箱即使审批调用也不发布；审批 API 先确认发布条件再标记
+  approval approved，避免「审批已通过但 Skill 仍 draft」的脏状态。测试覆盖 sandbox 通过后人审发布、
+  权限越界不落库；补纯单测覆盖最小权限校验与本地 MCP 沙箱调用。
 - **剩余（仍 open）**：① **从 goal 端可达**——`validate` 拦不可用能力、A2 又约束只用可用能力，故缺 Skill
   路径目前只在直接 compose 触发；要从「目标需要全新能力」端打通，需放开 A2 提案新能力 + service.plan
-  路由缺能力到本链（会动 A2 已验 100%，单列谨慎做）。② **tool/MCP 草稿 + 沙箱试跑**（§6.2 最小权限闸）。
-  ③ `activate_capability` 语义去重（§14.4，τ_dedup≈0.86）。
+  路由缺能力到本链（会动 A2 已验 100%，单列谨慎做）。② `activate_capability`/能力提案语义去重
+  接线（§14.4，τ_dedup≈0.86）。
 
 ### TD-033
 **A4 compose-time 自动背书为 advisory（不硬门控激活），「试产出/执行 eval 硬降级」延后。**

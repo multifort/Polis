@@ -14,27 +14,40 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import uuid
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.config import get_settings
-from polis.modules.model.gateway import ChatMessage, ModelGateway, ResolvedModel, resolve_model
+from polis.modules.model.gateway import (
+    ChatMessage,
+    ModelGateway,
+    ResolvedModel,
+    ToolCall,
+    resolve_model,
+)
 from polis.modules.observability import repository as obs_repo
 from polis.modules.observability.evaluator import score
 from polis.modules.observability.models import Approval
+from polis.modules.runtime.mcp import McpRegistry, McpRuntime, default_registry
 from polis.modules.runtime.models import Skill, SkillVersion
 
 logger = logging.getLogger(__name__)
 
 _PREVIEW_CHARS = 240
 _SKILL_EVAL_TAU = 0.6  # manual skill 自动放行的 judge 阈值
+_TOOL_ALLOWED_EFFECTS = {"none", "read", "compute"}
 
 _SYSTEM = (
     "你是资深的 Agent 技能作者。请为给定「能力 key」编写一份**操作手册（playbook）**，供一个 "
     "lite-agent 据此完成该能力对应的工作。要求：分步骤、可执行、说明输入/输出与注意事项；"
     "只输出手册正文，不要寒暄、不要代码围栏。"
 )
+
+
+class ToolSkillSandboxError(ValueError):
+    """tool-skill 草稿未通过最小权限/沙箱闸。"""
 
 
 async def _auto_eval(gateway: ModelGateway, model: ResolvedModel, cap: str, content: str) -> float:
@@ -136,6 +149,143 @@ async def generate_skill_draft(
     return skill
 
 
+def _validate_tool_permissions(tool: str, permissions: dict[str, Any]) -> dict[str, Any]:
+    """TD-032 tool-skill 最小权限闸：只允许无副作用/只读/计算类工具草稿进入人审。
+
+    tool 类默认高风险，哪怕沙箱通过也不自动发布；这里先把明显越界的权限（写文件、网络、凭证、
+    任意工具）拦在草稿登记前，避免把危险能力包装成可审批资产。
+    """
+    effects = str(permissions.get("effects") or "none")
+    if effects not in _TOOL_ALLOWED_EFFECTS:
+        raise ToolSkillSandboxError(f"tool skill 权限越界：effects={effects}")
+    if permissions.get("requires_credentials") is True:
+        raise ToolSkillSandboxError("tool skill 权限越界：requires_credentials=true")
+    if permissions.get("network") not in (None, False):
+        raise ToolSkillSandboxError("tool skill 权限越界：network 必须为 false")
+    if permissions.get("filesystem") not in (None, "none", False):
+        raise ToolSkillSandboxError("tool skill 权限越界：filesystem 必须为 none")
+    allowed_tools = permissions.get("allowed_tools") or [tool]
+    if not isinstance(allowed_tools, list) or allowed_tools != [tool]:
+        raise ToolSkillSandboxError("tool skill 权限越界：allowed_tools 必须且只能包含当前工具")
+    return {
+        **permissions,
+        "effects": effects,
+        "requires_credentials": False,
+        "network": False,
+        "filesystem": "none",
+        "allowed_tools": [tool],
+    }
+
+
+async def _sandbox_tool_call(
+    registry: McpRegistry,
+    *,
+    mcp_server: str,
+    tool: str,
+    sandbox_args: dict[str, Any],
+) -> str:
+    registered = registry.get(tool)
+    if registered is None:
+        raise ToolSkillSandboxError(f"tool skill 沙箱失败：未注册工具 {tool}")
+    if registered.server != mcp_server:
+        raise ToolSkillSandboxError(
+            f"tool skill 沙箱失败：工具 {tool} 属于 server={registered.server}"
+        )
+    runtime = McpRuntime(registry)
+    return await runtime.call(
+        ToolCall(id=f"sandbox-{uuid.uuid4().hex}", name=tool, arguments=sandbox_args)
+    )
+
+
+async def create_tool_skill_draft(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    cap: str,
+    *,
+    name: str,
+    mcp_server: str,
+    tool: str,
+    description: str,
+    io_schema: dict[str, Any],
+    permissions: dict[str, Any] | None = None,
+    sandbox_args: dict[str, Any] | None = None,
+    registry: McpRegistry | None = None,
+) -> Skill:
+    """创建 tool 类 Skill 草稿：必须过最小权限 + 本地 MCP 沙箱试跑，但仍保留人审墙。
+
+    这是 TD-032 的安全切片：tool 代表外部调用/真实副作用，不能走 manual 的自动发布路径。
+    sandbox 只证明「声明的最小权限与工具绑定可执行」，不等同信任背书；最终发布仍必须审批。
+    """
+    existing = await session.scalar(
+        select(Skill).where(
+            Skill.name == name,
+            Skill.owner_org_id == org_id,
+            Skill.status.in_(("draft", "published")),
+        )
+    )
+    if existing is not None:
+        return existing
+
+    normalized_permissions = _validate_tool_permissions(tool, permissions or {})
+    effective_registry = registry or default_registry()
+    result = await _sandbox_tool_call(
+        effective_registry,
+        mcp_server=mcp_server,
+        tool=tool,
+        sandbox_args=sandbox_args or {},
+    )
+    sandbox = {
+        "passed": True,
+        "at": dt.datetime.now(dt.UTC).isoformat(),
+        "tool": tool,
+        "mcp_server": mcp_server,
+        "args": sandbox_args or {},
+        "result_preview": result[:_PREVIEW_CHARS],
+    }
+    skill = Skill(
+        name=name,
+        kind="tool",
+        status="draft",
+        trust="private",
+        capability=cap,
+        owner_org_id=org_id,
+        visibility="org",
+    )
+    session.add(skill)
+    await session.flush()
+    session.add(
+        SkillVersion(
+            skill_id=skill.id,
+            version="v1",
+            content=description,
+            mcp_server=mcp_server,
+            tool=tool,
+            io_schema=io_schema,
+            permissions={**normalized_permissions, "sandbox": sandbox},
+        )
+    )
+    await session.flush()
+    await obs_repo.create_approval(
+        session,
+        org_id=org_id,
+        kind="skill_review",
+        ref_id=str(skill.id),
+        payload={
+            "capability": cap,
+            "skill_name": name,
+            "kind": "tool",
+            "tool": tool,
+            "mcp_server": mcp_server,
+            "permissions": normalized_permissions,
+            "sandbox": sandbox,
+            "preview": description[:_PREVIEW_CHARS],
+        },
+    )
+    await session.flush()
+    logger.info("create_tool_skill_draft %s sandbox 通过 → draft + skill_review", name)
+    return skill
+
+
 _TAU_DEDUP = 0.86  # 能力语义去重阈值（design §14.6）：≥τ 视为同义、复用已有 key
 
 
@@ -173,6 +323,16 @@ async def publish_skill(session: AsyncSession, org_id: uuid.UUID, skill_id: uuid
     )
     if skill is None or skill.status != "draft":
         return False
+    if skill.kind == "tool":
+        sv = await session.scalar(
+            select(SkillVersion)
+            .where(SkillVersion.skill_id == skill.id)
+            .order_by(SkillVersion.version.desc())
+        )
+        sandbox = ((sv.permissions or {}).get("sandbox") if sv is not None else None) or {}
+        if sandbox.get("passed") is not True:
+            logger.warning("publish_skill 拒绝发布 tool skill %s：sandbox 未通过", skill.name)
+            return False
     skill.status = "published"
     skill.trust = "verified"  # 人审 = 背书来源（§14.4）
     await session.flush()

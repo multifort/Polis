@@ -87,6 +87,13 @@ async def decide_approval(
     if ap.status != "pending":
         raise HTTPException(status.HTTP_409_CONFLICT, f"已决定（{ap.status}）")
 
+    # 人审通过 skill_review → 发布草稿 Skill（TD-032 生成停点的放行：published/verified）
+    if data.approve and ap.kind == "skill_review" and ap.ref_id:
+        from polis.modules.planner.skillgen import publish_skill
+
+        if not await publish_skill(session, org.org_id, uuid.UUID(ap.ref_id)):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Skill 未满足发布条件")
+
     await repo.decide_approval(session, ap, approve=data.approve, decided_by=user_id)
     await write_audit(
         session,
@@ -96,12 +103,6 @@ async def decide_approval(
         target=str(approval_id),
         detail={"approve": data.approve, "kind": ap.kind},
     )
-
-    # 人审通过 skill_review → 发布草稿 Skill（TD-032 生成停点的放行：published/verified）
-    if data.approve and ap.kind == "skill_review" and ap.ref_id:
-        from polis.modules.planner.skillgen import publish_skill
-
-        await publish_skill(session, org.org_id, uuid.UUID(ap.ref_id))
 
     # best-effort：approve 且 payload 关联 workflow → signal 恢复（Temporal 不可达不阻断决定）
     if data.approve and ap.payload and ap.payload.get("workflow_id") and ap.payload.get("node_id"):

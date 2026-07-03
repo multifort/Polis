@@ -15,7 +15,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from polis.config import get_settings
 from polis.modules.model.gateway import ChatResponse, StubModelGateway
 from polis.modules.planner.composer import compose_agent
-from polis.modules.planner.skillgen import generate_skill_draft, publish_skill
+from polis.modules.planner.skillgen import (
+    ToolSkillSandboxError,
+    create_tool_skill_draft,
+    generate_skill_draft,
+    publish_skill,
+)
 
 
 def _seed_org_model(pg_url: str, model_id: str) -> uuid.UUID:
@@ -171,6 +176,147 @@ def test_publish_skill_only_own_draft(pg_url: str) -> None:
                 assert await publish_skill(s, other, skill.id) is False  # 别的 org 不行
                 assert await publish_skill(s, org_id, skill.id) is True  # 本 org 可以
                 assert await publish_skill(s, org_id, skill.id) is False  # 非 draft 再发 → False
+                await s.rollback()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+def test_tool_skill_sandbox_hits_human_wall_then_publish(pg_url: str) -> None:
+    """tool skill 必须沙箱过闸，但仍不自动发布；审批通过后才 published/verified。"""
+    org_id = _seed_org_model(pg_url, get_settings().default_chat_model)
+    cap = f"tool.echo_{uuid.uuid4().hex[:6]}"
+    name = f"tool_echo_{uuid.uuid4().hex[:6]}"
+
+    async def _run() -> None:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                skill = await create_tool_skill_draft(
+                    s,
+                    org_id,
+                    cap,
+                    name=name,
+                    mcp_server="local",
+                    tool="echo",
+                    description="通过 echo 工具回显输入，用于验证工具型 Skill 沙箱。",
+                    io_schema={
+                        "type": "object",
+                        "properties": {"text": {"type": "string"}},
+                        "required": ["text"],
+                    },
+                    permissions={"effects": "none"},
+                    sandbox_args={"text": "sandbox-ok"},
+                )
+                row = (
+                    await s.execute(
+                        text("SELECT kind, status, trust FROM skill WHERE id = :i").bindparams(
+                            i=skill.id
+                        )
+                    )
+                ).first()
+                assert tuple(row) == ("tool", "draft", "private")
+                sv = (
+                    await s.execute(
+                        text(
+                            "SELECT tool, permissions FROM skill_version WHERE skill_id = :i"
+                        ).bindparams(i=skill.id)
+                    )
+                ).first()
+                assert sv[0] == "echo"
+                assert sv[1]["sandbox"]["passed"] is True
+                assert sv[1]["sandbox"]["result_preview"] == "sandbox-ok"
+                ap = await s.scalar(
+                    text("SELECT status FROM approval WHERE ref_id = :r").bindparams(
+                        r=str(skill.id)
+                    )
+                )
+                assert ap == "pending"
+
+                assert await publish_skill(s, org_id, skill.id) is True
+                pub = (
+                    await s.execute(
+                        text("SELECT status, trust FROM skill WHERE id = :i").bindparams(i=skill.id)
+                    )
+                ).first()
+                assert tuple(pub) == ("published", "verified")
+                await s.rollback()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+def test_tool_skill_permission_overreach_is_blocked(pg_url: str) -> None:
+    """tool skill 声明网络/凭证/写副作用等越界权限时，草稿不会落库。"""
+    org_id = _seed_org_model(pg_url, get_settings().default_chat_model)
+    cap = f"tool.bad_{uuid.uuid4().hex[:6]}"
+    name = f"tool_bad_{uuid.uuid4().hex[:6]}"
+
+    async def _run() -> None:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                try:
+                    await create_tool_skill_draft(
+                        s,
+                        org_id,
+                        cap,
+                        name=name,
+                        mcp_server="local",
+                        tool="echo",
+                        description="危险工具",
+                        io_schema={"type": "object"},
+                        permissions={"effects": "write", "network": True},
+                        sandbox_args={"text": "blocked"},
+                    )
+                except ToolSkillSandboxError:
+                    pass
+                else:  # pragma: no cover - 走到这里就是安全闸失效
+                    raise AssertionError("tool skill permission overreach should be blocked")
+                count = await s.scalar(
+                    text(
+                        "SELECT count(*) FROM skill WHERE owner_org_id = :o AND name = :n"
+                    ).bindparams(o=org_id, n=name)
+                )
+                assert count == 0
+                await s.rollback()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+def test_tool_skill_without_sandbox_cannot_publish(pg_url: str) -> None:
+    """防御性校验：即使有人绕过 create_tool_skill_draft，未过 sandbox 的 tool 也不能发布。"""
+    org_id = _seed_org_model(pg_url, get_settings().default_chat_model)
+    cap = f"tool.unsandboxed_{uuid.uuid4().hex[:6]}"
+    name = f"tool_unsandboxed_{uuid.uuid4().hex[:6]}"
+
+    async def _run() -> None:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                skill_id = await s.scalar(
+                    text(
+                        "INSERT INTO skill (name, kind, status, trust, capability, visibility, "
+                        "owner_org_id) VALUES (:n, 'tool', 'draft', 'private', :c, 'org', :o) "
+                        "RETURNING id"
+                    ).bindparams(n=name, c=cap, o=org_id)
+                )
+                await s.execute(
+                    text(
+                        "INSERT INTO skill_version (skill_id, version, content, mcp_server, tool, "
+                        "permissions) VALUES (:i, 'v1', 'unsafe', 'local', 'echo', '{}'::jsonb)"
+                    ).bindparams(i=skill_id)
+                )
+
+                assert await publish_skill(s, org_id, skill_id) is False
+                status = await s.scalar(
+                    text("SELECT status FROM skill WHERE id = :i").bindparams(i=skill_id)
+                )
+                assert status == "draft"
                 await s.rollback()
         finally:
             await engine.dispose()
