@@ -368,7 +368,11 @@ async def dashboard_status_counts(session: AsyncSession, org_id: uuid.UUID) -> d
 
 
 async def dashboard_avg_duration_seconds(session: AsyncSession, org_id: uuid.UUID) -> float | None:
-    """org 已完成运行的平均耗时（秒），仅统计 started_at/finished_at 均已回写的行（P4）。"""
+    """org 已完成运行的平均耗时（秒）。
+
+    优先用 task_run.started_at/finished_at（TD-019 已部分偿还，终态回写已落地）；
+    旧行可能仍为 NULL，此时用 result_envelope.created_at(min/max) 兜底。
+    """
     from sqlalchemy import func
 
     avg = await session.scalar(
@@ -378,7 +382,41 @@ async def dashboard_avg_duration_seconds(session: AsyncSession, org_id: uuid.UUI
             TaskRun.finished_at.isnot(None),
         )
     )
-    return float(avg) if avg is not None else None
+    if avg is not None:
+        return float(avg)
+
+    # 兜底：用节点产出的 min/max created_at 近似时长（与 observability 口径一致）
+    from polis.modules.memory.models import ResultEnvelope
+
+    run_rows = (
+        await session.execute(
+            select(TaskRun.id).where(
+                TaskRun.org_id == org_id,
+                TaskRun.status.in_(("done", "failed", "needs_review")),
+            )
+        )
+    ).all()
+    if not run_rows:
+        return None
+
+    durations: list[float] = []
+    for (run_id,) in run_rows:
+        times = (
+            await session.execute(
+                select(
+                    func.min(ResultEnvelope.created_at),
+                    func.max(ResultEnvelope.created_at),
+                ).where(ResultEnvelope.task_id == run_id)
+            )
+        ).first()
+        if times and times[0] and times[1]:
+            dur = (times[1] - times[0]).total_seconds()
+            if dur > 0:
+                durations.append(dur)
+
+    if not durations:
+        return None
+    return sum(durations) / len(durations)
 
 
 async def dashboard_template_distribution(
