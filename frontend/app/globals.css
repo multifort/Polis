@@ -1153,9 +1153,8 @@ a { color: var(--color-accent-text); text-decoration: none; }
 }
 
 .scenario-domain-actions {
-  display: none; align-items: center; gap: 1px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 1px; flex-shrink: 0;
 }
-.scenario-domain-row:hover .scenario-domain-actions { display: flex; }
 
 .scenario-tree-add, .scenario-tree-del {
   width: 24px; height: 24px; border: none; border-radius: 6px;
@@ -1184,9 +1183,8 @@ a { color: var(--color-accent-text); text-decoration: none; }
 .scenario-sub-btn.on { background: var(--color-primary-subtle); color: var(--color-primary); font-weight: 600; }
 
 .scenario-sub-row .scenario-tree-del {
-  width: 20px; height: 20px; font-size: 14px; opacity: 0; flex-shrink: 0;
+  width: 20px; height: 20px; font-size: 14px; flex-shrink: 0;
 }
-.scenario-sub-row:hover .scenario-tree-del { opacity: 1; }
 
 /* 空态 & 内联编辑 & 新增大类 */
 .scenario-sub-empty {

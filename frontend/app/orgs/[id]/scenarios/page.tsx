@@ -174,6 +174,13 @@ export default function ScenariosPage() {
                       )}
                     </button>
                     <div className="scenario-domain-actions">
+                      {(() => {
+                        const domainCat = cats.find((c) => c.domain === node.domain && !c.subcategory);
+                        return domainCat && canDel(domainCat) ? (
+                          <button className="scenario-tree-add" title="编辑名称"
+                            onClick={(e) => { e.stopPropagation(); startEdit(domainCat); }}>✎</button>
+                        ) : null;
+                      })()}
                       <button className="scenario-tree-add" title="添加子类"
                         onClick={(e) => { e.stopPropagation(); setAdding({ domain: node.domain }); setNewName(""); }}>＋</button>
                       {(() => {
@@ -220,8 +227,13 @@ export default function ScenariosPage() {
                             </button>
                           )}
                           {canDel(sub) && (
-                            <button className="scenario-tree-del" title="删除"
-                              onClick={() => onDelete(sub.id, `${node.domain} / ${sub.subcategory}`)}>−</button>
+                            <>
+                              <button className="scenario-tree-add" title="编辑名称"
+                                onClick={(e) => { e.stopPropagation(); startEdit(sub); }}
+                                style={{ width: 20, height: 20, fontSize: 12 }}>✎</button>
+                              <button className="scenario-tree-del" title="删除"
+                                onClick={() => onDelete(sub.id, `${node.domain} / ${sub.subcategory}`)}>−</button>
+                            </>
                           )}
                         </div>
                       ))}
