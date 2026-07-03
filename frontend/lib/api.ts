@@ -344,6 +344,8 @@ export const api = {
   roles: (orgId: string) => request<Role[]>("/api/orgs/current/roles", {}, true, orgId),
   createPlan: (orgId: string, goal: string) =>
     request<PlanResult>("/api/plans", { method: "POST", body: JSON.stringify({ goal }) }, true, orgId),
+  createTaskPlan: (orgId: string, taskId: string) =>
+    request<PlanResult>(`/api/tasks/${taskId}/plan`, { method: "POST" }, true, orgId),
   getPlan: (orgId: string, planId: string) =>
     request<PlanResult>(`/api/plans/${planId}`, {}, true, orgId),
   approvePlan: (orgId: string, planId: string) =>

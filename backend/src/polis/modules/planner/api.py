@@ -30,6 +30,7 @@ from polis.modules.planner import export as export_mod
 from polis.modules.planner import repository as repo
 from polis.modules.planner import service
 from polis.modules.planner.composer import route_or_compose
+from polis.modules.planner.models import TaskRun
 from polis.modules.planner.schemas import (
     ApproveResult,
     AttachmentOut,
@@ -184,6 +185,47 @@ async def approve_plan(
         raise HTTPException(status.HTTP_409_CONFLICT, f"计划当前状态为 {plan.status!r}，无法启动")
     run = await _start_plan(session, org.org_id, plan, user_id)
     return ApproveResult(task_id=run.id, status="running")
+
+
+@router.post(
+    "/tasks/{task_id}/plan",
+    response_model=PlanResult,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_task_plan(task_id: uuid.UUID, org: CurrentOrg, session: SessionDep) -> PlanResult:
+    """为任务出图：用已保存的 goal 生成 Plan → 登记 pending task_run（不启动编排）。
+
+    解决「任务列表刷新后不知道已出图」的问题——出图同时创建 task_run(pending)
+    连接 task↔plan，这样 loadTasks→taskRuns 就能看到。用户可点「审核运行」进详情页。
+    """
+    task = await repo.get_task(session, org.org_id, task_id)
+    if task is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务不存在")
+    try:
+        plan_result = await service.plan(session, org.org_id, task.goal, gateway=LiteLLMGateway())
+    except service.NoTemplateMatch as exc:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "没有可用的计划模板（当前公司能力不足以匹配任何模板）"
+        ) from exc
+    except service.PlanInvalid as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"errors": exc.errors}
+        ) from exc
+
+    # 创建 pending task_run 连接 task↔plan（不启动 Temporal）
+    plan = await repo.get_plan(session, org.org_id, plan_result.id)
+    if plan is None:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "计划快照丢失")
+    run = TaskRun(
+        org_id=org.org_id,
+        task_id=task_id,
+        plan_id=plan.id,
+        status="pending",
+    )
+    session.add(run)
+    await session.flush()
+
+    return plan_result
 
 
 # ── 任务实体（V2-P1）：可复用工作项 + 多次执行记录 ──────────────────────────────
