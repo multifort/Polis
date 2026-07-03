@@ -16,6 +16,7 @@ import {
   type PlanResult,
   type RunStatus,
   type TemplateOut,
+  type SceneCategoryOut,
 } from "@/lib/api";
 
 // 按依赖把节点分层（拓扑层级）：无依赖在第 0 层，其余取所有前驱层级 +1。
@@ -163,6 +164,7 @@ export default function PlansPage() {
   const [tplSubcategory, setTplSubcategory] = useState("");
   const [tplNewDomain, setTplNewDomain] = useState("");
   const [domains, setDomains] = useState<string[]>([]);
+  const [allCats, setAllCats] = useState<SceneCategoryOut[]>([]);
   const [notice, setNotice] = useState(""); // 503 等降级提示
   const [obs, setObs] = useState<Observability | null>(null);
   const [obsLoading, setObsLoading] = useState(false);
@@ -324,8 +326,11 @@ export default function PlansPage() {
     setTplSubcategory("");
     setTplNewDomain("");
     setTplMsg("");
-    // 拉取已有分类列表
+    // 拉取已有分类列表（domain 去重）
     api.listDomains(orgId).then(setDomains).catch(() => setDomains([]));
+    // 拉取全部分类（含子类）
+    setAllCats([]);
+    api.listCategories(orgId).then(setAllCats).catch(() => setAllCats([]));
     setShowTplModal(true);
   }
 
@@ -785,7 +790,7 @@ export default function PlansPage() {
               placeholder="如：供应商交付分析"
             />
             <label>场景分类（域）</label>
-            <select value={tplDomain} onChange={(e) => setTplDomain(e.target.value)}>
+            <select value={tplDomain} onChange={(e) => { setTplDomain(e.target.value); setTplSubcategory(""); }}>
               <option value="">— 通用（不分类）—</option>
               {domains.map((d) => (
                 <option key={d} value={d}>{d}</option>
@@ -800,12 +805,27 @@ export default function PlansPage() {
                 style={{ marginTop: 8 }}
               />
             )}
-            <label>子类（可选）</label>
-            <input
-              value={tplSubcategory}
-              onChange={(e) => setTplSubcategory(e.target.value)}
-              placeholder="如：月度报告、竞品分析"
-            />
+            {/* 根据所选 domain 显示已有子类 */}
+            {tplDomain && tplDomain !== "__new__" && allCats.filter((c) => c.domain === tplDomain && c.subcategory).length > 0 && (
+              <>
+                <label>子类（可选）</label>
+                <select value={tplSubcategory} onChange={(e) => setTplSubcategory(e.target.value)}>
+                  <option value="">— 不选子类 —</option>
+                  {allCats.filter((c) => c.domain === tplDomain && c.subcategory).map((c) => (
+                    <option key={c.id} value={c.subcategory!}>{c.subcategory}</option>
+                  ))}
+                  <option value="__new__">＋ 新建子类…</option>
+                </select>
+              </>
+            )}
+            {(tplSubcategory === "__new__" || (tplDomain && tplDomain !== "__new__" && allCats.filter((c) => c.domain === tplDomain && c.subcategory).length === 0)) && (
+              <input
+                value={tplSubcategory === "__new__" ? "" : tplSubcategory}
+                onChange={(e) => setTplSubcategory(e.target.value)}
+                placeholder="输入子类名称（如：月度报告）"
+                style={{ marginTop: 8 }}
+              />
+            )}
             <div className="modal-actions">
               <button className="btn-ghost2" onClick={() => setShowTplModal(false)}>取消</button>
               <button className="btn-primary" onClick={saveAsTemplate} disabled={savingTpl || !tplName.trim()}>

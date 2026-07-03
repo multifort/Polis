@@ -42,6 +42,8 @@ from polis.modules.planner.schemas import (
     RunNodeState,
     RunStatusResult,
     SaveAsTemplateIn,
+    SceneCategoryIn,
+    SceneCategoryOut,
     SignalIn,
     TaskCreateIn,
     TaskOut,
@@ -874,13 +876,47 @@ async def list_catalog_domains(
     org: CurrentOrg,
     session: SessionDep,
 ) -> list[str]:
-    """场景库分类列表：已有模板的 domain 去重 + 内置默认分类（供保存模板时选择）。"""
-    rows = await repo.list_plan_templates(session, org.org_id)
-    domains: set[str] = {d for r in rows if (d := (r.domain or "").strip())}
-    # 内置默认分类（始终可选）
-    builtins = {"采购与供应链", "数据分析与报告", "内容运营", "设计与方案", "风控与合规"}
-    domains.update(builtins)
-    return sorted(domains)
+    """场景库分类列表：从 scene_category 表读取（平台内置 + 本 org 私有）。"""
+    cats = await repo.list_scene_categories(session, org.org_id)
+    return sorted({c.domain for c in cats})
+
+
+@router.get("/catalog/categories", response_model=list[SceneCategoryOut])
+async def list_categories(
+    org: CurrentOrg,
+    session: SessionDep,
+    domain: str | None = None,
+) -> list[SceneCategoryOut]:
+    """场景库分类详情：domain + subcategory 列表（供模态框联动子类）。"""
+    cats = await repo.list_scene_categories(session, org.org_id)
+    if domain:
+        cats = [c for c in cats if c.domain == domain]
+    return [
+        SceneCategoryOut(id=c.id, domain=c.domain, subcategory=c.subcategory, org_id=c.org_id)
+        for c in cats
+    ]
+
+
+@router.post(
+    "/catalog/categories",
+    response_model=SceneCategoryOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_category(
+    data: SceneCategoryIn, org: CurrentOrg, session: SessionDep
+) -> SceneCategoryOut:
+    """新增场景分类（仅本 org 可见）。"""
+    cat = await repo.create_scene_category(session, org.org_id, data.domain, data.subcategory)
+    return SceneCategoryOut(
+        id=cat.id, domain=cat.domain, subcategory=cat.subcategory, org_id=cat.org_id
+    )
+
+
+@router.delete("/catalog/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_category(category_id: uuid.UUID, org: CurrentOrg, session: SessionDep) -> None:
+    """删除本 org 的私有分类（平台内置不可删）。"""
+    if not await repo.delete_scene_category(session, org.org_id, category_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "分类不存在或不属于当前公司")
 
 
 async def _fill_actual_cost(session: AsyncSession, calls: list[dict[str, Any]]) -> None:

@@ -404,6 +404,12 @@ export const api = {
     request<TemplateOut[]>(`/api/catalog/templates${domain ? `?domain=${encodeURIComponent(domain)}` : ""}`, {}, true, orgId),
   listDomains: (orgId: string) =>
     request<string[]>("/api/catalog/domains", {}, true, orgId),
+  listCategories: (orgId: string, domain?: string) =>
+    request<SceneCategoryOut[]>(`/api/catalog/categories${domain ? `?domain=${encodeURIComponent(domain)}` : ""}`, {}, true, orgId),
+  createCategory: (orgId: string, body: { domain: string; subcategory?: string | null }) =>
+    request<SceneCategoryOut>("/api/catalog/categories", { method: "POST", body: JSON.stringify(body) }, true, orgId),
+  deleteCategory: (orgId: string, categoryId: string) =>
+    request<null>(`/api/catalog/categories/${categoryId}`, { method: "DELETE" }, true, orgId),
 };
 
 export interface ApprovalRow {
@@ -442,4 +448,11 @@ export interface TemplateOut {
   subcategory?: string | null;
   source: string;
   visibility: string;
+}
+
+export interface SceneCategoryOut {
+  id: string;
+  domain: string;
+  subcategory?: string | null;
+  org_id?: string | null;
 }

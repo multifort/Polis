@@ -1128,6 +1128,31 @@ a { color: var(--color-accent-text); text-decoration: none; }
 }
 .btn-danger-outline:hover { background: #fdecea; }
 
+/* ===== P5 场景库管理 ===== */
+.catalog-group {
+  background: var(--color-surface);
+  border: 1px solid #e6e8f0;
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+.catalog-domain {
+  font-size: 15px; font-weight: 700; color: #1f2440;
+  margin: 0 0 10px;
+}
+.catalog-subs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.catalog-sub {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--color-primary-subtle);
+  color: var(--color-accent-text);
+  font-size: 12px; padding: 4px 10px; border-radius: 7px;
+}
+.catalog-del {
+  background: none; border: none; cursor: pointer;
+  color: var(--color-text-secondary); font-size: 14px; line-height: 1;
+  padding: 0 0 0 2px;
+}
+.catalog-del:hover { color: var(--color-danger); }
+
 /* P4 看板 */
 .dash-stat-row {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

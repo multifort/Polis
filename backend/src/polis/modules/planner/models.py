@@ -105,6 +105,26 @@ class Task(UUIDPkMixin, OrgScopedMixin, Base):
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
 
+class SceneCategory(UUIDPkMixin, TimestampMixin, Base):
+    """场景库分类（R3/P5）：org 级可维护的 大类 > 子类 树。
+
+    平台内置分类 org_id=NULL（所有公司可见），org 可追加自己的私有分类。
+    """
+
+    __tablename__ = "scene_category"
+
+    org_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("org.id"), nullable=True)
+    domain: Mapped[str] = mapped_column(Text)
+    subcategory: Mapped[str | None] = mapped_column(Text, nullable=True)
+    display_order: Mapped[int] = mapped_column(server_default="0")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "org_id", "domain", "subcategory", name="uq_scene_category_org_domain_sub"
+        ),
+    )
+
+
 class TaskRun(UUIDPkMixin, OrgScopedMixin, TimestampMixin, Base):
     """任务运行锚点：承载 task_id，关联 plan 与 Temporal 工作流（0b §2 修订 C）。"""
 

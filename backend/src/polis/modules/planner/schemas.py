@@ -248,6 +248,21 @@ class TemplateOut(BaseModel):
     visibility: str = "public"
 
 
+# ── P5 场景分类 ─────────────────────────────────────────────────────
+
+
+class SceneCategoryIn(BaseModel):
+    domain: str = Field(min_length=1, max_length=100)
+    subcategory: str | None = None
+
+
+class SceneCategoryOut(BaseModel):
+    id: uuid.UUID
+    domain: str
+    subcategory: str | None = None
+    org_id: uuid.UUID | None = None
+
+
 def derive_overall_status(node_statuses: list[str]) -> str:
     """从节点状态派生顶层运行状态：有 failed→failed；全 done→done；否则 running。
 

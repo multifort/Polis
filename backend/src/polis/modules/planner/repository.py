@@ -12,7 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polis.db.org_scoped import select_org_scoped, visible_clause
 from polis.modules.memory.models import ArtifactDescriptor
 from polis.modules.org.models import Agent, AgentCapability
-from polis.modules.planner.models import Capability, Plan, PlanTemplate, Task, TaskRun
+from polis.modules.planner.models import (
+    Capability,
+    Plan,
+    PlanTemplate,
+    SceneCategory,
+    Task,
+    TaskRun,
+)
 from polis.modules.runtime.models import Skill
 
 # 任务级附件：登记为 artifact_descriptor(modality='file')；归属任务记 meta（task_id 列 FK→task_run，
@@ -550,3 +557,43 @@ async def save_plan_as_template(
     session.add(tpl)
     await session.flush()
     return tpl
+
+
+# ── R3/P5 场景分类管理 ───────────────────────────────────────────────
+
+
+async def list_scene_categories(session: AsyncSession, org_id: uuid.UUID) -> list[SceneCategory]:
+    """场景库分类列表：平台内置(org_id=NULL) ∪ 本 org 私有。"""
+    from sqlalchemy import or_
+
+    q = (
+        select(SceneCategory)
+        .where(or_(SceneCategory.org_id.is_(None), SceneCategory.org_id == org_id))
+        .order_by(SceneCategory.domain, SceneCategory.display_order)
+    )
+    return list((await session.scalars(q)).all())
+
+
+async def create_scene_category(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    domain: str,
+    subcategory: str | None = None,
+) -> SceneCategory:
+    cat = SceneCategory(org_id=org_id, domain=domain, subcategory=subcategory)
+    session.add(cat)
+    await session.flush()
+    return cat
+
+
+async def delete_scene_category(
+    session: AsyncSession, org_id: uuid.UUID, category_id: uuid.UUID
+) -> bool:
+    cat = await session.scalar(
+        select(SceneCategory).where(SceneCategory.id == category_id, SceneCategory.org_id == org_id)
+    )
+    if cat is None:
+        return False
+    await session.delete(cat)
+    await session.flush()
+    return True
