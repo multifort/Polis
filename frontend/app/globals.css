@@ -807,9 +807,11 @@ a { color: var(--color-accent-text); text-decoration: none; }
   font-weight: 500;
 }
 
-/* 工作台下方的数据看板区域 */
-.wb-dashboard-section { margin-top: 24px; }
+/* Hero 下方的数据看板区域 */
+.wb-dashboard-section { margin: 24px 0; }
 .wb-dashboard-section .ops-grid { grid-template-columns: 1fr 1fr; }
+.wb-dashboard-section .panel { margin-bottom: 0; }
+.wb-dashboard-section .dash-stat-row { margin-bottom: 16px; }
 
 /* running 状态脉冲 */
 .pill.running { background: var(--color-primary-subtle); color: var(--color-primary); animation: pulse-dot 1.6s infinite; }
