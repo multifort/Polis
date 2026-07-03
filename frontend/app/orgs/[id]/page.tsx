@@ -129,101 +129,120 @@ export default function WorkbenchPage() {
         </section>
       )}
 
-      {/* 进行中 + 最近产出 + 数据看板 */}
-      <div className="wb-duo-wide">
-        {/* 左栏：进行中 + 最近产出 */}
-        <div className="wb-left-col">
-          <section className="wb-block">
-            <div className="wb-recent-box">
-              <div className="wb-recent-head">
-                <h2>进行中</h2>
-                {activeRuns.length > 0 && <span className="wb-count">{activeRuns.length}</span>}
-              </div>
-              {activeRuns.length === 0 ? (
-                <div className="wb-empty-state">
-                  <div className="wb-empty-ico">⚡</div>
-                  <p>暂无进行中的工作</p>
-                </div>
-              ) : (
-                <div className="wb-active-list">
-                  {activeRuns.map((r) => (
-                    <RunCard key={r.run_id} run={r} orgId={orgId} active />
-                  ))}
-                </div>
-              )}
+      {/* 进行中 + 最近产出（双栏）*/}
+      <div className="wb-duo">
+        {/* 进行中 */}
+        <section className="wb-block">
+          <div className="wb-recent-box">
+            <div className="wb-recent-head">
+              <h2>进行中</h2>
+              {activeRuns.length > 0 && <span className="wb-count">{activeRuns.length}</span>}
             </div>
-          </section>
-
-          <section className="wb-block">
-            <div className="wb-recent-box">
-              <div className="wb-recent-head">
-                <h2>最近产出</h2>
-                <Link className="wb-more" href={`/orgs/${orgId}/tasks`}>查看全部 ›</Link>
+            {activeRuns.length === 0 ? (
+              <div className="wb-empty-state">
+                <div className="wb-empty-ico">⚡</div>
+                <p>暂无进行中的工作</p>
+                <p className="wb-empty-sub">输入目标出图并批准后，进行中的运行会出现在这里</p>
               </div>
-              {recentRuns.length === 0 ? (
-                <div className="wb-empty-state">
-                  <div className="wb-empty-ico">📋</div>
-                  <p>暂无完成的产出</p>
-                </div>
-              ) : (
-                <div className="wb-recent-cards">
-                  {recentRuns.map((r) => (
-                    <RunCard key={r.run_id} run={r} orgId={orgId} />
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
-
-        {/* 右栏：数据看板 */}
-        <div className="wb-right-col">
-          {stats && stats.total_runs > 0 ? (
-            <>
-              {/* 核心统计卡 */}
-              <div className="wb-stats-grid">
-                <MiniStat label="总运行" value={String(stats.total_runs)} />
-                <MiniStat label="成功率" value={`${((stats.success_rate ?? 0) * 100).toFixed(0)}%`} />
-                <MiniStat label="进行中" value={String(stats.active_runs)} />
-                <MiniStat label="近 {stats.recent_window} 次成本" value={stats.recent_total_cost != null ? `¥${stats.recent_total_cost.toFixed(2)}` : "—"} />
-              </div>
-
-              {/* 状态分布 */}
-              <div className="wb-recent-box">
-                <div className="wb-recent-head"><h2>状态分布</h2></div>
-                {Object.entries(stats.by_status).map(([status, count]) => (
-                  <div className="wb-stat-row" key={status}>
-                    <span className={`pill ${status}`}>{STATUS_LABEL[status] ?? status}</span>
-                    <div className="wb-mini-bar"><div className="wb-mini-fill" style={{ width: `${(count / stats.total_runs) * 100}%` }} /></div>
-                    <span className="wb-stat-num">{count}</span>
-                  </div>
+            ) : (
+              <div className="wb-active-list">
+                {activeRuns.map((r) => (
+                  <RunCard key={r.run_id} run={r} orgId={orgId} active />
                 ))}
               </div>
+            )}
+          </div>
+        </section>
 
-              {/* 场景分布 */}
-              {stats.by_template.length > 0 && (
-                <div className="wb-recent-box">
-                  <div className="wb-recent-head"><h2>场景分布</h2></div>
-                  {stats.by_template.slice(0, 5).map((t) => (
-                    <div className="wb-stat-row" key={t.template}>
-                      <span className="wb-stat-label">{t.template === "generated" ? "生成" : t.template}</span>
-                      <span className="wb-stat-num">{t.count}</span>
+        {/* 最近产出 */}
+        <section className="wb-block">
+          <div className="wb-recent-box">
+            <div className="wb-recent-head">
+              <h2>最近产出</h2>
+              <Link className="wb-more" href={`/orgs/${orgId}/tasks`}>
+                查看全部 ›
+              </Link>
+            </div>
+            {recentRuns.length === 0 ? (
+              <div className="wb-empty-state">
+                <div className="wb-empty-ico">📋</div>
+                <p>暂无完成的产出</p>
+                <p className="wb-empty-sub">运行完成后的产出摘要会出现在这里</p>
+              </div>
+            ) : (
+              <div className="wb-recent-cards">
+                {recentRuns.map((r) => (
+                  <RunCard key={r.run_id} run={r} orgId={orgId} />
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+
+      {/* 数据看板（来自 /api/dashboard） */}
+      <div className="wb-dashboard-section">
+        {stats && stats.total_runs > 0 ? (
+          <>
+            {/* 核心统计卡 — 复用 dash-stat-row */}
+            <div className="dash-stat-row">
+              <Stat ico="Σ" label="总运行次数" value={String(stats.total_runs)} />
+              <Stat ico="✓" label="成功率" value={stats.success_rate != null ? `${(stats.success_rate * 100).toFixed(0)}%` : "—"} />
+              <Stat ico="⏱" label="平均耗时" value={stats.avg_duration_seconds != null ? `${Math.floor(stats.avg_duration_seconds / 60)}分${Math.round(stats.avg_duration_seconds % 60)}秒` : "—"} />
+              <Stat ico="⚡" label="进行中" value={`${stats.active_runs} / ${stats.org_max_concurrent_runs}`} />
+            </div>
+            <div className="dash-stat-row">
+              <Stat ico="♻" label="复用命中率" value={stats.reuse_hit_rate != null ? `${(stats.reuse_hit_rate * 100).toFixed(0)}%` : "—"} />
+              <Stat ico="人" label="人审通过率" value={stats.approval_pass_rate != null ? `${(stats.approval_pass_rate * 100).toFixed(0)}%` : "—"} />
+              <Stat ico="¥" label={`近 ${stats.recent_window} 次成本`} value={stats.recent_total_cost != null ? `¥${stats.recent_total_cost.toFixed(4)}` : "—"} />
+              <Stat ico="T" label={`近 ${stats.recent_window} 次 token`} value={stats.recent_total_tokens != null ? String(stats.recent_total_tokens) : "—"} />
+            </div>
+
+            <div className="ops-grid" style={{ marginTop: 20 }}>
+              {/* 状态分布 */}
+              <section className="panel">
+                <div className="panel-head"><h2>状态分布</h2></div>
+                <div className="dash-status-list">
+                  {Object.entries(stats.by_status).map(([status, count]) => (
+                    <div className="dash-status-row" key={status}>
+                      <span className={`pill ${status}`}>{STATUS_LABEL[status] ?? status}</span>
+                      <div className="dash-bar-track">
+                        <div className={`dash-bar-fill ${status}`} style={{ width: `${(count / stats.total_runs) * 100}%` }} />
+                      </div>
+                      <span className="dash-status-count">{count}</span>
                     </div>
                   ))}
                 </div>
-              )}
-            </>
-          ) : (
-            <div className="wb-recent-box">
-              <div className="wb-recent-head"><h2>数据看板</h2></div>
-              <div className="wb-empty-state" style={{ padding: "20px 16px" }}>
-                <div className="wb-empty-ico">📊</div>
-                <p>暂无运行数据</p>
-                <p className="wb-empty-sub">出图并运行后，运营数据会出现在这里</p>
-              </div>
+              </section>
+
+              {/* 场景分布 */}
+              <section className="panel">
+                <div className="panel-head"><h2>场景分布</h2></div>
+                <div className="dash-status-list">
+                  {stats.by_template.map((t) => (
+                    <div className="dash-status-row" key={t.template}>
+                      <span className="dash-template-name">{t.template === "generated" ? "生成（未命中模板）" : t.template}</span>
+                      <div className="dash-bar-track">
+                        <div className={`dash-bar-fill ${t.is_template_hit ? "done" : "needs_review"}`}
+                          style={{ width: `${(t.count / Math.max(1, ...stats.by_template.map(x => x.count))) * 100}%` }} />
+                      </div>
+                      <span className="dash-status-count">{t.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
             </div>
-          )}
-        </div>
+          </>
+        ) : (
+          <div className="wb-recent-box">
+            <div className="wb-recent-head"><h2>数据看板</h2></div>
+            <div className="wb-empty-state" style={{ padding: "20px 16px" }}>
+              <div className="wb-empty-ico">📊</div>
+              <p>暂无运行数据</p>
+              <p className="wb-empty-sub">出图并运行后，运营数据会出现在这里</p>
+            </div>
+          </div>
+        )}
       </div>
     </AppShell>
   );
@@ -278,11 +297,14 @@ function RunCard({ run, orgId, active }: { run: WorkspaceRunItem; orgId: string;
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
+function Stat({ ico, label, value }: { ico: string; label: string; value: string }) {
   return (
-    <div className="wb-mini-stat">
-      <div className="wb-mini-stat-value">{value}</div>
-      <div className="wb-mini-stat-label">{label}</div>
+    <div className="stat">
+      <div className="stat-ico">{ico}</div>
+      <div>
+        <div className="stat-label">{label}</div>
+        <div className="stat-value">{value}</div>
+      </div>
     </div>
   );
 }

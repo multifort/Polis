@@ -807,32 +807,9 @@ a { color: var(--color-accent-text); text-decoration: none; }
   font-weight: 500;
 }
 
-/* 工作台三栏布局：进行中+最近产出 | 数据看板 */
-.wb-duo-wide {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start;
-}
-@media (max-width: 860px) { .wb-duo-wide { grid-template-columns: 1fr; } }
-.wb-left-col { display: flex; flex-direction: column; gap: 16px; }
-.wb-right-col { display: flex; flex-direction: column; gap: 14px; }
-
-/* 迷你统计卡 */
-.wb-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.wb-mini-stat {
-  background: var(--color-surface); border: 1px solid #e6e8f0;
-  border-radius: 10px; padding: 12px 14px; text-align: center;
-}
-.wb-mini-stat-value { font-size: 18px; font-weight: 700; color: #1f2440; }
-.wb-mini-stat-label { font-size: 11px; color: var(--color-text-secondary); margin-top: 2px; }
-
-/* 状态分布行 */
-.wb-stat-row {
-  display: flex; align-items: center; gap: 8px; padding: 6px 0;
-}
-.wb-stat-row:not(:last-child) { border-bottom: 1px solid #f4f5fb; }
-.wb-mini-bar { flex: 1; height: 6px; border-radius: 3px; background: #eef0f8; overflow: hidden; }
-.wb-mini-fill { height: 100%; border-radius: 3px; background: var(--color-primary); }
-.wb-stat-num { font-size: 12px; color: var(--color-text-secondary); min-width: 24px; text-align: right; }
-.wb-stat-label { font-size: 12px; color: #1f2440; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 工作台下方的数据看板区域 */
+.wb-dashboard-section { margin-top: 24px; }
+.wb-dashboard-section .ops-grid { grid-template-columns: 1fr 1fr; }
 
 /* running 状态脉冲 */
 .pill.running { background: var(--color-primary-subtle); color: var(--color-primary); animation: pulse-dot 1.6s infinite; }
