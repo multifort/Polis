@@ -41,6 +41,7 @@ def _node(
     force_rework: bool = False,
     rework_recover: bool = False,
     heartbeat_timeout_ms: int | None = None,
+    local_replan: bool = False,
     local_replan_nodes: list[dict[str, Any]] | None = None,
     cap: str = "test.cap",
 ) -> dict[str, Any]:
@@ -58,6 +59,8 @@ def _node(
     }
     if heartbeat_timeout_ms is not None:
         node["heartbeat_timeout_ms"] = heartbeat_timeout_ms
+    if local_replan:
+        node["local_replan"] = True
     if local_replan_nodes is not None:
         node["local_replan_nodes"] = local_replan_nodes
     return node
@@ -257,6 +260,59 @@ def test_s2b_local_replan_replaces_failed_subgraph() -> None:
                     TaskWorkflow.run,
                     args=[plan, str(uuid.uuid4())],
                     id=f"test-s2b-local-replan-{uuid.uuid4().hex}",
+                    task_queue=TASK_QUEUE,
+                )
+
+        statuses = {n["id"]: n["status"] for n in result["nodes"]}
+        assert result["status"] == "done", result
+        assert statuses == {"n1": "done", "n2b": "done", "n3": "done"}
+
+    asyncio.run(_run())
+
+
+def test_s2b_local_replan_can_call_generation_activity() -> None:
+    """V2-S2b 在线策略：异常节点 opt-in 后由 Activity 生成 replacement nodes。"""
+    _skip_if_unavailable()
+
+    async def _run() -> None:
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        @activity.defn(name="generate_replan_subdag")
+        async def fake_generate_replan_subdag(
+            plan: dict[str, Any],
+            failed_node_id: str,
+            failure_reason: str,
+            available_capabilities: list[str],
+        ) -> list[dict[str, Any]]:
+            assert failed_node_id == "n2"
+            assert "Activity task failed" in failure_reason
+            assert "test.cap" in available_capabilities
+            assert plan["nodes"][1]["id"] == "n2"
+            return [
+                _node("n2b", deps=["n1"]),
+                _node("n3", deps=["n2b"]),
+            ]
+
+        plan = _plan(
+            [
+                _node("n1"),
+                _node("n2", deps=["n1"], fail_always=True, local_replan=True),
+                _node("n3", deps=["n2"]),
+            ]
+        )
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:  # noqa: SIM117
+            async with Worker(
+                env.client,
+                task_queue=TASK_QUEUE,
+                workflows=[TaskWorkflow],
+                activities=[run_node, fake_generate_replan_subdag],
+            ):
+                result: dict[str, Any] = await env.client.execute_workflow(
+                    TaskWorkflow.run,
+                    args=[plan, str(uuid.uuid4())],
+                    id=f"test-s2b-local-replan-activity-{uuid.uuid4().hex}",
                     task_queue=TASK_QUEUE,
                 )
 

@@ -15,6 +15,7 @@ from polis.modules.planner.workflow import (
     escalate_node,
     evaluate_node,
     finalize_run,
+    generate_replan_subdag,
     run_node,
 )
 
@@ -28,7 +29,7 @@ async def main() -> None:
         client,
         task_queue=TASK_QUEUE,
         workflows=[TaskWorkflow],
-        activities=[run_node, evaluate_node, finalize_run, escalate_node],
+        activities=[run_node, evaluate_node, finalize_run, escalate_node, generate_replan_subdag],
     ):
         logger.info("Polis worker 已连接 %s，监听队列 %s", settings.temporal_addr, TASK_QUEUE)
         await asyncio.Future()  # 阻塞直到被中断

@@ -230,6 +230,39 @@ async def escalate_node(run_id: str, org_id: str, node_id: str, judge: float) ->
         await session.commit()
 
 
+@activity.defn
+async def generate_replan_subdag(
+    plan: dict[str, Any],
+    failed_node_id: str,
+    failure_reason: str,
+    available_capabilities: list[str],
+) -> list[dict[str, Any]]:
+    """S2b ③ 在线局部重规划：调用 A2/A2b 内核生成 replacement nodes。
+
+    workflow 只负责确定性拼接与状态推进；LLM 调用放在 Activity 内。
+    """
+    from polis.config import get_settings
+    from polis.db.session import get_sessionmaker, init_engine
+    from polis.modules.model.gateway import StubModelGateway, resolve_model
+    from polis.modules.model.litellm_gateway import LiteLLMGateway
+    from polis.modules.planner.generator import generate_subdag
+
+    settings = get_settings()
+    init_engine()
+    async with get_sessionmaker()() as session:
+        model = await resolve_model(session, settings.default_chat_model)
+    gateway = LiteLLMGateway() if settings.deepseek_api_key else StubModelGateway()
+    nodes = await generate_subdag(
+        gateway,
+        model,
+        PlanDag.model_validate(plan),
+        failed_node_id,
+        failure_reason,
+        set(available_capabilities),
+    )
+    return nodes
+
+
 # ── 有界重规划 ─────────────────────────────────────────────────────────────────
 
 
@@ -365,23 +398,38 @@ class TaskWorkflow:
                     try:
                         raw_node = self._raw_nodes.get(node.id, {})
                         if raw_node.get("local_replan_nodes"):
+                            replacement_nodes = raw_node["local_replan_nodes"]
+                        elif raw_node.get("local_replan") is True:
+                            replacement_nodes = await workflow.execute_activity(
+                                generate_replan_subdag,
+                                args=[
+                                    dag.model_dump(),
+                                    node.id,
+                                    str(result),
+                                    sorted(available_caps),
+                                ],
+                                start_to_close_timeout=_QUALITY_TIMEOUT,
+                                retry_policy=RetryPolicy(maximum_attempts=1),
+                            )
+                        else:
+                            replacement_nodes = None
+
+                        if replacement_nodes:
                             dag, affected = _local_replan(
                                 dag,
                                 node.id,
-                                raw_node["local_replan_nodes"],
+                                replacement_nodes,
                                 available_caps,
                                 self._replan_count,
                             )
                             replacement_ids = {
-                                str(n.get("id"))
-                                for n in raw_node["local_replan_nodes"]
-                                if n.get("id")
+                                str(n.get("id")) for n in replacement_nodes if n.get("id")
                             }
                             for affected_id in affected:
                                 if affected_id not in replacement_ids:
                                     self._node_status.pop(affected_id, None)
                                     self._raw_nodes.pop(affected_id, None)
-                            for raw_replacement in raw_node["local_replan_nodes"]:
+                            for raw_replacement in replacement_nodes:
                                 replacement_id = str(raw_replacement["id"])
                                 self._raw_nodes[replacement_id] = raw_replacement
                                 self._node_status[replacement_id] = "pending"
