@@ -586,6 +586,24 @@ async def create_scene_category(
     return cat
 
 
+async def update_scene_category(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    category_id: uuid.UUID,
+    domain: str,
+    subcategory: str | None,
+) -> SceneCategory | None:
+    cat = await session.scalar(
+        select(SceneCategory).where(SceneCategory.id == category_id, SceneCategory.org_id == org_id)
+    )
+    if cat is None:
+        return None
+    cat.domain = domain
+    cat.subcategory = subcategory
+    await session.flush()
+    return cat
+
+
 async def delete_scene_category(
     session: AsyncSession, org_id: uuid.UUID, category_id: uuid.UUID
 ) -> bool:

@@ -1153,6 +1153,20 @@ a { color: var(--color-accent-text); text-decoration: none; }
 }
 .scenario-inline-add .btn-mini { font-size: 11px; padding: 3px 10px; height: 32px; }
 .scenario-count { font-size: 11px; color: var(--color-text-secondary); }
+.scenario-tree-arrow { font-size: 10px; margin-right: 4px; color: var(--color-text-secondary); }
+.scenario-edit-input {
+  flex: 1; height: 26px; padding: 0 6px;
+  border: 1px solid var(--color-primary); border-radius: 5px;
+  font-size: 13px; outline: none; background: #fff; min-width: 60px;
+}
+.scenario-sub-empty { font-size: 11px; color: var(--color-text-secondary); padding: 2px 0 4px 22px; }
+.scenario-tree-add-root {
+  display: block; width: 100%; padding: 8px 12px; margin-top: 6px;
+  background: none; border: 1px dashed var(--color-border);
+  border-radius: 8px; font-size: 12px; color: var(--color-text-secondary);
+  cursor: pointer; text-align: left;
+}
+.scenario-tree-add-root:hover { border-color: var(--color-primary); color: var(--color-primary); background: var(--color-primary-subtle); }
 
 /* P4 看板 */
 .dash-stat-row {

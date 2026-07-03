@@ -408,6 +408,8 @@ export const api = {
     request<SceneCategoryOut[]>(`/api/catalog/categories${domain ? `?domain=${encodeURIComponent(domain)}` : ""}`, {}, true, orgId),
   createCategory: (orgId: string, body: { domain: string; subcategory?: string | null }) =>
     request<SceneCategoryOut>("/api/catalog/categories", { method: "POST", body: JSON.stringify(body) }, true, orgId),
+  updateCategory: (orgId: string, categoryId: string, body: { domain: string; subcategory?: string | null }) =>
+    request<SceneCategoryOut>(`/api/catalog/categories/${categoryId}`, { method: "PATCH", body: JSON.stringify(body) }, true, orgId),
   deleteCategory: (orgId: string, categoryId: string) =>
     request<null>(`/api/catalog/categories/${categoryId}`, { method: "DELETE" }, true, orgId),
 };

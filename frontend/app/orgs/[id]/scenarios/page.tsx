@@ -1,14 +1,14 @@
 "use client";
 
-// P5 场景库：左侧场景树（从 scene_category 构建，可直接增删） + 右侧模板货架。
-import { useCallback, useEffect, useMemo, useState } from "react";
+// P5 场景库：可折叠场景树（双击编辑，± 增删）+ 模板货架。
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { api, getAccess, type SceneCategoryOut, type TemplateOut } from "@/lib/api";
 
 interface TreeNode {
   domain: string;
-  subcategories: SceneCategoryOut[]; // subcategory entries for this domain
+  subcategories: SceneCategoryOut[];
   templateCount: number;
 }
 
@@ -28,8 +28,12 @@ export default function ScenariosPage() {
   const [selection, setSelection] = useState<Selection>({ kind: "all" });
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState<{ domain?: string } | null>(null);
+  const [editing, setEditing] = useState<string | null>(null); // category id being edited
+  const [editName, setEditName] = useState("");
   const [newName, setNewName] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { if (!getAccess()) router.replace("/"); }, [router]);
 
@@ -48,15 +52,14 @@ export default function ScenariosPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  // 从 scene_category + templates 构建树
+  useEffect(() => { inputRef.current?.focus(); }, [editing, adding]);
+
   const tree = useMemo(() => {
-    // domain → { subcategories, templateCount }
     const map = new Map<string, { subs: SceneCategoryOut[]; count: number }>();
     for (const c of cats) {
       if (!map.has(c.domain)) map.set(c.domain, { subs: [], count: 0 });
       if (c.subcategory) map.get(c.domain)!.subs.push(c);
     }
-    // 统计每个 domain 下的模板数
     for (const t of templates) {
       const d = t.domain || "";
       if (d && map.has(d)) map.get(d)!.count++;
@@ -66,7 +69,6 @@ export default function ScenariosPage() {
       .sort((a, b) => a.domain.localeCompare(b.domain, "zh-CN"));
   }, [cats, templates]);
 
-  // 当前选中分类的模板
   const filtered = useMemo(() => {
     if (selection.kind === "all") return templates;
     return templates.filter((t) => {
@@ -77,127 +79,176 @@ export default function ScenariosPage() {
     });
   }, [selection, templates]);
 
-  const totalTemplates = templates.length;
-  const privateCount = templates.filter((t) => t.visibility === "private").length;
-
   function useScenario(tpl: TemplateOut) {
     router.push(`/orgs/${orgId}/plans?goal=${encodeURIComponent(tpl.name)}`);
   }
 
-  // 新增 domain 或 subcategory
+  function toggleCollapse(domain: string) {
+    setCollapsed((prev) => { const s = new Set(prev); s.has(domain) ? s.delete(domain) : s.add(domain); return s; });
+  }
+
+  // 新增
   async function onAdd(domain: string, subcategory?: string) {
     const name = newName.trim();
     if (!name) return;
     try {
-      await api.createCategory(orgId, { domain: domain || name, subcategory: subcategory ? name : null });
+      await api.createCategory(orgId, { domain: domain || name, subcategory: subcategory || null });
       setNewName(""); setAdding(null);
+      if (domain) setCollapsed((prev) => { const s = new Set(prev); s.delete(domain); return s; }); // 展开以显示新增子类
       await load();
     } catch (err) { setNotice(err instanceof Error ? err.message : "新增失败"); }
   }
 
+  // 删除
   async function onDelete(id: string, label: string) {
     if (!confirm(`删除「${label}」？`)) return;
-    try {
-      await api.deleteCategory(orgId, id);
-      await load();
-    } catch (err) { setNotice(err instanceof Error ? err.message : "删除失败"); }
+    try { await api.deleteCategory(orgId, id); await load(); }
+    catch (err) { setNotice(err instanceof Error ? err.message : "删除失败"); }
   }
 
-  // 检查某个 domain 是否有可删的条目（org_id 非空）
-  const canDeleteDomain = (domain: string) =>
-    cats.some((c) => c.domain === domain && !c.subcategory && c.org_id);
+  // 双击开始编辑
+  function startEdit(cat: SceneCategoryOut) {
+    setEditing(cat.id);
+    setEditName(cat.subcategory || cat.domain);
+  }
+
+  // 提交编辑
+  async function submitEdit(cat: SceneCategoryOut) {
+    const name = editName.trim();
+    if (!name || name === (cat.subcategory || cat.domain)) { setEditing(null); return; }
+    try {
+      if (cat.subcategory) {
+        await api.updateCategory(orgId, cat.id, { domain: cat.domain, subcategory: name });
+      } else {
+        await api.updateCategory(orgId, cat.id, { domain: name, subcategory: null });
+      }
+      setEditing(null);
+      await load();
+    } catch (err) { setNotice(err instanceof Error ? err.message : "更新失败"); }
+  }
+
+  const hasSub = (domain: string) => cats.some((c) => c.domain === domain && c.subcategory);
+  const canDel = (cat: SceneCategoryOut) => !!cat.org_id;
 
   return (
     <AppShell orgId={orgId} active="scenarios" breadcrumb="场景库">
       <div className="page-head scenario-head">
         <div>
           <h1 className="page-title big">场景库</h1>
-          <p className="muted">左侧树管理分类，右侧浏览模板 · 从模板一键出图。</p>
+          <p className="muted">场景树管理分类（双击编辑，± 增删）· 从模板一键出图。</p>
         </div>
-        <button className="btn-run" style={{ background: "#fff", color: "#3F51B5", border: "1px solid #3F51B5", boxShadow: "none" }}
-          onClick={() => { setAdding({}); setNewName(""); }}>＋ 新增大类</button>
       </div>
 
       {notice && <p className="notice" style={{ marginTop: 14 }}>{notice}</p>}
 
-      {loading ? <div className="empty">加载中…</div> : templates.length === 0 && cats.length === 0 ? (
-        <div className="empty">还没有场景分类或模板。在左侧树新增大类，或完成运行后存为模板。</div>
-      ) : (
+      {loading ? <div className="empty">加载中…</div> : (
         <div className="scenario-layout">
           {/* 左侧场景树 */}
           <aside className="scenario-tree panel">
+            {/* 全部场景 */}
             <button className={`scenario-tree-root${selection.kind === "all" ? " on" : ""}`}
               onClick={() => setSelection({ kind: "all" })}>
-              <span>全部场景</span><span>{totalTemplates}</span>
+              <span>全部场景</span><span>{templates.length}</span>
             </button>
+
             <div className="scenario-domain-list">
               {tree.map((node) => (
                 <div className="scenario-domain" key={node.domain}>
+                  {/* Domain 行：点击展开/折叠 + 选中 + ±按钮 */}
                   <div className="scenario-domain-row">
                     <button
                       className={`scenario-domain-btn${selection.kind !== "all" && selection.domain === node.domain ? " on" : ""}`}
-                      onClick={() => setSelection({ kind: "domain", domain: node.domain })}>
-                      <span>{node.domain}</span>
-                      <span className="scenario-count">{node.templateCount}</span>
+                      onClick={() => { toggleCollapse(node.domain); setSelection({ kind: "domain", domain: node.domain }); }}>
+                      <span className="scenario-tree-arrow">{collapsed.has(node.domain) ? "▸" : "▾"}</span>
+                      {editing && cats.find((c) => c.domain === node.domain && !c.subcategory)?.id === editing ? (
+                        <input ref={inputRef} value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          onBlur={() => { const cat = cats.find((c) => c.domain === node.domain && !c.subcategory); if (cat) submitEdit(cat); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { const cat = cats.find((c) => c.domain === node.domain && !c.subcategory); if (cat) submitEdit(cat); } }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="scenario-edit-input" />
+                      ) : (
+                        <span onDoubleClick={(e) => { e.stopPropagation(); const cat = cats.find((c) => c.domain === node.domain && !c.subcategory); if (cat && canDel(cat)) startEdit(cat); }}>
+                          {node.domain}
+                        </span>
+                      )}
                     </button>
                     <div className="scenario-domain-actions">
                       <button className="scenario-tree-add" title="添加子类"
-                        onClick={() => { setAdding({ domain: node.domain }); setNewName(""); }}>
+                        onClick={(e) => { e.stopPropagation(); setAdding({ domain: node.domain }); setNewName(""); }}>
                         ＋
                       </button>
-                      {canDeleteDomain(node.domain) && (
-                        <button className="scenario-tree-del" title="删除此分类"
-                          onClick={() => {
-                            const cat = cats.find((c) => c.domain === node.domain && !c.subcategory && c.org_id);
+                      {canDel(cats.find((c) => c.domain === node.domain && !c.subcategory)!) && (
+                        <button className="scenario-tree-del" title="删除"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const cat = cats.find((c) => c.domain === node.domain && !c.subcategory);
                             if (cat) onDelete(cat.id, node.domain);
-                          }}>
-                          ×
-                        </button>
+                          }}>−</button>
                       )}
                     </div>
-                    {/* 内联添加子类输入 */}
-                    {adding?.domain === node.domain && (
-                      <div className="scenario-inline-add">
-                        <input value={newName} onChange={(e) => setNewName(e.target.value)}
-                          placeholder="子类名称" autoFocus
-                          onKeyDown={(e) => e.key === "Enter" && onAdd(node.domain, newName)} />
-                        <button className="btn-mini" onClick={() => onAdd(node.domain, newName)}>确定</button>
-                        <button className="btn-mini ghost" onClick={() => setAdding(null)}>取消</button>
-                      </div>
-                    )}
                   </div>
-                  {/* 子类列表 */}
-                  {node.subcategories.length > 0 && (
+
+                  {/* 内联添加子类 */}
+                  {adding?.domain === node.domain && (
+                    <div className="scenario-inline-add">
+                      <input ref={inputRef} value={newName} onChange={(e) => setNewName(e.target.value)}
+                        placeholder="子类名称"
+                        onKeyDown={(e) => e.key === "Enter" && onAdd(node.domain, newName)} />
+                      <button className="btn-mini primary" onClick={() => onAdd(node.domain, newName)}>确定</button>
+                      <button className="btn-mini ghost" onClick={() => setAdding(null)}>取消</button>
+                    </div>
+                  )}
+
+                  {/* 子类列表（可折叠） */}
+                  {!collapsed.has(node.domain) && node.subcategories.length > 0 && (
                     <div className="scenario-sub-list">
                       {node.subcategories.map((sub) => (
                         <div className="scenario-sub-row" key={sub.id}>
-                          <button
-                            className={`scenario-sub-btn${
-                              selection.kind === "subcategory" &&
-                              selection.domain === node.domain &&
-                              selection.subcategory === sub.subcategory ? " on" : ""}`}
-                            onClick={() => setSelection({ kind: "subcategory", domain: node.domain, subcategory: sub.subcategory! })}>
-                            <span>{sub.subcategory}</span>
-                          </button>
-                          {sub.org_id && (
-                            <button className="scenario-tree-del"
-                              onClick={() => onDelete(sub.id, `${node.domain} / ${sub.subcategory}`)} title="删除">×</button>
+                          {editing === sub.id ? (
+                            <input ref={inputRef} value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              onBlur={() => submitEdit(sub)}
+                              onKeyDown={(e) => { if (e.key === "Enter") submitEdit(sub); }}
+                              className="scenario-edit-input" />
+                          ) : (
+                            <button
+                              className={`scenario-sub-btn${
+                                selection.kind === "subcategory" &&
+                                selection.domain === node.domain &&
+                                selection.subcategory === sub.subcategory ? " on" : ""}`}
+                              onClick={() => setSelection({ kind: "subcategory", domain: node.domain, subcategory: sub.subcategory! })}
+                              onDoubleClick={(e) => { e.stopPropagation(); if (canDel(sub)) startEdit(sub); }}>
+                              <span>{sub.subcategory}</span>
+                            </button>
+                          )}
+                          {canDel(sub) && (
+                            <button className="scenario-tree-del" title="删除"
+                              onClick={() => onDelete(sub.id, `${node.domain} / ${sub.subcategory}`)}>−</button>
                           )}
                         </div>
                       ))}
                     </div>
                   )}
+                  {!collapsed.has(node.domain) && !hasSub(node.domain) && (
+                    <div className="scenario-sub-empty">暂无子类，点 ＋ 添加</div>
+                  )}
                 </div>
               ))}
-              {/* 底部新增根大类 */}
-              {adding && !adding.domain && (
-                <div className="scenario-inline-add" style={{ marginTop: 8 }}>
-                  <input value={newName} onChange={(e) => setNewName(e.target.value)}
-                    placeholder="新增大类名称" autoFocus
+
+              {/* 底部：新增大类 */}
+              {adding && !adding.domain ? (
+                <div className="scenario-inline-add">
+                  <input ref={inputRef} value={newName} onChange={(e) => setNewName(e.target.value)}
+                    placeholder="新增大类名称"
                     onKeyDown={(e) => e.key === "Enter" && onAdd(newName)} />
                   <button className="btn-mini primary" onClick={() => onAdd(newName)}>确定</button>
                   <button className="btn-mini ghost" onClick={() => setAdding(null)}>取消</button>
                 </div>
+              ) : (
+                <button className="scenario-tree-add-root" onClick={() => { setAdding({}); setNewName(""); }}>
+                  ＋ 新增大类
+                </button>
               )}
             </div>
           </aside>

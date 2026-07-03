@@ -912,6 +912,24 @@ async def create_category(
     )
 
 
+@router.patch("/catalog/categories/{category_id}", response_model=SceneCategoryOut)
+async def update_category(
+    category_id: uuid.UUID,
+    data: SceneCategoryIn,
+    org: CurrentOrg,
+    session: SessionDep,
+) -> SceneCategoryOut:
+    """更新本 org 私有分类名称（支持重命名 domain 或 subcategory）。"""
+    cat = await repo.update_scene_category(
+        session, org.org_id, category_id, data.domain, data.subcategory
+    )
+    if cat is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "分类不存在或不属于当前公司")
+    return SceneCategoryOut(
+        id=cat.id, domain=cat.domain, subcategory=cat.subcategory, org_id=cat.org_id
+    )
+
+
 @router.delete("/catalog/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_category(category_id: uuid.UUID, org: CurrentOrg, session: SessionDep) -> None:
     """删除本 org 的私有分类（平台内置不可删）。"""
