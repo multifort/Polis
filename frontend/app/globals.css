@@ -1128,53 +1128,31 @@ a { color: var(--color-accent-text); text-decoration: none; }
 }
 .btn-danger-outline:hover { background: #fdecea; }
 
-/* ===== P5 场景库管理 ===== */
-.catalog-group {
-  background: var(--color-surface);
-  border: 1px solid #e6e8f0;
-  border-radius: 12px;
-  padding: 16px 18px;
-}
-.catalog-domain {
-  font-size: 15px; font-weight: 700; color: #1f2440;
-  margin: 0 0 10px;
-}
-.catalog-subs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.catalog-sub {
-  display: inline-flex; align-items: center; gap: 4px;
-  background: var(--color-primary-subtle);
-  color: var(--color-accent-text);
-  font-size: 12px; padding: 4px 10px; border-radius: 7px;
-}
-.catalog-del {
+/* 场景树行内操作 */
+.scenario-domain-row { position: relative; }
+.scenario-domain-actions { display: none; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); gap: 2px; }
+.scenario-domain-row:hover .scenario-domain-actions { display: flex; }
+.scenario-tree-add, .scenario-tree-del {
   background: none; border: none; cursor: pointer;
-  color: var(--color-text-secondary); font-size: 14px; line-height: 1;
-  padding: 0 0 0 2px;
+  font-size: 14px; color: var(--color-text-secondary);
+  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+  border-radius: 5px;
 }
-.catalog-del:hover { color: var(--color-danger); }
-
-/* 场景库分类管理面板 */
-.scenario-cat-panel {
-  background: var(--color-surface);
-  border: 1px solid #e6e8f0;
-  border-radius: 12px;
-  padding: 18px 20px;
-  margin-bottom: 18px;
+.scenario-tree-add:hover { color: var(--color-primary); background: var(--color-primary-subtle); }
+.scenario-tree-del:hover { color: var(--color-danger); background: #fdecea; }
+.scenario-sub-row { display: flex; align-items: center; gap: 2px; }
+.scenario-sub-row .scenario-tree-del { font-size: 12px; width: 18px; height: 18px; opacity: 0; }
+.scenario-sub-row:hover .scenario-tree-del { opacity: 1; }
+.scenario-inline-add {
+  display: flex; gap: 6px; margin: 6px 0 2px 18px;
 }
-.scenario-cat-panel h3 { font-size: 15px; font-weight: 700; margin: 0 0 4px; color: #1f2440; }
-.cat-mgmt-grid { display: flex; flex-direction: column; gap: 10px; }
-.cat-mgmt-group {
-  background: #fafbff; border: 1px solid #eef0f8;
-  border-radius: 10px; padding: 12px 14px;
+.scenario-inline-add input {
+  flex: 1; height: 32px; padding: 0 10px;
+  border: 1px solid var(--color-primary-soft); border-radius: 7px;
+  font-size: 12px; outline: none;
 }
-.cat-mgmt-domain { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.cat-mgmt-count { font-size: 11px; color: var(--color-text-secondary); background: #f0f1f7; padding: 1px 7px; border-radius: 8px; }
-.cat-mgmt-subs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.cat-mgmt-sub {
-  display: inline-flex; align-items: center; gap: 4px;
-  background: var(--color-primary-subtle); color: var(--color-accent-text);
-  font-size: 11.5px; padding: 3px 9px; border-radius: 7px;
-}
+.scenario-inline-add .btn-mini { font-size: 11px; padding: 3px 10px; height: 32px; }
+.scenario-count { font-size: 11px; color: var(--color-text-secondary); }
 
 /* P4 看板 */
 .dash-stat-row {
