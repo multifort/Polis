@@ -1201,12 +1201,15 @@ a { color: var(--color-accent-text); text-decoration: none; }
 }
 
 .scenario-inline-add {
-  display: flex; gap: 6px; margin: 4px 0 2px 22px;
+  display: flex; gap: 4px; margin: 4px 0 2px 22px; flex-wrap: wrap;
 }
 .scenario-inline-add input {
-  flex: 1; height: 30px; padding: 0 10px;
-  border: 1px solid var(--color-primary-soft); border-radius: 7px;
-  font-size: 12px; outline: none;
+  flex: 1; min-width: 80px; height: 28px; padding: 0 8px;
+  border: 1px solid var(--color-primary-soft); border-radius: 6px;
+  font-size: 11.5px; outline: none;
+}
+.scenario-inline-add .btn-mini {
+  font-size: 11px; padding: 2px 8px; height: 28px; white-space: nowrap;
 }
 
 .scenario-tree-add-root {
@@ -1249,7 +1252,7 @@ a { color: var(--color-accent-text); text-decoration: none; }
   display: grid; grid-template-columns: 280px minmax(0, 1fr);
   gap: 18px; align-items: start;
 }
-.scenario-tree { position: sticky; top: 18px; padding: 14px; }
+.scenario-tree { position: sticky; top: 18px; padding: 14px; overflow: hidden; }
 .scenario-domain-list { display: flex; flex-direction: column; gap: 0; margin-top: 8px; }
 .scenario-tree-root {
   width: 100%; border: none; background: transparent; color: var(--color-text);
