@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import timedelta
 from typing import Any
 
 import pytest
+from temporalio import activity
 
 from polis.modules.planner.workflow import MAX_REPLANS, TASK_QUEUE, TaskWorkflow, run_node
 
@@ -38,9 +40,10 @@ def _node(
     fail_always: bool = False,
     force_rework: bool = False,
     rework_recover: bool = False,
+    heartbeat_timeout_ms: int | None = None,
     cap: str = "test.cap",
 ) -> dict[str, Any]:
-    return {
+    node = {
         "id": nid,
         "type": ntype,
         "deps": deps or [],
@@ -52,6 +55,9 @@ def _node(
         "rework_recover": rework_recover,  # V2-S2 测试钩子：首次不达标、返工即恢复
         "stub": True,  # 纯编排测试走桩 run_node，不连 DB（M4-F）
     }
+    if heartbeat_timeout_ms is not None:
+        node["heartbeat_timeout_ms"] = heartbeat_timeout_ms
+    return node
 
 
 def _skip_if_unavailable() -> None:
@@ -292,5 +298,67 @@ def test_s2_rework_recovers() -> None:
         # 返工后达标 → 顶层全 done，n2 done（而非卡 needs_review）
         assert result["status"] == "done", result["status"]
         assert statuses["n2"] == "done", statuses
+
+    asyncio.run(_run())
+
+
+def test_s4_activity_heartbeat_timeout_recovers_workflow() -> None:
+    """V2-S4 长任务恢复硬测：activity 停止心跳后，Temporal retry 并恢复 workflow。"""
+    _skip_if_unavailable()
+
+    async def _run() -> None:
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        first_attempt_started = asyncio.Event()
+        attempts: list[str] = []
+
+        @activity.defn(name="run_node")
+        async def flaky_run_node(
+            node: dict[str, Any], org_id: str, task_id: str = "", goal: str = ""
+        ) -> dict[str, Any]:
+            if not attempts:
+                attempts.append("stalled")
+                activity.heartbeat("started")
+                first_attempt_started.set()
+                await asyncio.sleep(1)
+                return {
+                    "node_id": node["id"],
+                    "ok": False,
+                    "agent": "stalled",
+                    "output": "stale",
+                }
+            attempts.append("recovered")
+            return {
+                "node_id": node["id"],
+                "ok": True,
+                "agent": "recovered-worker",
+                "output": f"[recovered] node {node['id']} done",
+            }
+
+        plan = _plan([_node("n1", heartbeat_timeout_ms=100)])
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:  # noqa: SIM117
+            async with Worker(
+                env.client,
+                task_queue=TASK_QUEUE,
+                workflows=[TaskWorkflow],
+                activities=[flaky_run_node],
+                max_concurrent_activities=2,
+                graceful_shutdown_timeout=timedelta(0),
+            ):
+                handle = await env.client.start_workflow(
+                    TaskWorkflow.run,
+                    args=[plan, str(uuid.uuid4())],
+                    id=f"test-s4-heartbeat-recovery-{uuid.uuid4().hex}",
+                    task_queue=TASK_QUEUE,
+                )
+                await asyncio.wait_for(first_attempt_started.wait(), timeout=5)
+                await env.sleep(1)
+                result: dict[str, Any] = await handle.result()
+
+        assert result["status"] == "done"
+        assert attempts == ["stalled", "recovered"]
+        assert result["nodes"][0]["status"] == "done"
 
     asyncio.run(_run())

@@ -346,11 +346,14 @@ class TaskWorkflow:
         return result
 
     async def _run_node(self, raw_node: dict[str, Any], org_id: str) -> dict[str, Any]:
+        heartbeat_timeout = _HEARTBEAT_TIMEOUT
+        if raw_node.get("heartbeat_timeout_ms") is not None:
+            heartbeat_timeout = timedelta(milliseconds=int(raw_node["heartbeat_timeout_ms"]))
         result: dict[str, Any] = await workflow.execute_activity(
             run_node,
             args=[raw_node, org_id, self._task_id, self._goal],
             start_to_close_timeout=_ACTIVITY_TIMEOUT,
-            heartbeat_timeout=_HEARTBEAT_TIMEOUT,  # S4：配合 run_node 后台 heartbeat
+            heartbeat_timeout=heartbeat_timeout,  # S4：配合 run_node 后台 heartbeat
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         return result
