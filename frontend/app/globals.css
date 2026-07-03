@@ -1154,7 +1154,10 @@ a { color: var(--color-accent-text); text-decoration: none; }
 
 .scenario-domain-actions {
   display: none; align-items: center; gap: 1px; flex-shrink: 0;
+  padding-left: 6px;
 }
+.scenario-domain-row:hover .scenario-domain-actions { display: flex; }
+.scenario-domain-row.on .scenario-domain-actions,
 .scenario-domain-row:hover .scenario-domain-actions { display: flex; }
 
 .scenario-tree-add, .scenario-tree-del {
