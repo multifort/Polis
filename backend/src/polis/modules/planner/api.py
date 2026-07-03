@@ -146,7 +146,13 @@ async def _start_plan(
     except Exception as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "编排服务未就绪") from exc
 
-    dag_nodes = plan.dag.get("nodes", []) if isinstance(plan.dag, dict) else []
+    try:
+        manifest_agents = await route_or_compose(
+            session, org_id, PlanDag.model_validate(plan.dag), gateway=None
+        )
+    except Exception:
+        logger.warning("run manifest agents_used 解析失败，已降级为空", exc_info=True)
+        manifest_agents = {}
     await obs_repo.create_run_manifest(
         session,
         task_id=run.id,
@@ -154,11 +160,7 @@ async def _start_plan(
         plan_snapshot=plan.dag,
         plan_version=plan.version,
         models_used={"chat": get_settings().default_chat_model},
-        agents_used={
-            n["id"]: n.get("required_capabilities", [])
-            for n in dag_nodes
-            if n.get("type") == "agent"
-        },
+        agents_used=manifest_agents,
     )
     await write_audit(
         session,
