@@ -1133,15 +1133,13 @@ a { color: var(--color-accent-text); text-decoration: none; }
 .scenario-domain-row {
   display: flex; align-items: center;
   padding: 2px 4px; border-radius: 8px;
-  gap: 8px;
 }
-
 .scenario-domain-btn {
-  display: flex; align-items: center; gap: 4px;
+  flex: 1; display: flex; align-items: center; gap: 4px;
   background: none; border: none; cursor: pointer;
   font-size: 13.5px; color: #1f2440; text-align: left;
   padding: 4px 8px; border-radius: 7px;
-  flex: 1; min-width: 0;
+  min-width: 0;
 }
 .scenario-domain-btn:hover { background: #f5f6fa; }
 .scenario-domain-btn.on { background: var(--color-primary-subtle); color: var(--color-primary); font-weight: 600; }
@@ -1153,9 +1151,10 @@ a { color: var(--color-accent-text); text-decoration: none; }
 }
 
 .scenario-domain-actions {
-  display: none; align-items: center; gap: 2px; flex-shrink: 0;
+  width: 52px; flex-shrink: 0; display: flex; align-items: center;
 }
-.scenario-domain-btn.on ~ .scenario-domain-actions { display: flex; }
+.scenario-actions-inner { display: none; align-items: center; gap: 2px; }
+.scenario-domain-btn.on ~ .scenario-domain-actions .scenario-actions-inner { display: flex; }
 
 .scenario-tree-add, .scenario-tree-del {
   width: 24px; height: 24px; border: none; border-radius: 6px;
@@ -1176,7 +1175,7 @@ a { color: var(--color-accent-text); text-decoration: none; }
 }
 .scenario-sub-row:hover { background: #f5f6fa; }
 
-.scenario-sub-row { display: flex; align-items: center; gap: 8px; padding: 2px 4px; border-radius: 7px; }
+.scenario-sub-row { display: flex; align-items: center; padding: 2px 4px; border-radius: 7px; }
 .scenario-sub-row:hover { background: #f5f6fa; }
 .scenario-sub-btn {
   flex: 1; background: none; border: none; cursor: pointer;
@@ -1184,13 +1183,12 @@ a { color: var(--color-accent-text); text-decoration: none; }
   padding: 5px 6px 5px 28px; border-radius: 6px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+}
 .scenario-sub-btn.on { background: var(--color-primary-subtle); color: var(--color-primary); font-weight: 600; }
 
-.scenario-sub-actions { display: none; align-items: center; gap: 1px; flex-shrink: 0; width: 50px; }
-.scenario-sub-btn.on ~ .scenario-sub-actions { display: flex; }
-/* 子类无操作时保持与 domain 同宽的占位，确保底色右边界对齐 */
-.scenario-sub-row::after { content: ""; width: 50px; flex-shrink: 0; }
-.scenario-sub-row:has(.scenario-sub-actions)::after { content: none; }
+.scenario-sub-actions { width: 52px; flex-shrink: 0; display: flex; align-items: center; }
+.scenario-sub-actions .scenario-actions-inner { display: none; align-items: center; gap: 1px; }
+.scenario-sub-btn.on ~ .scenario-sub-actions .scenario-actions-inner { display: flex; }
 
 /* 空态 & 内联编辑 & 新增大类 */
 .scenario-sub-empty {

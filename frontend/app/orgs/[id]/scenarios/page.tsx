@@ -197,24 +197,27 @@ export default function ScenariosPage() {
                         </span>
                       )}
                     </button>
-                    <div className="scenario-domain-actions">
-                      {(() => {
-                        const domainCat = cats.find((c) => c.domain === node.domain && !c.subcategory);
-                        return domainCat && canDel(domainCat) ? (
-                          <button className="scenario-tree-add" title="编辑名称"
-                            onClick={(e) => { e.stopPropagation(); startEdit(domainCat); }}>✎</button>
-                        ) : null;
-                      })()}
-                      <button className="scenario-tree-add" title="添加子类"
-                        onClick={(e) => { e.stopPropagation(); setAdding({ domain: node.domain }); setNewName(""); }}>＋</button>
-                      {(() => {
-                        const domainCat = cats.find((c) => c.domain === node.domain && !c.subcategory);
-                        return domainCat && canDel(domainCat) ? (
-                          <button className="scenario-tree-del" title="删除"
-                            onClick={(e) => { e.stopPropagation(); confirmDelete(domainCat.id, node.domain, null); }}>−</button>
-                        ) : null;
-                      })()}
-                    </div>
+                    {/* 操作区始终占 52px，选中时显示按钮 */}
+                    <span className="scenario-domain-actions">
+                      <span className="scenario-actions-inner">
+                        {(() => {
+                          const domainCat = cats.find((c) => c.domain === node.domain && !c.subcategory);
+                          return domainCat && canDel(domainCat) ? (
+                            <button className="scenario-tree-add" title="编辑名称"
+                              onClick={(e) => { e.stopPropagation(); startEdit(domainCat); }}>✎</button>
+                          ) : null;
+                        })()}
+                        <button className="scenario-tree-add" title="添加子类"
+                          onClick={(e) => { e.stopPropagation(); setAdding({ domain: node.domain }); setNewName(""); }}>＋</button>
+                        {(() => {
+                          const domainCat = cats.find((c) => c.domain === node.domain && !c.subcategory);
+                          return domainCat && canDel(domainCat) ? (
+                            <button className="scenario-tree-del" title="删除"
+                              onClick={(e) => { e.stopPropagation(); confirmDelete(domainCat.id, node.domain, null); }}>−</button>
+                          ) : null;
+                        })()}
+                      </span>
+                    </span>
                   </div>
 
                   {/* 内联添加子类 */}
@@ -250,15 +253,17 @@ export default function ScenariosPage() {
                               <span>{sub.subcategory}</span>
                             </button>
                           )}
-                          {canDel(sub) && (
-                            <span className="scenario-sub-actions">
-                              <button className="scenario-tree-add" title="编辑名称"
-                                onClick={(e) => { e.stopPropagation(); startEdit(sub); }}
-                                style={{ width: 18, height: 18, fontSize: 11 }}>✎</button>
-                              <button className="scenario-tree-del" title="删除"
-                                onClick={() => confirmDelete(sub.id, node.domain, sub.subcategory ?? null)}>−</button>
-                            </span>
-                          )}
+                          <span className="scenario-sub-actions">
+                            {canDel(sub) && (
+                              <span className="scenario-actions-inner">
+                                <button className="scenario-tree-add" title="编辑名称"
+                                  onClick={(e) => { e.stopPropagation(); startEdit(sub); }}
+                                  style={{ width: 18, height: 18, fontSize: 11 }}>✎</button>
+                                <button className="scenario-tree-del" title="删除"
+                                  onClick={() => confirmDelete(sub.id, node.domain, sub.subcategory ?? null)}>−</button>
+                              </span>
+                            )}
+                          </span>
                         </div>
                       ))}
                     </div>
