@@ -580,7 +580,9 @@ async def create_scene_category(
     domain: str,
     subcategory: str | None = None,
 ) -> SceneCategory:
-    cat = SceneCategory(org_id=org_id, domain=domain, subcategory=subcategory)
+    import uuid as _uuid
+
+    cat = SceneCategory(id=_uuid.uuid4(), org_id=org_id, domain=domain, subcategory=subcategory)
     session.add(cat)
     await session.flush()
     return cat
