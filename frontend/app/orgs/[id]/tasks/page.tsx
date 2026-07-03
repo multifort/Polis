@@ -151,6 +151,26 @@ export default function TasksPage() {
     }
   }
 
+  // 再次运行：复用已有计划，直接审批启动，不重新出图
+  async function onRerun(taskId: string, planId: string) {
+    setRunningId(taskId);
+    setNotice("");
+    try {
+      await api.approvePlan(orgId, planId);
+      await loadTasks();
+    } catch (err) {
+      const s = (err as ApiError).status;
+      setNotice(
+        s === 503 ? "编排服务未就绪，暂时无法运行任务"
+        : s === 404 ? "计划不存在"
+        : "运行任务失败",
+      );
+    } finally {
+      setRunningId(null);
+    }
+  }
+
+  // 首次运行：出图 + 审批 + 启动
   async function onRun(taskId: string) {
     setRunningId(taskId);
     setNotice("");
@@ -353,22 +373,30 @@ export default function TasksPage() {
                       审核运行
                     </Link>
                   ) : null}
-                  {runStatus === "failed" ? (
+                  {runStatus === "failed" && run?.plan_id ? (
                     <button
                       className="btn-mini danger"
-                      onClick={() => onRun(r.task.id)}
+                      onClick={() => onRerun(r.task.id, run.plan_id!)}
                       disabled={runningId === r.task.id}
                     >
                       重试
                     </button>
                   ) : null}
-                  {runStatus === "done" ? (
+                  {runStatus === "done" && run?.plan_id ? (
+                    <button
+                      className="btn-mini"
+                      onClick={() => onRerun(r.task.id, run.plan_id!)}
+                      disabled={runningId === r.task.id}
+                    >
+                      再次运行
+                    </button>
+                  ) : runStatus === "done" || runStatus === "failed" ? (
                     <button
                       className="btn-mini"
                       onClick={() => onRun(r.task.id)}
                       disabled={runningId === r.task.id}
                     >
-                      再次运行
+                      运行
                     </button>
                   ) : null}
                   {!run && (
