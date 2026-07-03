@@ -1169,7 +1169,7 @@ a { color: var(--color-accent-text); text-decoration: none; }
 .scenario-tree-del:hover { color: var(--color-danger); background: #fdecea; }
 
 /* 子类列表 */
-.scenario-sub-list { padding-left: 22px; }
+.scenario-sub-list { }
 .scenario-sub-row {
   display: flex; align-items: center; padding: 2px 8px; border-radius: 7px;
   transition: background .12s;
@@ -1181,7 +1181,7 @@ a { color: var(--color-accent-text); text-decoration: none; }
 .scenario-sub-btn {
   flex: 1; background: none; border: none; cursor: pointer;
   font-size: 12.5px; color: #44464f; text-align: left;
-  padding: 5px 6px; border-radius: 6px;
+  padding: 5px 6px 5px 28px; border-radius: 6px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .scenario-sub-btn.on { background: var(--color-primary-subtle); color: var(--color-primary); font-weight: 600; }
