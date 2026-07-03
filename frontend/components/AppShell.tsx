@@ -7,11 +7,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, clearTokens, getAccess, type Me } from "@/lib/api";
 
-type NavKey = "home" | "work" | "dashboard" | "roster" | "settings";
+type NavKey = "home" | "work" | "scenarios" | "dashboard" | "roster" | "settings";
 
 const NAV: { key: NavKey; label: string; href: (id: string) => string; icon: JSX.Element }[] = [
   { key: "home", label: "工作台", href: (id) => `/orgs/${id}`, icon: <IconHome /> },
   { key: "work", label: "工作", href: (id) => `/orgs/${id}/tasks`, icon: <IconWork /> },
+  { key: "scenarios", label: "场景库", href: (id) => `/orgs/${id}/scenarios`, icon: <IconScenarios /> },
   { key: "dashboard", label: "看板", href: (id) => `/orgs/${id}/dashboard`, icon: <IconChart /> },
   { key: "roster", label: "花名册", href: (id) => `/orgs/${id}/roster`, icon: <IconRoster /> },
   { key: "settings", label: "设置", href: (id) => `/orgs/${id}/settings`, icon: <IconGear /> },
@@ -143,6 +144,16 @@ function IconWork() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2" />
+    </svg>
+  );
+}
+function IconScenarios() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="4" y="4" width="7" height="7" rx="1.5" />
+      <rect x="13" y="4" width="7" height="7" rx="1.5" />
+      <rect x="4" y="13" width="7" height="7" rx="1.5" />
+      <path d="M13 17h7" /><path d="M16.5 13.5v7" />
     </svg>
   );
 }

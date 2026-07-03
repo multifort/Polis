@@ -36,9 +36,17 @@ def _seed(pg_url: str, cap: str, skill_name: str) -> uuid.UUID:
             conn.execute(
                 text(
                     "INSERT INTO skill (name, kind, status, trust, capability, visibility, "
-                    "owner_org_id) VALUES (:n, 'manual', 'published', 'verified', :c, 'org', :o)"
+                    "owner_org_id) VALUES (:n, 'manual', 'published', 'verified', :c, 'org', :o) "
+                    "RETURNING id"
                 ),
                 {"n": skill_name, "c": cap, "o": oid},
+            ).scalar()
+            conn.execute(
+                text(
+                    "INSERT INTO skill_version (skill_id, version, content) "
+                    "VALUES ((SELECT id FROM skill WHERE name = :n), 'v1', :content)"
+                ),
+                {"n": skill_name, "content": f"{skill_name} playbook"},
             )
             return uuid.UUID(str(oid))
     finally:
@@ -85,6 +93,13 @@ def test_compose_trial_endorse_hard_gate(pg_url: str) -> None:
                 assert ver["eval"]["judge"] == 0.9 and ver["eval"]["passed"] is True
                 assert ver["eval"]["kind"] == "trial_output"
                 assert "示例" in ver["eval"]["trial_preview"]
+                role_tpl = await s.scalar(
+                    text(
+                        "SELECT meta FROM role_template WHERE owner_org_id = :o AND name = :n"
+                    ).bindparams(o=org_id, n=a.name)
+                )
+                assert role_tpl["agent_id"] == str(a.id)
+                assert role_tpl["eval"]["passed"] is True
                 await s.rollback()
 
                 # 低分：judge 0.2 < 0.6 → 硬降级：返回 None + 落 draft（留观测）
@@ -132,6 +147,14 @@ def test_compose_from_skill_idempotent_and_missing(pg_url: str) -> None:
                 assert ver["capabilities"] == [cap]
                 assert ver["skills"] == [skill_name]
                 assert ver["provenance"]["composed_from"][cap] == skill_name
+
+                role_tpl = await s.scalar(
+                    text(
+                        "SELECT skill_refs FROM role_template WHERE owner_org_id = :o AND name = :n"
+                    ).bindparams(o=org_id, n=agent.name)
+                )
+                assert role_tpl[0]["name"] == skill_name
+                assert role_tpl[0]["version"] == "v1"
 
                 # agent_capability 回填
                 cap_row = await s.scalar(

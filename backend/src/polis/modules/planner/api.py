@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.config import get_settings
 from polis.db.session import get_session
+from polis.modules.model.gateway import ModelGateway
 from polis.modules.model.litellm_gateway import LiteLLMGateway
 from polis.modules.observability import langfuse_client
 from polis.modules.observability import repository as obs_repo
@@ -62,6 +63,13 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ApproverOrg = Annotated[OrgContext, Depends(require_role("owner", "approver"))]
 
 _TEMPORAL_CONNECT_TIMEOUT = 5.0
+
+
+def get_template_embedding_gateway() -> ModelGateway:
+    return LiteLLMGateway()
+
+
+TemplateEmbeddingGateway = Annotated[ModelGateway, Depends(get_template_embedding_gateway)]
 
 
 async def _temporal_client() -> Any:
@@ -762,11 +770,19 @@ async def save_plan_as_template(
     data: SaveAsTemplateIn,
     org: CurrentOrg,
     session: SessionDep,
+    gateway: TemplateEmbeddingGateway,
 ) -> TemplateOut:
     """将已有计划存为私有场景模板（R3 存为模板）。幂等：同名覆盖+bump version。"""
     plan = await repo.get_plan(session, org.org_id, plan_id)
     if plan is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "计划不存在")
+    embedding: list[float] | None = None
+    if isinstance(plan.dag, dict):
+        try:
+            text = repo.plan_template_semantic_text(plan.dag, data.name)
+            embedding = (await gateway.embed([text]))[0]
+        except Exception:
+            logger.warning("存为模板 embedding 回写失败，已降级为后续 backfill", exc_info=True)
     tpl = await repo.save_plan_as_template(
         session,
         org.org_id,
@@ -774,6 +790,7 @@ async def save_plan_as_template(
         name=data.name,
         domain=data.domain,
         subcategory=data.subcategory,
+        embedding=embedding,
     )
     return TemplateOut(
         id=tpl.id,

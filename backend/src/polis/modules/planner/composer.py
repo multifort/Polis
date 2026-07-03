@@ -22,7 +22,7 @@ from polis.config import get_settings
 from polis.db.org_scoped import select_org_scoped, visible_clause
 from polis.modules.model.gateway import ChatMessage, ModelGateway, resolve_model
 from polis.modules.observability import evaluator
-from polis.modules.org.models import Agent, AgentCapability, AgentVersion
+from polis.modules.org.models import Agent, AgentCapability, AgentVersion, RoleTemplate
 from polis.modules.org.schemas import AgentConfig
 from polis.modules.planner.router import select_agent
 from polis.modules.planner.schemas import PlanDag
@@ -115,6 +115,120 @@ async def _retrieve_skill(session: AsyncSession, org_id: uuid.UUID, cap: str) ->
     return sorted(rows, key=lambda s: _TRUST_ORDER.get(s.trust, 9))[0]
 
 
+async def _skill_refs_for_names(
+    session: AsyncSession, skill_names: list[str]
+) -> list[dict[str, str]]:
+    if not skill_names:
+        return []
+    rows = (
+        await session.execute(
+            select(Skill.id, Skill.name, SkillVersion.version)
+            .join(SkillVersion, SkillVersion.skill_id == Skill.id)
+            .where(Skill.name.in_(skill_names))
+        )
+    ).all()
+    refs: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for skill_id, name, version in rows:
+        if name in seen:
+            continue
+        seen.add(name)
+        refs.append({"skill_id": str(skill_id), "name": name, "version": version})
+    return refs
+
+
+async def _latest_agent_config(session: AsyncSession, agent: Agent) -> AgentConfig | None:
+    row = await session.scalar(
+        select(AgentVersion)
+        .where(AgentVersion.agent_id == agent.id)
+        .order_by(AgentVersion.created_at.desc())
+    )
+    if row is None:
+        return None
+    return AgentConfig.model_validate(row.config)
+
+
+def _role_template_text(name: str, cfg: AgentConfig) -> str:
+    return " ".join(
+        p
+        for p in [
+            name,
+            cfg.prompt,
+            " ".join(cfg.capabilities),
+            " ".join(cfg.skills),
+        ]
+        if p
+    ).strip()
+
+
+async def _embed_role_template(
+    gateway: ModelGateway | None, name: str, cfg: AgentConfig
+) -> list[float] | None:
+    if gateway is None:
+        return None
+    try:
+        return (await gateway.embed([_role_template_text(name, cfg)]))[0]
+    except Exception:
+        logger.warning("role_template embedding 回写失败，已降级为后续 backfill", exc_info=True)
+        return None
+
+
+async def _upsert_role_template_from_agent(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    agent: Agent,
+    cfg: AgentConfig,
+    *,
+    gateway: ModelGateway | None,
+) -> RoleTemplate:
+    """R4：将通过 eval 的 generated Agent 抽象沉淀为私有 role_template。"""
+    existing = (
+        await session.scalars(
+            select(RoleTemplate).where(
+                RoleTemplate.owner_org_id == org_id,
+                RoleTemplate.name == agent.name,
+                RoleTemplate.source == "generated",
+            )
+        )
+    ).first()
+    skill_refs = await _skill_refs_for_names(session, cfg.skills)
+    embedding = await _embed_role_template(gateway, agent.name, cfg)
+    meta: dict[str, object] = {
+        "agent_id": str(agent.id),
+        "agent_version": agent.current_version,
+        "provenance": cfg.provenance or {},
+        "eval": cfg.eval or {},
+    }
+    if existing is not None:
+        existing.persona = cfg.prompt
+        existing.skill_refs = skill_refs
+        existing.capabilities = cfg.capabilities
+        existing.visibility = "private"
+        existing.status = "active"
+        existing.meta = meta
+        if embedding is not None:
+            existing.embedding = embedding
+        await session.flush()
+        return existing
+
+    tpl = RoleTemplate(
+        name=agent.name,
+        version="1.0",
+        persona=cfg.prompt,
+        skill_refs=skill_refs,
+        capabilities=cfg.capabilities,
+        visibility="private",
+        owner_org_id=org_id,
+        status="active",
+        source="generated",
+        embedding=embedding,
+        meta=meta,
+    )
+    session.add(tpl)
+    await session.flush()
+    return tpl
+
+
 async def compose_agent(
     session: AsyncSession,
     org_id: uuid.UUID,
@@ -136,7 +250,14 @@ async def compose_agent(
     # 显式 org 过滤（请求外不依赖 RLS）。按名取任一状态：active 复用、draft 不重建（避唯一约束）
     existing = await session.scalar(select_org_scoped(Agent, org_id).where(Agent.name == name))
     if existing is not None:
-        return existing if existing.status == "active" else None
+        if existing.status != "active":
+            return None
+        cfg_existing = await _latest_agent_config(session, existing)
+        if cfg_existing is not None:
+            await _upsert_role_template_from_agent(
+                session, org_id, existing, cfg_existing, gateway=gateway
+            )
+        return existing
 
     chosen: dict[str, Skill] = {}
     missing: list[str] = []
@@ -203,8 +324,9 @@ async def compose_agent(
     if not endorsed:
         logger.info("compose_agent %s 试产出背书未过(judge=%s<%.2f)→draft", name, judge, _EVAL_TAU)
         return None
+    await _upsert_role_template_from_agent(session, org_id, agent, cfg, gateway=gateway)
     logger.info(
-        "compose_agent 拼装 Agent %s 覆盖 %s（来自 %s，背书 judge=%s）",
+        "compose_agent 拼装 Agent %s 覆盖 %s（来自 %s，背书 judge=%s，已沉淀 role_template）",
         name,
         caps,
         cfg.skills,

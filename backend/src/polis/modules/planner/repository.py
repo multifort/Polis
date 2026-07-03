@@ -20,6 +20,21 @@ from polis.modules.runtime.models import Skill
 ATTACHMENT_KIND = "attachment"
 
 
+def plan_template_semantic_text(dag: dict[str, Any], fallback_name: str) -> str:
+    """计划模板的语义检索文本：聚合验收标准 + 节点输入/产出提示。
+
+    与 embed_backfill 保持同一口径，确保用户新沉淀模板的即时 embedding 与批量回填一致。
+    """
+    parts: list[str] = [str(dag.get("acceptance_criteria") or "")]
+    for node in dag.get("nodes", []):
+        if not isinstance(node, dict):
+            continue
+        parts.append(str(node.get("input_hint") or ""))
+        parts.append(str(node.get("expected_output") or ""))
+    text = " ".join(p for p in parts if p).strip()
+    return text or fallback_name
+
+
 async def available_capabilities(session: AsyncSession, org_id: uuid.UUID) -> set[str]:
     """当前公司可用能力集 = active Agent 能力 ∪ 可见 published Skill 能力（ADR-0009）。
 
@@ -483,6 +498,7 @@ async def save_plan_as_template(
     name: str,
     domain: str | None = None,
     subcategory: str | None = None,
+    embedding: list[float] | None = None,
 ) -> PlanTemplate:
     """将已有计划的 DAG 存为私有场景模板（R3 场景库飞轮）。
 
@@ -505,6 +521,8 @@ async def save_plan_as_template(
         existing.domain = domain
         existing.subcategory = subcategory
         existing.visibility = "private"
+        if embedding is not None:
+            existing.embedding = embedding
         # bump minor version
         parts = existing.version.split(".")
         try:
@@ -527,6 +545,7 @@ async def save_plan_as_template(
         acceptance_criteria=plan.dag.get("acceptance_criteria")
         if isinstance(plan.dag, dict)
         else None,
+        embedding=embedding,
     )
     session.add(tpl)
     await session.flush()

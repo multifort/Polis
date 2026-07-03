@@ -17,7 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polis.db.session import dispose_engine, get_sessionmaker, init_engine
 from polis.modules.model.gateway import ModelGateway
 from polis.modules.model.litellm_gateway import LiteLLMGateway
-from polis.modules.org.models import ScenarioPreset
+from polis.modules.org.models import RoleTemplate, ScenarioPreset
+from polis.modules.planner import repository as planner_repo
 from polis.modules.planner.models import Capability, PlanTemplate
 from polis.modules.runtime.models import Skill
 
@@ -42,13 +43,20 @@ def _tpl_text(t: PlanTemplate) -> str:
     同域目标仅 ~0.5–0.7）。改用节点 input_hint/expected_output 的中文意图后，同域升到 ~0.57–0.69、
     跨域降到 ~0.36–0.41，分离清晰（详见 A1 检索校准）。
     """
-    sk = t.dag_skeleton or {}
-    parts: list[str] = [str(sk.get("acceptance_criteria") or "")]
-    for n in sk.get("nodes", []):
-        parts.append(str(n.get("input_hint") or ""))
-        parts.append(str(n.get("expected_output") or ""))
-    text = " ".join(p for p in parts if p).strip()
-    return text or t.name  # 兜底：骨架无中文文本时退回 name
+    return planner_repo.plan_template_semantic_text(t.dag_skeleton or {}, t.name)
+
+
+def _role_tpl_text(t: RoleTemplate) -> str:
+    return " ".join(
+        p
+        for p in [
+            t.name,
+            t.persona,
+            " ".join(t.capabilities or []),
+            " ".join(str(r.get("name", "")) for r in (t.skill_refs or [])),
+        ]
+        if p
+    ).strip()
 
 
 async def backfill() -> dict[str, int]:
@@ -79,6 +87,10 @@ async def _backfill_session(
     counts["plan_template"] = await _embed_rows(gateway, tpls, _tpl_text)
     sks = list((await session.scalars(select(Skill).where(Skill.embedding.is_(None)))).all())
     counts["skill"] = await _embed_rows(gateway, sks, lambda s: f"{s.name} {s.capability or ''}")
+    role_tpls = list(
+        (await session.scalars(select(RoleTemplate).where(RoleTemplate.embedding.is_(None)))).all()
+    )
+    counts["role_template"] = await _embed_rows(gateway, role_tpls, _role_tpl_text)
     # TD-017：场景预设语义匹配源——名称 + 描述（中文，供 provisioning 按意图语义选预设）
     preset_q = select(ScenarioPreset).where(ScenarioPreset.embedding.is_(None))
     presets = list((await session.scalars(preset_q)).all())

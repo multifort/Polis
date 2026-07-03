@@ -110,6 +110,41 @@ class Role(UUIDPkMixin, OrgScopedMixin, Base):
     description: Mapped[str | None] = mapped_column(Text)
 
 
+class RoleTemplate(UUIDPkMixin, Base):
+    """角色模板资产（V2-R4）：由生成 Agent 抽象沉淀，可被后续编配/开办复用。"""
+
+    __tablename__ = "role_template"
+
+    name: Mapped[str] = mapped_column(Text)
+    version: Mapped[str] = mapped_column(Text, server_default="1.0")
+    persona: Mapped[str] = mapped_column(Text)
+    skill_refs: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb")
+    )
+    capabilities: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    visibility: Mapped[str] = mapped_column(Text, server_default="public")
+    owner_org_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("org.id"))
+    status: Mapped[str] = mapped_column(Text, server_default="active")
+    source: Mapped[str] = mapped_column(Text, server_default="generated")
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
+    meta: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_org_id", "name", "version", name="uq_role_template_owner_name_version"
+        ),
+        CheckConstraint("visibility IN ('public','private','org')", name="visibility"),
+        CheckConstraint("status IN ('draft','active','archived')", name="status"),
+        CheckConstraint("source IN ('builtin','generated','user_saved')", name="source"),
+        Index(
+            "ix_role_template_embedding",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
+
+
 class Agent(UUIDPkMixin, OrgScopedMixin, TimestampMixin, Base):
     __tablename__ = "agent"
 
