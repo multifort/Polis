@@ -82,6 +82,7 @@ export default function TasksPage() {
   const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<TabKey>("all");
   const [runsByTask, setRunsByTask] = useState<Record<string, TaskRunRow[]>>({});
+  const [planByTask, setPlanByTask] = useState<Record<string, string>>({}); // task_id → plan_id（已出图未运行）
   const [runningId, setRunningId] = useState<string | null>(null);
   const [historyTask, setHistoryTask] = useState<TaskRowData | null>(null);
   const [exportingRun, setExportingRun] = useState<string | null>(null);
@@ -138,6 +139,7 @@ export default function TasksPage() {
     setNotice("");
     try {
       const plan = await api.createPlan(orgId, goal);
+      setPlanByTask((prev) => ({ ...prev, [taskId]: plan.id }));
       router.push(`/orgs/${orgId}/plans?plan=${plan.id}`);
     } catch (err) {
       const s = (err as ApiError).status;
@@ -277,6 +279,13 @@ export default function TasksPage() {
                     >
                       {r.task.name}
                     </Link>
+                  ) : planByTask[r.task.id] ? (
+                    <Link
+                      href={`/orgs/${orgId}/plans?plan=${planByTask[r.task.id]}`}
+                      className="work-row-title"
+                    >
+                      {r.task.name}
+                    </Link>
                   ) : (
                     <button
                       className="work-row-title linklike"
@@ -362,7 +371,14 @@ export default function TasksPage() {
                       再次运行
                     </button>
                   ) : null}
-                  {!run && (
+                  {!run && planByTask[r.task.id] ? (
+                    <Link
+                      className="btn-mini primary"
+                      href={`/orgs/${orgId}/plans?plan=${planByTask[r.task.id]}`}
+                    >
+                      审核运行
+                    </Link>
+                  ) : !run ? (
                     <button
                       className="btn-mini primary"
                       onClick={() => onCreatePlan(r.task.id, r.task.goal)}
@@ -370,7 +386,7 @@ export default function TasksPage() {
                     >
                       {runningId === r.task.id ? "出图中…" : "✦ 出图"}
                     </button>
-                  )}
+                  ) : null}
                   <Link
                     className="btn-mini ghost"
                     href={`/orgs/${orgId}/plans${run?.plan_id ? `?plan=${run.plan_id}` : ""}`}
