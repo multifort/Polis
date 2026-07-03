@@ -210,6 +210,22 @@ async def get_task(session: AsyncSession, org_id: uuid.UUID, task_id: uuid.UUID)
     return t
 
 
+async def delete_task(session: AsyncSession, org_id: uuid.UUID, task_id: uuid.UUID) -> bool:
+    """删除任务及其 task_runs（级联）。"""
+    task = await get_task(session, org_id, task_id)
+    if task is None:
+        return False
+    # 先删关联的 task_runs
+    from sqlalchemy import delete as sqla_delete
+
+    await session.execute(
+        sqla_delete(TaskRun).where(TaskRun.task_id == task_id, TaskRun.org_id == org_id)
+    )
+    await session.delete(task)
+    await session.flush()
+    return True
+
+
 async def create_attachment(
     session: AsyncSession,
     org_id: uuid.UUID,

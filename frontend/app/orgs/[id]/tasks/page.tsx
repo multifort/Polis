@@ -170,6 +170,16 @@ export default function TasksPage() {
     }
   }
 
+  async function onDeleteTask(taskId: string, taskName: string) {
+    if (!confirm(`确定删除任务「${taskName}」及其全部执行记录？`)) return;
+    try {
+      await api.deleteTask(orgId, taskId);
+      await loadTasks();
+    } catch {
+      setNotice("删除任务失败");
+    }
+  }
+
   // 首次运行：出图 + 审批 + 启动
   async function onRun(taskId: string) {
     setRunningId(taskId);
@@ -408,6 +418,14 @@ export default function TasksPage() {
                       {runningId === r.task.id ? "出图中…" : "✦ 出图"}
                     </button>
                   )}
+                  <button
+                    className="btn-mini ghost"
+                    style={{ color: "#b71c1c", borderColor: "#f0c4c0" }}
+                    onClick={() => onDeleteTask(r.task.id, r.task.name)}
+                    title="删除任务"
+                  >
+                    🗑
+                  </button>
                   <Link
                     className="btn-mini ghost"
                     href={`/orgs/${orgId}/plans${run?.plan_id ? `?plan=${run.plan_id}` : ""}`}

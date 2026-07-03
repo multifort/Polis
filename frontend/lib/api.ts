@@ -378,6 +378,8 @@ export const api = {
   createTask: (orgId: string, body: { name: string; goal: string; scenario_ref?: string }) =>
     request<Task>("/api/tasks", { method: "POST", body: JSON.stringify(body) }, true, orgId),
   listTasks: (orgId: string) => request<Task[]>("/api/tasks", {}, true, orgId),
+  deleteTask: (orgId: string, taskId: string) =>
+    request<null>(`/api/tasks/${taskId}`, { method: "DELETE" }, true, orgId),
   runTask: (orgId: string, taskId: string) =>
     request<ApproveResult>(`/api/tasks/${taskId}/run`, { method: "POST" }, true, orgId),
   taskRuns: (orgId: string, taskId: string) =>

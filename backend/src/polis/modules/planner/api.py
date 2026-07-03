@@ -266,6 +266,13 @@ async def create_task(
     return TaskOut.model_validate(task, from_attributes=True)
 
 
+@router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_task(task_id: uuid.UUID, org: CurrentOrg, session: SessionDep) -> None:
+    """删除任务及其关联的运行记录。"""
+    if not await repo.delete_task(session, org.org_id, task_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务不存在")
+
+
 @router.get("/tasks", response_model=list[TaskOut])
 async def list_tasks(org: CurrentOrg, session: SessionDep) -> list[TaskOut]:
     rows = await repo.list_tasks(session, org.org_id)
