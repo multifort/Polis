@@ -920,6 +920,9 @@ a { color: var(--color-accent-text); text-decoration: none; }
   color: #fff;
 }
 .work-row-actions .btn-mini:hover { opacity: .85; }
+.work-row-actions .btn-mini.primary { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.linklike { background: none; border: none; cursor: pointer; font-size: inherit; font-family: inherit; text-align: left; padding: 0; color: var(--color-text); font-weight: 600; }
+.linklike:hover { color: var(--color-primary); }
 
 /* needs_review pill 样式（复用） */
 .pill.needs_review, .pill.waiting_human { background: #fff4e5; color: #7a3e00; }

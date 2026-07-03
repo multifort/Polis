@@ -132,6 +132,24 @@ export default function TasksPage() {
     }
   }
 
+  // 出图：用任务 goal 生成计划 → 跳转到工作详情页展示 DAG
+  async function onCreatePlan(taskId: string, goal: string) {
+    setRunningId(taskId);
+    setNotice("");
+    try {
+      const plan = await api.createPlan(orgId, goal);
+      router.push(`/orgs/${orgId}/plans?plan=${plan.id}`);
+    } catch (err) {
+      const s = (err as ApiError).status;
+      setNotice(
+        s === 404
+          ? "当前公司能力不足以匹配任何计划模板"
+          : "出图失败",
+      );
+      setRunningId(null);
+    }
+  }
+
   async function onRun(taskId: string) {
     setRunningId(taskId);
     setNotice("");
@@ -252,12 +270,22 @@ export default function TasksPage() {
               >
                 {/* 工作 */}
                 <div className="work-row-name">
-                  <Link
-                    href={`/orgs/${orgId}/plans${run?.plan_id ? `?plan=${run.plan_id}` : ""}`}
-                    className="work-row-title"
-                  >
-                    {r.task.name}
-                  </Link>
+                  {run?.plan_id ? (
+                    <Link
+                      href={`/orgs/${orgId}/plans?plan=${run.plan_id}`}
+                      className="work-row-title"
+                    >
+                      {r.task.name}
+                    </Link>
+                  ) : (
+                    <button
+                      className="work-row-title linklike"
+                      onClick={() => onCreatePlan(r.task.id, r.task.goal)}
+                      title="出图：为该任务生成执行计划"
+                    >
+                      {r.task.name}
+                    </button>
+                  )}
                   <div className="work-row-goal">{r.task.goal}</div>
                 </div>
                 {/* 状态 */}
@@ -336,11 +364,11 @@ export default function TasksPage() {
                   ) : null}
                   {!run && (
                     <button
-                      className="btn-mini"
-                      onClick={() => onRun(r.task.id)}
+                      className="btn-mini primary"
+                      onClick={() => onCreatePlan(r.task.id, r.task.goal)}
                       disabled={runningId === r.task.id}
                     >
-                      ▶ 运行
+                      {runningId === r.task.id ? "出图中…" : "✦ 出图"}
                     </button>
                   )}
                   <Link
