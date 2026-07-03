@@ -617,14 +617,28 @@ async def delete_scene_category(
         return None
 
     # 级联删除该分类下的模板（匹配 domain + subcategory）
+    # 若删除的是大类（无 subcategory），一并删除其所有子类
     from sqlalchemy import delete as sqla_delete
 
-    tpl_cond: list[Any] = [
-        PlanTemplate.domain == cat.domain,
-        PlanTemplate.owner_org_id == org_id,
-    ]
     if cat.subcategory:
-        tpl_cond.append(PlanTemplate.subcategory == cat.subcategory)
+        tpl_cond: list[Any] = [
+            PlanTemplate.domain == cat.domain,
+            PlanTemplate.subcategory == cat.subcategory,
+            PlanTemplate.owner_org_id == org_id,
+        ]
+    else:
+        # 大类：删除该 domain 下所有模板 + 所有子类 category
+        await session.execute(
+            sqla_delete(SceneCategory).where(
+                SceneCategory.domain == cat.domain,
+                SceneCategory.subcategory.isnot(None),
+                SceneCategory.org_id == org_id,
+            )
+        )
+        tpl_cond = [
+            PlanTemplate.domain == cat.domain,
+            PlanTemplate.owner_org_id == org_id,
+        ]
     result = await session.execute(sqla_delete(PlanTemplate).where(*tpl_cond))
     deleted_tpls: int = getattr(result, "rowcount", 0) or 0
 

@@ -341,11 +341,25 @@ export default function ScenariosPage() {
               <button className="modal-x" onClick={() => setDelConfirm(null)}>×</button>
             </div>
             <p className="modal-desc">
-              确定删除分类「<strong>{delConfirm.label}</strong>」？
+              确定删除{delConfirm.subcategory ? "子类" : "大类"}「<strong>{delConfirm.label}</strong>」？
             </p>
-            {delConfirm.tplCount > 0 && (
+            {delConfirm.subcategory ? (
+              delConfirm.tplCount > 0 ? (
+                <p className="modal-desc" style={{ color: "#b71c1c", marginTop: 4 }}>
+                  该子类下有 <strong>{delConfirm.tplCount}</strong> 个场景模板将被<strong>同步删除</strong>，不可恢复。
+                </p>
+              ) : (
+                <p className="modal-desc" style={{ color: "#7a3e00", marginTop: 4 }}>
+                  该子类下暂无模板，删除后不可恢复。
+                </p>
+              )
+            ) : (
               <p className="modal-desc" style={{ color: "#b71c1c", marginTop: 4 }}>
-                该分类下有 <strong>{delConfirm.tplCount}</strong> 个场景模板将被同步删除，不可恢复。
+                该大类下的<strong>所有子类</strong>及关联的
+                {delConfirm.tplCount > 0 ? (
+                  <><strong> {delConfirm.tplCount} 个场景模板</strong>将被<strong>同步删除</strong></>
+                ) : "场景模板将被同步删除"}
+                ，不可恢复。
               </p>
             )}
             <div className="modal-actions">
