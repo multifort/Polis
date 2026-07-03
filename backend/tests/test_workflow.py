@@ -323,6 +323,59 @@ def test_s2b_local_replan_can_call_generation_activity() -> None:
     asyncio.run(_run())
 
 
+def test_s2b_local_replan_auto_for_failed_subgraph() -> None:
+    """V2-S2b 自动策略：失败牵连下游子图时，无显式标记也调用在线局部重规划。"""
+    _skip_if_unavailable()
+
+    async def _run() -> None:
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        @activity.defn(name="generate_replan_subdag")
+        async def fake_generate_replan_subdag(
+            plan: dict[str, Any],
+            failed_node_id: str,
+            failure_reason: str,
+            available_capabilities: list[str],
+        ) -> list[dict[str, Any]]:
+            assert failed_node_id == "n2"
+            assert failure_reason
+            assert "test.cap" in available_capabilities
+            assert [n["id"] for n in plan["nodes"]] == ["n1", "n2", "n3"]
+            return [
+                _node("n2b", deps=["n1"]),
+                _node("n3", deps=["n2b"]),
+            ]
+
+        plan = _plan(
+            [
+                _node("n1"),
+                _node("n2", deps=["n1"], fail_always=True),
+                _node("n3", deps=["n2"]),
+            ]
+        )
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:  # noqa: SIM117
+            async with Worker(
+                env.client,
+                task_queue=TASK_QUEUE,
+                workflows=[TaskWorkflow],
+                activities=[run_node, fake_generate_replan_subdag],
+            ):
+                result: dict[str, Any] = await env.client.execute_workflow(
+                    TaskWorkflow.run,
+                    args=[plan, str(uuid.uuid4())],
+                    id=f"test-s2b-local-replan-auto-{uuid.uuid4().hex}",
+                    task_queue=TASK_QUEUE,
+                )
+
+        statuses = {n["id"]: n["status"] for n in result["nodes"]}
+        assert result["status"] == "done", result
+        assert statuses == {"n1": "done", "n2b": "done", "n3": "done"}
+
+    asyncio.run(_run())
+
+
 def test_quality_gate_needs_review() -> None:
     """V2-S1 质量门：终端节点产出不达标 → 该节点 needs_rework、顶层 needs_review；其余 done。"""
     _skip_if_unavailable()

@@ -40,6 +40,20 @@ def _is_key_node(node: dict[str, Any]) -> bool:
     return any(("report" in c or "generation" in c) for c in caps)
 
 
+def _should_auto_local_replan(dag: PlanDag, raw_node: dict[str, Any]) -> bool:
+    """S2b 自动启用策略：失败会牵连下游子图时，优先用在线局部重规划。
+
+    显式 `local_replan=false` 是逃生阀；危险/人审/系统节点继续走保守的 bounded replan。
+    """
+    if raw_node.get("local_replan") is False:
+        return False
+    node_type = raw_node.get("type", "agent")
+    if node_type in {"human", "system"} or raw_node.get("dangerous") is True:
+        return False
+    affected = _affected_subgraph_ids(dag, str(raw_node["id"]))
+    return len(affected) > 1
+
+
 # ── Activity ──────────────────────────────────────────────────────────────────
 
 
@@ -399,7 +413,9 @@ class TaskWorkflow:
                         raw_node = self._raw_nodes.get(node.id, {})
                         if raw_node.get("local_replan_nodes"):
                             replacement_nodes = raw_node["local_replan_nodes"]
-                        elif raw_node.get("local_replan") is True:
+                        elif raw_node.get("local_replan") is True or _should_auto_local_replan(
+                            dag, raw_node
+                        ):
                             replacement_nodes = await workflow.execute_activity(
                                 generate_replan_subdag,
                                 args=[
