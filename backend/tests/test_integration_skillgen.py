@@ -339,6 +339,7 @@ def test_goal_proposes_missing_capability_and_plans_same_run(pg_url: str) -> Non
         engine = create_async_engine(get_settings().database_url)
         try:
             async with async_sessionmaker(engine)() as s:
+                await s.execute(text("DELETE FROM plan_template"))
                 gw = _EmbeddingGateway(
                     script=[
                         ChatResponse(

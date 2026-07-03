@@ -252,6 +252,7 @@ async def plan(
 ) -> PlanResult:
     # ① 当前公司可用能力集（所有 active Agent 的能力并集）
     available = await repo.available_capabilities(session, org_id)
+    had_available = bool(available)
     if not available and gateway is None:
         # 无 active 能力 → 模板/生成都无从满足 → 404（design §14.6 错误矩阵）
         raise NoTemplateMatch
@@ -274,7 +275,14 @@ async def plan(
             raise NoTemplateMatch
         # B2：检索 org 记忆作先验喂给生成（消费 B3 沉淀的公司知识）
         org_memory = await _retrieve_org_memory(session, org_id, goal, query_vec)
-        dag = await _generate_dag(session, org_id, goal, available, query_vec, gateway, org_memory)
+        try:
+            dag = await _generate_dag(
+                session, org_id, goal, available, query_vec, gateway, org_memory
+            )
+        except PlanInvalid:
+            if not had_available:
+                raise NoTemplateMatch from None
+            raise
         template_name = "generated"
         version = None
     elif chosen is not None:
