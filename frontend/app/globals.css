@@ -1168,6 +1168,9 @@ a { color: var(--color-accent-text); text-decoration: none; }
 }
 .scenario-tree-add { background: var(--color-primary-subtle); color: var(--color-primary); }
 .scenario-tree-add:hover { background: var(--color-primary-subtle-strong); }
+/* 选中态下 ＋ 按钮用白色底，不与选中背景混淆 */
+.scenario-domain-row:hover .scenario-tree-add { background: #fff; }
+.scenario-domain-row:hover .scenario-tree-add:hover { background: var(--color-primary-subtle-strong); }
 .scenario-tree-del { background: none; font-size: 16px; }
 .scenario-tree-del:hover { color: var(--color-danger); background: #fdecea; }
 
