@@ -41,6 +41,7 @@ def _node(
     force_rework: bool = False,
     rework_recover: bool = False,
     heartbeat_timeout_ms: int | None = None,
+    local_replan_nodes: list[dict[str, Any]] | None = None,
     cap: str = "test.cap",
 ) -> dict[str, Any]:
     node = {
@@ -57,6 +58,8 @@ def _node(
     }
     if heartbeat_timeout_ms is not None:
         node["heartbeat_timeout_ms"] = heartbeat_timeout_ms
+    if local_replan_nodes is not None:
+        node["local_replan_nodes"] = local_replan_nodes
     return node
 
 
@@ -219,6 +222,47 @@ def test_replan_limit_exceeded() -> None:
         assert result["status"] == "failed"
         statuses = {n["id"]: n["status"] for n in result["nodes"]}
         assert all(s == "failed" for s in statuses.values()), statuses
+
+    asyncio.run(_run())
+
+
+def test_s2b_local_replan_replaces_failed_subgraph() -> None:
+    """V2-S2b 局部重规划：替换失败节点及下游子图，已 done 上游不重跑。"""
+    _skip_if_unavailable()
+
+    async def _run() -> None:
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        replacement = [
+            _node("n2b", deps=["n1"]),
+            _node("n3", deps=["n2b"]),
+        ]
+        plan = _plan(
+            [
+                _node("n1"),
+                _node("n2", deps=["n1"], fail_always=True, local_replan_nodes=replacement),
+                _node("n3", deps=["n2"]),
+            ]
+        )
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:  # noqa: SIM117
+            async with Worker(
+                env.client,
+                task_queue=TASK_QUEUE,
+                workflows=[TaskWorkflow],
+                activities=[run_node],
+            ):
+                result: dict[str, Any] = await env.client.execute_workflow(
+                    TaskWorkflow.run,
+                    args=[plan, str(uuid.uuid4())],
+                    id=f"test-s2b-local-replan-{uuid.uuid4().hex}",
+                    task_queue=TASK_QUEUE,
+                )
+
+        statuses = {n["id"]: n["status"] for n in result["nodes"]}
+        assert result["status"] == "done", result
+        assert statuses == {"n1": "done", "n2b": "done", "n3": "done"}
 
     asyncio.run(_run())
 

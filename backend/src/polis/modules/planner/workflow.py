@@ -182,6 +182,55 @@ async def escalate_node(run_id: str, org_id: str, node_id: str, judge: float) ->
 # ── 有界重规划 ─────────────────────────────────────────────────────────────────
 
 
+def _affected_subgraph_ids(dag: PlanDag, failed_node_id: str) -> set[str]:
+    """S2b：失败节点 + 依赖它的下游闭包，是局部重规划的最小影响范围。"""
+    affected = {failed_node_id}
+    changed = True
+    while changed:
+        changed = False
+        for node in dag.nodes:
+            if node.id in affected:
+                continue
+            if any(dep in affected for dep in node.deps):
+                affected.add(node.id)
+                changed = True
+    return affected
+
+
+def _local_replan(
+    dag: PlanDag,
+    failed_node_id: str,
+    replacement_nodes: list[dict[str, Any]],
+    available_caps: set[str],
+    replan_count: int,
+) -> tuple[PlanDag, set[str]]:
+    """S2b 局部重规划：替换失败子图并重校验，返回 (新 DAG, 受影响节点 id)。
+
+    这里的 replacement_nodes 是“回调内核重生成子图”的结果。生产路径后续可接 A2/A2b 内核；
+    当前先把拼接与不变量守住，workflow 测试可用确定性子图覆盖控制面语义。
+    """
+    if replan_count >= MAX_REPLANS:
+        raise ApplicationError("超过最大重规划次数", non_retryable=True)
+    affected = _affected_subgraph_ids(dag, failed_node_id)
+    replacements = [PlanNode.model_validate(n) for n in replacement_nodes]
+    if not replacements:
+        raise ApplicationError("局部重规划子图为空", non_retryable=True)
+    replacement_ids = {n.id for n in replacements}
+    kept = [copy.deepcopy(n) for n in dag.nodes if n.id not in affected]
+    patched = PlanDag(
+        workflow_name=dag.workflow_name,
+        goal=dag.goal,
+        acceptance_criteria=dag.acceptance_criteria,
+        budget_cents=dag.budget_cents,
+        nodes=[*kept, *replacements],
+    )
+    vr = validate(patched, available_caps)
+    if not vr.ok:
+        msg = f"局部重规划后 DAG 不合法: {'; '.join(vr.errors)}"
+        raise ApplicationError(msg, non_retryable=True)
+    return patched, affected | replacement_ids
+
+
 def _bounded_replan(
     dag: PlanDag,
     failed_node_id: str,
@@ -263,9 +312,32 @@ class TaskWorkflow:
             for node, result in zip(ready, results, strict=False):
                 if isinstance(result, BaseException):
                     try:
-                        dag = _bounded_replan(dag, node.id, available_caps, self._replan_count)
+                        raw_node = self._raw_nodes.get(node.id, {})
+                        if raw_node.get("local_replan_nodes"):
+                            dag, affected = _local_replan(
+                                dag,
+                                node.id,
+                                raw_node["local_replan_nodes"],
+                                available_caps,
+                                self._replan_count,
+                            )
+                            replacement_ids = {
+                                str(n.get("id"))
+                                for n in raw_node["local_replan_nodes"]
+                                if n.get("id")
+                            }
+                            for affected_id in affected:
+                                if affected_id not in replacement_ids:
+                                    self._node_status.pop(affected_id, None)
+                                    self._raw_nodes.pop(affected_id, None)
+                            for raw_replacement in raw_node["local_replan_nodes"]:
+                                replacement_id = str(raw_replacement["id"])
+                                self._raw_nodes[replacement_id] = raw_replacement
+                                self._node_status[replacement_id] = "pending"
+                        else:
+                            dag = _bounded_replan(dag, node.id, available_caps, self._replan_count)
+                            self._node_status[node.id] = "failed"
                         self._replan_count += 1
-                        self._node_status[node.id] = "failed"
                     except ApplicationError:
                         for n in dag.nodes:
                             if self._node_status.get(n.id) not in ("done",):
