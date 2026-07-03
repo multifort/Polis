@@ -402,6 +402,8 @@ export const api = {
     request<TemplateOut>(`/api/plans/${planId}/save-as-template`, { method: "POST", body: JSON.stringify(body) }, true, orgId),
   listTemplates: (orgId: string, domain?: string) =>
     request<TemplateOut[]>(`/api/catalog/templates${domain ? `?domain=${encodeURIComponent(domain)}` : ""}`, {}, true, orgId),
+  listDomains: (orgId: string) =>
+    request<string[]>("/api/catalog/domains", {}, true, orgId),
 };
 
 export interface ApprovalRow {

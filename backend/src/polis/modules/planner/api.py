@@ -869,7 +869,18 @@ async def list_catalog_templates(
     ]
 
 
-# ── helpers ──────────────────────────────────────────────────────────
+@router.get("/catalog/domains", response_model=list[str])
+async def list_catalog_domains(
+    org: CurrentOrg,
+    session: SessionDep,
+) -> list[str]:
+    """场景库分类列表：已有模板的 domain 去重 + 内置默认分类（供保存模板时选择）。"""
+    rows = await repo.list_plan_templates(session, org.org_id)
+    domains: set[str] = {d for r in rows if (d := (r.domain or "").strip())}
+    # 内置默认分类（始终可选）
+    builtins = {"采购与供应链", "数据分析与报告", "内容运营", "设计与方案", "风控与合规"}
+    domains.update(builtins)
+    return sorted(domains)
 
 
 async def _fill_actual_cost(session: AsyncSession, calls: list[dict[str, Any]]) -> None:

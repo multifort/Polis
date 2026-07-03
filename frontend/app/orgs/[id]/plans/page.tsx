@@ -157,6 +157,12 @@ export default function PlansPage() {
   const [exporting, setExporting] = useState<"md" | "pdf" | null>(null);
   const [savingTpl, setSavingTpl] = useState(false);
   const [tplMsg, setTplMsg] = useState("");
+  const [showTplModal, setShowTplModal] = useState(false);
+  const [tplName, setTplName] = useState("");
+  const [tplDomain, setTplDomain] = useState("");
+  const [tplSubcategory, setTplSubcategory] = useState("");
+  const [tplNewDomain, setTplNewDomain] = useState("");
+  const [domains, setDomains] = useState<string[]>([]);
   const [notice, setNotice] = useState(""); // 503 等降级提示
   const [obs, setObs] = useState<Observability | null>(null);
   const [obsLoading, setObsLoading] = useState(false);
@@ -311,13 +317,30 @@ export default function PlansPage() {
     }
   }
 
-  async function saveAsTemplate() {
+  function openTplModal() {
     if (!plan) return;
+    setTplName(plan.goal.length > 40 ? plan.goal.slice(0, 40) : plan.goal);
+    setTplDomain("");
+    setTplSubcategory("");
+    setTplNewDomain("");
+    setTplMsg("");
+    // 拉取已有分类列表
+    api.listDomains(orgId).then(setDomains).catch(() => setDomains([]));
+    setShowTplModal(true);
+  }
+
+  async function saveAsTemplate() {
+    if (!plan || !tplName.trim()) return;
     setSavingTpl(true); setTplMsg("");
-    const name = plan.goal.length > 40 ? plan.goal.slice(0, 40) : plan.goal;
+    const domain = tplNewDomain.trim() || tplDomain || undefined;
     try {
-      await api.saveAsTemplate(orgId, plan.id, { name });
-      setTplMsg(`已存为模板「${name}」`);
+      await api.saveAsTemplate(orgId, plan.id, {
+        name: tplName.trim(),
+        domain,
+        subcategory: tplSubcategory.trim() || undefined,
+      });
+      setShowTplModal(false);
+      setTplMsg(`已存为模板「${tplName.trim()}」`);
     } catch (err) {
       setTplMsg(err instanceof Error ? err.message : "保存失败");
     } finally { setSavingTpl(false); }
@@ -437,11 +460,10 @@ export default function PlansPage() {
                 <button
                   className="btn-run"
                   style={{ background: "#fff", color: "#3F51B5", border: "1px solid #3F51B5", boxShadow: "none" }}
-                  onClick={() => saveAsTemplate()}
-                  disabled={savingTpl}
+                  onClick={openTplModal}
                   title="将该计划存为可复用场景模板"
                 >
-                  {savingTpl ? "保存中…" : "💾 存为模板"}
+                  💾 存为模板
                 </button>
               </div>
             </div>
@@ -742,6 +764,57 @@ export default function PlansPage() {
       )}
 
       {agentModal && <AgentModal agent={agentModal} onClose={() => setAgentModal(null)} />}
+
+      {/* 存为模板模态框（R3：选择分类再保存） */}
+      {showTplModal && (
+        <div className="modal-overlay" onClick={() => setShowTplModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+            <div className="modal-head">
+              <h3>存为场景模板</h3>
+              <button className="modal-x" onClick={() => setShowTplModal(false)}>×</button>
+            </div>
+            {tplMsg && (
+              <p className={tplMsg.includes("失败") ? "error" : "notice"} style={{ marginBottom: 12 }}>
+                {tplMsg}
+              </p>
+            )}
+            <label>模板名称</label>
+            <input
+              value={tplName}
+              onChange={(e) => setTplName(e.target.value)}
+              placeholder="如：供应商交付分析"
+            />
+            <label>场景分类（域）</label>
+            <select value={tplDomain} onChange={(e) => setTplDomain(e.target.value)}>
+              <option value="">— 通用（不分类）—</option>
+              {domains.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+              <option value="__new__">＋ 新建分类…</option>
+            </select>
+            {tplDomain === "__new__" && (
+              <input
+                value={tplNewDomain}
+                onChange={(e) => setTplNewDomain(e.target.value)}
+                placeholder="输入新分类名称"
+                style={{ marginTop: 8 }}
+              />
+            )}
+            <label>子类（可选）</label>
+            <input
+              value={tplSubcategory}
+              onChange={(e) => setTplSubcategory(e.target.value)}
+              placeholder="如：月度报告、竞品分析"
+            />
+            <div className="modal-actions">
+              <button className="btn-ghost2" onClick={() => setShowTplModal(false)}>取消</button>
+              <button className="btn-primary" onClick={saveAsTemplate} disabled={savingTpl || !tplName.trim()}>
+                {savingTpl ? "保存中…" : "💾 保存"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
