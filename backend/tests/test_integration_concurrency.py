@@ -6,11 +6,14 @@ import asyncio
 import uuid
 from typing import Any, cast
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from polis.config import get_settings
 from polis.modules.planner import repository as repo
+from polis.modules.planner import workflow as planner_workflow
 from polis.seed import seed
 
 
@@ -75,3 +78,77 @@ def test_concurrency_admission_queues_when_full(client: TestClient) -> None:
             await engine.dispose()
 
     asyncio.run(_assert_queued())
+
+
+def test_pending_run_auto_dequeue_starts_fifo(pg_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """S3 自动 dequeue：释放槽后最早 pending run 被切 running，并启动 Temporal workflow。"""
+    engine = create_engine(pg_url.replace("+asyncpg", "+psycopg2"))
+    try:
+        with engine.begin() as conn:
+            uid = conn.execute(
+                text("INSERT INTO app_user (email) VALUES (:e) RETURNING id"),
+                {"e": f"dq_{uuid.uuid4().hex[:8]}@polis.dev"},
+            ).scalar()
+            org_id = uuid.UUID(
+                str(
+                    conn.execute(
+                        text(
+                            "INSERT INTO org (name, owner_user_id) "
+                            "VALUES ('队列公司', :u) RETURNING id"
+                        ),
+                        {"u": uid},
+                    ).scalar()
+                )
+            )
+    finally:
+        engine.dispose()
+
+    started: dict[str, Any] = {}
+
+    class _Client:
+        async def start_workflow(self, *_args: Any, **kwargs: Any) -> None:
+            started["workflow_id"] = kwargs["id"]
+
+    async def _connect(_addr: str) -> _Client:
+        return _Client()
+
+    monkeypatch.setattr("temporalio.client.Client.connect", _connect)
+
+    async def _run() -> None:
+        db = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(db)() as s:
+                plan = await repo.create_plan(
+                    s,
+                    org_id=org_id,
+                    goal="queued",
+                    dag={"workflow_name": "wf", "goal": "queued", "nodes": []},
+                    version="generated",
+                    estimated_cost_cents=100,
+                )
+                pending = await repo.create_task_run(
+                    s,
+                    org_id,
+                    plan.id,
+                    "queued",
+                    status="pending",
+                )
+                pending_id = pending.id
+                await s.commit()
+
+            await planner_workflow._dequeue_pending_run(str(org_id))
+
+            async with async_sessionmaker(db)() as s:
+                run = await repo.get_task_run(s, org_id, pending_id)
+                assert run is not None
+                assert run.status == "running"
+                assert run.started_at is not None
+                assert run.temporal_workflow_id == started["workflow_id"]
+                from polis.modules.observability import repository as obs_repo
+
+                manifest = await obs_repo.get_run_manifest(s, org_id, pending_id)
+                assert manifest is not None
+        finally:
+            await db.dispose()
+
+    asyncio.run(_run())

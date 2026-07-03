@@ -161,12 +161,14 @@ async def create_task_run(
     task_id: uuid.UUID | None = None,
     status: str = "running",
 ) -> TaskRun:
+    now = datetime.now(UTC) if status == "running" else None
     run = TaskRun(
         org_id=org_id,
         task_id=task_id,  # V2-P1：关联可复用任务（nullable，兼容直接出图的旧/临时运行）
         plan_id=plan_id,
         temporal_workflow_id=temporal_workflow_id,
         status=status,
+        started_at=now,
     )
     session.add(run)
     await session.flush()
@@ -484,6 +486,27 @@ async def get_task_run_by_plan(
         .where(TaskRun.plan_id == plan_id)
         .order_by(TaskRun.created_at.desc())
     )
+    return run
+
+
+async def next_pending_run(session: AsyncSession, org_id: uuid.UUID) -> TaskRun | None:
+    """S3 自动 dequeue：取最早入队的 pending run（FIFO）。"""
+    run: TaskRun | None = await session.scalar(
+        select_org_scoped(TaskRun, org_id)
+        .where(TaskRun.status == "pending")
+        .order_by(TaskRun.created_at.asc())
+    )
+    return run
+
+
+async def mark_task_run_running(session: AsyncSession, run: TaskRun, workflow_id: str) -> TaskRun:
+    """把 pending run 切为 running，并记录真正启动的 Temporal workflow id。"""
+    run.status = "running"
+    run.temporal_workflow_id = workflow_id
+    run.started_at = datetime.now(UTC)
+    if run.plan_id is not None:
+        await update_plan_status(session, run.org_id, run.plan_id, "running")
+    await session.flush()
     return run
 
 
