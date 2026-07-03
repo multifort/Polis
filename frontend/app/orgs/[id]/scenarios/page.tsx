@@ -154,7 +154,7 @@ export default function ScenariosPage() {
             <div className="scenario-domain-list">
               {tree.map((node) => (
                 <div className="scenario-domain" key={node.domain}>
-                  {/* Domain 行：点击展开/折叠 + 选中 + ±按钮 */}
+                  {/* Domain 行 */}
                   <div className="scenario-domain-row">
                     <button
                       className={`scenario-domain-btn${selection.kind !== "all" && selection.domain === node.domain ? " on" : ""}`}
@@ -175,17 +175,14 @@ export default function ScenariosPage() {
                     </button>
                     <div className="scenario-domain-actions">
                       <button className="scenario-tree-add" title="添加子类"
-                        onClick={(e) => { e.stopPropagation(); setAdding({ domain: node.domain }); setNewName(""); }}>
-                        ＋
-                      </button>
-                      {canDel(cats.find((c) => c.domain === node.domain && !c.subcategory)!) && (
-                        <button className="scenario-tree-del" title="删除"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const cat = cats.find((c) => c.domain === node.domain && !c.subcategory);
-                            if (cat) onDelete(cat.id, node.domain);
-                          }}>−</button>
-                      )}
+                        onClick={(e) => { e.stopPropagation(); setAdding({ domain: node.domain }); setNewName(""); }}>＋</button>
+                      {(() => {
+                        const domainCat = cats.find((c) => c.domain === node.domain && !c.subcategory);
+                        return domainCat && canDel(domainCat) ? (
+                          <button className="scenario-tree-del" title="删除"
+                            onClick={(e) => { e.stopPropagation(); onDelete(domainCat.id, node.domain); }}>−</button>
+                        ) : null;
+                      })()}
                     </div>
                   </div>
 
