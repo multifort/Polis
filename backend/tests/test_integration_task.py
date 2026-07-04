@@ -34,17 +34,18 @@ def test_task_crud_and_run_link(client: TestClient) -> None:
     # ① 建任务（保存，不运行）
     r = c.post(
         "/api/tasks",
-        json={"name": "供应商交付分析", "goal": "分析供应商交付"},
+        json={"name": "供应商交付分析", "goal": "分析供应商交付", "priority": 7},
         headers=h,
     )
     assert r.status_code == 201, r.text
     task = r.json()
     assert task["name"] == "供应商交付分析" and task["goal"] == "分析供应商交付"
+    assert task["priority"] == 7
     task_id = task["id"]
 
     # ② 列表含该任务
     lst = c.get("/api/tasks", headers=h).json()
-    assert any(t["id"] == task_id for t in lst)
+    assert any(t["id"] == task_id and t["priority"] == 7 for t in lst)
 
     # ③ 执行记录初始为空
     runs = c.get(f"/api/tasks/{task_id}/runs", headers=h)

@@ -190,6 +190,7 @@ async def create_task(
     input_schema: dict[str, Any] | None = None,
     inputs: dict[str, Any] | None = None,
     created_by: uuid.UUID | None = None,
+    priority: int = 0,
 ) -> Task:
     task = Task(
         org_id=org_id,
@@ -199,6 +200,7 @@ async def create_task(
         input_schema=input_schema,
         inputs=inputs,
         created_by=created_by,
+        priority=priority,
     )
     session.add(task)
     await session.flush()

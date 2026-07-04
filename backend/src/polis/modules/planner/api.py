@@ -108,6 +108,7 @@ async def _start_plan(
     user_id: uuid.UUID,
     task_id: uuid.UUID | None = None,
     queued_run: Any | None = None,
+    priority: int = 0,
 ) -> Any:
     """启动一个 plan 的 Temporal 工作流：建 task_run（贯通 task_id，TD-028）+ Run Manifest + 审计。
 
@@ -124,6 +125,7 @@ async def _start_plan(
             f"queued-plan-{plan.id}",
             task_id=task_id,
             status="pending",
+            priority=priority,
         )
         await repo.update_plan_status(session, org_id, plan.id, "approved")
         await write_audit(
@@ -154,7 +156,14 @@ async def _start_plan(
     workflow_id = f"plan-{plan.id}"
     client = await _temporal_client()
     await repo.update_plan_status(session, org_id, plan.id, "running")
-    run = await repo.create_task_run(session, org_id, plan.id, workflow_id, task_id=task_id)
+    run = await repo.create_task_run(
+        session,
+        org_id,
+        plan.id,
+        workflow_id,
+        task_id=task_id,
+        priority=priority,
+    )
     try:
         await client.start_workflow(
             TaskWorkflow.run,
@@ -217,7 +226,13 @@ async def approve_plan(
     # 如果找到了 pending run，把它的状态改为 running（不重复建 run）
     if task_id is not None and pending_run is not None:
         run = await _start_plan(
-            session, org.org_id, plan, user_id, task_id=task_id, queued_run=pending_run
+            session,
+            org.org_id,
+            plan,
+            user_id,
+            task_id=task_id,
+            queued_run=pending_run,
+            priority=pending_run.priority,
         )
         if run.status == "running":
             # 删除旧的 pending run（已被新的 running run 替代）
@@ -264,6 +279,7 @@ async def create_task_plan(task_id: uuid.UUID, org: CurrentOrg, session: Session
         f"queued-plan-{plan.id}",
         task_id=task_id,
         status="pending",
+        priority=task.priority,
     )
 
     return plan_result
@@ -286,6 +302,7 @@ async def create_task(
         input_schema=data.input_schema,
         inputs=data.inputs,
         created_by=user_id,
+        priority=data.priority,
     )
     return TaskOut.model_validate(task, from_attributes=True)
 
@@ -330,6 +347,7 @@ async def list_task_runs(
                 task_id=r.task_id,
                 plan_id=r.plan_id,
                 status=r.status,
+                priority=r.priority,
                 created_at=r.created_at.isoformat() if r.created_at else None,
                 started_at=r.started_at.isoformat() if r.started_at else None,
                 finished_at=r.finished_at.isoformat() if r.finished_at else None,
@@ -658,7 +676,14 @@ async def run_task(
     plan = await repo.get_plan(session, org.org_id, plan_result.id)
     if plan is None:  # 理论不会（刚建）
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "计划快照丢失")
-    run = await _start_plan(session, org.org_id, plan, user_id, task_id=task.id)
+    run = await _start_plan(
+        session,
+        org.org_id,
+        plan,
+        user_id,
+        task_id=task.id,
+        priority=task.priority,
+    )
     return ApproveResult(task_id=run.id, status=run.status)
 
 

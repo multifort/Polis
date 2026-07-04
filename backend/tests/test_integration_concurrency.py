@@ -31,9 +31,11 @@ def test_concurrency_admission_queues_when_full(client: TestClient) -> None:
         "/api/provision", json={"name": "并发公司", "preset": "采购分析公司"}, headers=auth
     ).json()["org"]["id"]
     h = {**auth, "X-Org-Id": org_id}
-    task_id = c.post("/api/tasks", json={"name": "t", "goal": "分析供应商交付"}, headers=h).json()[
-        "id"
-    ]
+    task_id = c.post(
+        "/api/tasks",
+        json={"name": "t", "goal": "分析供应商交付", "priority": 9},
+        headers=h,
+    ).json()["id"]
 
     limit = get_settings().org_max_concurrent_runs
     oid = uuid.UUID(org_id)
@@ -75,6 +77,8 @@ def test_concurrency_admission_queues_when_full(client: TestClient) -> None:
                 statuses = [run.status for run, _ in rows]
                 assert statuses.count("running") == limit
                 assert statuses.count("pending") == 1
+                pending = [run for run, _ in rows if run.status == "pending"][0]
+                assert pending.priority == 9
         finally:
             await engine.dispose()
 

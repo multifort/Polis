@@ -110,6 +110,7 @@ class Task(UUIDPkMixin, OrgScopedMixin, Base):
     input_schema: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     inputs: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("app_user.id"))
+    priority: Mapped[int] = mapped_column(Integer, server_default="0")
     status: Mapped[str] = mapped_column(Text, server_default="active")
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 

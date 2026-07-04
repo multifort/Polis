@@ -245,6 +245,7 @@ export interface Task {
   name: string;
   goal: string;
   scenario_ref?: string | null;
+  priority?: number;
   status: string;
 }
 export interface TaskRunRow {
@@ -252,6 +253,7 @@ export interface TaskRunRow {
   task_id?: string | null;
   plan_id?: string | null;
   status: string;
+  priority?: number;
   created_at?: string | null;
   started_at?: string | null;
   finished_at?: string | null;
@@ -375,7 +377,10 @@ export const api = {
     return res.blob();
   },
   // ── 任务实体（V2-P1）──
-  createTask: (orgId: string, body: { name: string; goal: string; scenario_ref?: string }) =>
+  createTask: (
+    orgId: string,
+    body: { name: string; goal: string; scenario_ref?: string; priority?: number },
+  ) =>
     request<Task>("/api/tasks", { method: "POST", body: JSON.stringify(body) }, true, orgId),
   listTasks: (orgId: string) => request<Task[]>("/api/tasks", {}, true, orgId),
   deleteTask: (orgId: string, taskId: string) =>

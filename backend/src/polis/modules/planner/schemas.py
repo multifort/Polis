@@ -133,6 +133,7 @@ class TaskCreateIn(BaseModel):
     scenario_ref: str | None = None
     input_schema: dict[str, object] | None = None
     inputs: dict[str, object] | None = None
+    priority: int = Field(default=0, ge=0, le=100)
 
 
 class TaskOut(BaseModel):
@@ -140,6 +141,7 @@ class TaskOut(BaseModel):
     name: str
     goal: str
     scenario_ref: str | None = None
+    priority: int = 0
     status: str
 
 
@@ -167,6 +169,7 @@ class TaskRunOut(BaseModel):
     task_id: uuid.UUID | None = None
     plan_id: uuid.UUID | None = None
     status: str
+    priority: int = 0
     created_at: str | None = None
     started_at: str | None = None
     finished_at: str | None = None
