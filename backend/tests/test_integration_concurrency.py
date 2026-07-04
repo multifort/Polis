@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -246,6 +247,68 @@ def test_pending_run_auto_dequeue_fills_slots_by_priority(
                 assert len(started) == 2
         finally:
             await dispose_engine()
+            await db.dispose()
+
+    asyncio.run(_run())
+
+
+def test_next_pending_runs_tiebreaks_fifo(pg_url: str) -> None:
+    """S3 队列排序：priority 和成本都相同时，按入队时间 FIFO。"""
+    engine = create_engine(pg_url.replace("+asyncpg", "+psycopg2"))
+    try:
+        with engine.begin() as conn:
+            uid = conn.execute(
+                text("INSERT INTO app_user (email) VALUES (:e) RETURNING id"),
+                {"e": f"dq_fifo_{uuid.uuid4().hex[:8]}@polis.dev"},
+            ).scalar()
+            org_id = uuid.UUID(
+                str(
+                    conn.execute(
+                        text(
+                            "INSERT INTO org (name, owner_user_id) "
+                            "VALUES ('FIFO队列公司', :u) RETURNING id"
+                        ),
+                        {"u": uid},
+                    ).scalar()
+                )
+            )
+    finally:
+        engine.dispose()
+
+    async def _run() -> None:
+        db = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(db)() as s:
+                base = datetime.now(UTC)
+                run_ids: list[uuid.UUID] = []
+                for label, offset in (("oldest", 0), ("middle", 1), ("newest", 2)):
+                    plan = await repo.create_plan(
+                        s,
+                        org_id=org_id,
+                        goal=label,
+                        dag={"workflow_name": "wf", "goal": label, "nodes": []},
+                        version="generated",
+                        estimated_cost_cents=100,
+                    )
+                    run = await repo.create_task_run(
+                        s,
+                        org_id,
+                        plan.id,
+                        f"queued-{label}",
+                        status="pending",
+                        priority=3,
+                    )
+                    run_ids.append(run.id)
+                    await s.execute(
+                        text("UPDATE task_run SET created_at = :created_at WHERE id = :id"),
+                        {"created_at": base + timedelta(seconds=offset), "id": run.id},
+                    )
+                await s.commit()
+
+            async with async_sessionmaker(db)() as s:
+                got = await repo.next_pending_runs(s, org_id, limit=3)
+                assert [run.id for run in got] == run_ids
+        finally:
             await db.dispose()
 
     asyncio.run(_run())
