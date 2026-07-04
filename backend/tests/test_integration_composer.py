@@ -10,11 +10,14 @@ from __future__ import annotations
 import asyncio
 import uuid
 
+from scripts.r4.role_template_reuse_gate import _load_inputs, compute_reuse_summary
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from polis.config import get_settings
 from polis.modules.model.gateway import ChatResponse, StubModelGateway
+from polis.modules.observability import repository as obs_repo
+from polis.modules.planner import repository as plan_repo
 from polis.modules.planner.composer import compose_agent, route_or_compose
 from polis.modules.planner.schemas import PlanDag, PlanNode
 
@@ -186,6 +189,88 @@ def test_compose_from_skill_idempotent_and_missing(pg_url: str) -> None:
                 assert routing["n2"] is None  # 缺 Skill → 未覆盖
                 await s.rollback()
         finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+def test_r4_reuse_gate_counts_natural_generated_role_template(pg_url: str) -> None:
+    """R4 默认口径：自然编配沉淀的 role_template 计入，meta.sample=true 样本不计入。"""
+    sfx = uuid.uuid4().hex[:6]
+    cap = f"compose.r4_{sfx}"
+    skill_name = f"skill_r4_{sfx}"
+    org_id = _seed(pg_url, cap, skill_name)
+
+    async def _run() -> None:
+        from polis.db.session import dispose_engine
+
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                agent = await compose_agent(s, org_id, [cap])
+                assert agent is not None
+
+                for idx in range(2):
+                    dag = {
+                        "workflow_name": "r4_natural_reuse",
+                        "goal": f"r4 natural reuse {idx}",
+                        "nodes": [
+                            {
+                                "id": "n1",
+                                "type": "agent",
+                                "deps": [],
+                                "required_capabilities": [cap],
+                                "executor": "lite-agent",
+                            }
+                        ],
+                    }
+                    plan = await plan_repo.create_plan(
+                        s,
+                        org_id=org_id,
+                        goal=dag["goal"],
+                        dag=dag,
+                        version="generated",
+                        estimated_cost_cents=1,
+                    )
+                    run = await plan_repo.create_task_run(
+                        s,
+                        org_id,
+                        plan.id,
+                        f"r4-natural-{idx}",
+                        status="done",
+                    )
+                    await obs_repo.create_run_manifest(
+                        s,
+                        task_id=run.id,
+                        org_id=org_id,
+                        plan_snapshot=dag,
+                        plan_version="generated",
+                        models_used={"chat": "stub"},
+                        agents_used={"n1": agent.name},
+                    )
+                await s.commit()
+
+            templates, manifests = await _load_inputs(org_id, include_samples=False)
+            summary = compute_reuse_summary(
+                templates,
+                manifests,
+                threshold=0.6,
+                min_occurrences=2,
+            )
+            assert summary.total == 1
+            assert summary.reused == 1
+            assert summary.passed is True
+
+            await dispose_engine()
+            async with async_sessionmaker(engine)() as s:
+                await s.execute(
+                    text("UPDATE agent SET status = 'archived' WHERE org_id = :o").bindparams(
+                        o=org_id
+                    )
+                )
+                await s.commit()
+        finally:
+            await dispose_engine()
             await engine.dispose()
 
     asyncio.run(_run())
