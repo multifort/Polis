@@ -314,6 +314,78 @@ def test_next_pending_runs_tiebreaks_fifo(pg_url: str) -> None:
     asyncio.run(_run())
 
 
+def test_next_pending_runs_large_batch_ordering(pg_url: str) -> None:
+    """S3 队列压力回归：批量 pending 按 priority、成本、FIFO 精确排序。"""
+    engine = create_engine(pg_url.replace("+asyncpg", "+psycopg2"))
+    try:
+        with engine.begin() as conn:
+            uid = conn.execute(
+                text("INSERT INTO app_user (email) VALUES (:e) RETURNING id"),
+                {"e": f"dq_batch_{uuid.uuid4().hex[:8]}@polis.dev"},
+            ).scalar()
+            org_id = uuid.UUID(
+                str(
+                    conn.execute(
+                        text(
+                            "INSERT INTO org (name, owner_user_id) "
+                            "VALUES ('批量队列公司', :u) RETURNING id"
+                        ),
+                        {"u": uid},
+                    ).scalar()
+                )
+            )
+    finally:
+        engine.dispose()
+
+    async def _run() -> None:
+        db = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(db)() as s:
+                base = datetime.now(UTC)
+                rows: list[tuple[int, int, datetime, uuid.UUID]] = []
+                for idx in range(30):
+                    priority = idx % 4
+                    cost = [300, 100, 200, 100, 400][idx % 5]
+                    created_at = base + timedelta(seconds=idx)
+                    plan = await repo.create_plan(
+                        s,
+                        org_id=org_id,
+                        goal=f"batch-{idx}",
+                        dag={"workflow_name": "wf", "goal": f"batch-{idx}", "nodes": []},
+                        version="generated",
+                        estimated_cost_cents=cost,
+                    )
+                    run = await repo.create_task_run(
+                        s,
+                        org_id,
+                        plan.id,
+                        f"queued-batch-{idx}",
+                        status="pending",
+                        priority=priority,
+                    )
+                    await s.execute(
+                        text("UPDATE task_run SET created_at = :created_at WHERE id = :id"),
+                        {"created_at": created_at, "id": run.id},
+                    )
+                    rows.append((priority, cost, created_at, run.id))
+                await s.commit()
+
+            expected = [
+                row_id
+                for _priority, _cost, _created_at, row_id in sorted(
+                    rows,
+                    key=lambda row: (-row[0], row[1], row[2]),
+                )[:12]
+            ]
+            async with async_sessionmaker(db)() as s:
+                got = await repo.next_pending_runs(s, org_id, limit=12)
+                assert [run.id for run in got] == expected
+        finally:
+            await db.dispose()
+
+    asyncio.run(_run())
+
+
 def test_pending_run_auto_dequeue_explicit_priority_over_cost(
     pg_url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
