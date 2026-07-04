@@ -9,6 +9,7 @@
 
 用法：
   uv run python scripts/r4/role_template_reuse_gate.py
+  uv run python scripts/r4/role_template_reuse_gate.py --include-samples
   uv run python scripts/r4/role_template_reuse_gate.py --org-id <org_uuid> --threshold 0.6
 """
 
@@ -91,6 +92,8 @@ def compute_reuse_summary(
 
 async def _load_inputs(
     org_id: uuid.UUID | None,
+    *,
+    include_samples: bool,
 ) -> tuple[list[RoleTemplateKey], list[tuple[uuid.UUID, dict[str, Any] | None]]]:
     init_engine()
     async with get_sessionmaker()() as session:
@@ -104,16 +107,24 @@ async def _load_inputs(
         if org_id is not None:
             tpl_q = tpl_q.where(RoleTemplate.owner_org_id == org_id)
             mf_q = mf_q.where(RunManifest.org_id == org_id)
-        templates = [
-            RoleTemplateKey(org_id=t.owner_org_id, name=t.name)
-            for t in (await session.scalars(tpl_q)).all()
-        ]
+        templates = []
+        for t in (await session.scalars(tpl_q)).all():
+            meta = t.meta or {}
+            if not include_samples and meta.get("sample") is True:
+                continue
+            templates.append(RoleTemplateKey(org_id=t.owner_org_id, name=t.name))
         manifests = [(oid, agents) for oid, agents in (await session.execute(mf_q)).all()]
         return templates, manifests
 
 
-async def run(org_id: uuid.UUID | None, threshold: float, min_occurrences: int) -> int:
-    templates, manifests = await _load_inputs(org_id)
+async def run(
+    org_id: uuid.UUID | None,
+    threshold: float,
+    min_occurrences: int,
+    *,
+    include_samples: bool = False,
+) -> int:
+    templates, manifests = await _load_inputs(org_id, include_samples=include_samples)
     summary = compute_reuse_summary(
         templates,
         manifests,
@@ -124,6 +135,7 @@ async def run(org_id: uuid.UUID | None, threshold: float, min_occurrences: int) 
     scope = f"org={org_id}" if org_id else "all orgs"
     print(f"R4 角色模板复用率验证门：{scope}")
     print(f"样本 role_template(generated/active)：{summary.total}")
+    print(f"最小机制样本：{'包含' if include_samples else '排除'}（meta.sample=true）")
     print(f"复用定义：manifest 出现次数 >= {summary.min_occurrences}")
     if not summary.has_data:
         print("验证门：NO DATA（尚无 generated role_template 样本）")
@@ -152,8 +164,22 @@ def main() -> None:
         default=2,
         help="Agent 名至少出现在多少个 manifest 中才算复用，默认 2",
     )
+    parser.add_argument(
+        "--include-samples",
+        action="store_true",
+        help="包含 seed_reuse_sample.py 写入的 meta.sample=true 最小机制样本",
+    )
     args = parser.parse_args()
-    raise SystemExit(asyncio.run(run(args.org_id, args.threshold, args.min_occurrences)))
+    raise SystemExit(
+        asyncio.run(
+            run(
+                args.org_id,
+                args.threshold,
+                args.min_occurrences,
+                include_samples=args.include_samples,
+            )
+        )
+    )
 
 
 if __name__ == "__main__":
