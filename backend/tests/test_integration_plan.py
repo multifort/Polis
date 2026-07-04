@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
+from polis.modules.planner.errors import NoTemplateMatch
 from polis.seed import seed
 
 
@@ -47,11 +50,15 @@ def test_plan_from_template(client: TestClient) -> None:
     assert all(routing[n] is not None for n in ("n1", "n2", "n3", "n4"))
 
 
-def test_plan_no_template_match(client: TestClient) -> None:
-    asyncio.run(seed())
+def test_plan_no_template_match(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     auth = _auth(client)
 
-    # 普通建公司（无任何 Agent/能力）→ 无模板可满足 → 404
+    async def _no_match(*_args: Any, **_kwargs: Any) -> Any:
+        raise NoTemplateMatch
+
+    monkeypatch.setattr("polis.modules.planner.api.service.plan", _no_match)
+
+    # API 层仍需把领域异常翻译为 404；TD-032 的真实生成路径由 skillgen 集成测试覆盖。
     org_id = client.post("/api/orgs", json={"name": "空公司"}, headers=auth).json()["id"]
     resp = client.post("/api/plans", json={"goal": "随便"}, headers={**auth, "X-Org-Id": org_id})
     assert resp.status_code == 404
