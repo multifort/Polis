@@ -36,12 +36,13 @@ def _node(
     *,
     deps: list[str] | None = None,
     ntype: str = "agent",
+    dangerous: bool = False,
     fail_once: bool = False,
     fail_always: bool = False,
     force_rework: bool = False,
     rework_recover: bool = False,
     heartbeat_timeout_ms: int | None = None,
-    local_replan: bool = False,
+    local_replan: bool | None = None,
     local_replan_nodes: list[dict[str, Any]] | None = None,
     cap: str = "test.cap",
 ) -> dict[str, Any]:
@@ -51,6 +52,7 @@ def _node(
         "deps": deps or [],
         "required_capabilities": [cap] if ntype == "agent" else [],
         "executor": "lite-agent",
+        "dangerous": dangerous,
         "fail_once": fail_once,
         "fail_always": fail_always,
         "force_rework": force_rework,  # V2-S1 质量门测试钩子：强制不达标
@@ -59,8 +61,8 @@ def _node(
     }
     if heartbeat_timeout_ms is not None:
         node["heartbeat_timeout_ms"] = heartbeat_timeout_ms
-    if local_replan:
-        node["local_replan"] = True
+    if local_replan is not None:
+        node["local_replan"] = local_replan
     if local_replan_nodes is not None:
         node["local_replan_nodes"] = local_replan_nodes
     return node
@@ -372,6 +374,74 @@ def test_s2b_local_replan_auto_for_failed_subgraph() -> None:
         statuses = {n["id"]: n["status"] for n in result["nodes"]}
         assert result["status"] == "done", result
         assert statuses == {"n1": "done", "n2b": "done", "n3": "done"}
+
+    asyncio.run(_run())
+
+
+def test_s2b_auto_local_replan_skips_guarded_failure_types() -> None:
+    """V2-S2b 自动策略边界：叶子/显式禁用/system/dangerous 不调用在线局部重规划。"""
+    _skip_if_unavailable()
+
+    async def _run() -> None:
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        called: list[str] = []
+
+        @activity.defn(name="generate_replan_subdag")
+        async def fake_generate_replan_subdag(
+            _plan: dict[str, Any],
+            failed_node_id: str,
+            _failure_reason: str,
+            _available_capabilities: list[str],
+        ) -> list[dict[str, Any]]:
+            called.append(failed_node_id)
+            return [
+                _node("n2b", deps=["n1"]),
+                _node("n3", deps=["n2b"]),
+            ]
+
+        cases = {
+            "leaf": [
+                _node("n1"),
+                _node("n2", deps=["n1"], fail_always=True),
+            ],
+            "disabled": [
+                _node("n1"),
+                _node("n2", deps=["n1"], fail_always=True, local_replan=False),
+                _node("n3", deps=["n2"]),
+            ],
+            "system": [
+                _node("n1"),
+                _node("n2", deps=["n1"], ntype="system", fail_always=True),
+                _node("n3", deps=["n2"]),
+            ],
+            "dangerous": [
+                _node("n1"),
+                _node("n2", deps=["n1"], dangerous=True, fail_always=True),
+                _node("n3", deps=["n2"]),
+            ],
+        }
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:  # noqa: SIM117
+            async with Worker(
+                env.client,
+                task_queue=TASK_QUEUE,
+                workflows=[TaskWorkflow],
+                activities=[run_node, fake_generate_replan_subdag],
+            ):
+                for label, nodes in cases.items():
+                    result: dict[str, Any] = await env.client.execute_workflow(
+                        TaskWorkflow.run,
+                        args=[_plan(nodes), str(uuid.uuid4())],
+                        id=f"test-s2b-local-replan-skip-{label}-{uuid.uuid4().hex}",
+                        task_queue=TASK_QUEUE,
+                    )
+                    statuses = {n["id"]: n["status"] for n in result["nodes"]}
+                    assert result["status"] == "failed", (label, result)
+                    assert statuses["n2"] == "failed", (label, statuses)
+
+        assert called == []
 
     asyncio.run(_run())
 
