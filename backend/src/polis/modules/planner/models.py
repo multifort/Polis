@@ -10,7 +10,16 @@ from datetime import datetime
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, Text, UniqueConstraint, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -134,6 +143,7 @@ class TaskRun(UUIDPkMixin, OrgScopedMixin, TimestampMixin, Base):
     plan_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("plan.id"))
     temporal_workflow_id: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, server_default="pending")
+    priority: Mapped[int] = mapped_column(Integer, server_default="0")
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
 

@@ -160,6 +160,7 @@ async def create_task_run(
     temporal_workflow_id: str,
     task_id: uuid.UUID | None = None,
     status: str = "running",
+    priority: int = 0,
 ) -> TaskRun:
     now = datetime.now(UTC) if status == "running" else None
     run = TaskRun(
@@ -168,6 +169,7 @@ async def create_task_run(
         plan_id=plan_id,
         temporal_workflow_id=temporal_workflow_id,
         status=status,
+        priority=priority,
         started_at=now,
     )
     session.add(run)
@@ -494,8 +496,8 @@ async def next_pending_runs(
 ) -> list[TaskRun]:
     """S3 自动 dequeue：按优先级取 pending run。
 
-    优先级规则：短作业优先（plan.estimated_cost_cents 升序），同成本按入队时间 FIFO。
-    不新增队列表字段，先复用已有计划成本作为可解释的轻量 priority。
+    优先级规则：显式 priority 越大越优先；同 priority 短作业优先
+    （plan.estimated_cost_cents 升序）；再同成本按入队时间 FIFO。
     """
     if limit <= 0:
         return []
@@ -503,7 +505,11 @@ async def next_pending_runs(
         select_org_scoped(TaskRun, org_id)
         .outerjoin(Plan, Plan.id == TaskRun.plan_id)
         .where(TaskRun.status == "pending")
-        .order_by(Plan.estimated_cost_cents.asc().nulls_last(), TaskRun.created_at.asc())
+        .order_by(
+            TaskRun.priority.desc(),
+            Plan.estimated_cost_cents.asc().nulls_last(),
+            TaskRun.created_at.asc(),
+        )
         .limit(limit)
     )
     return list(rows.all())

@@ -30,7 +30,6 @@ from polis.modules.planner import export as export_mod
 from polis.modules.planner import repository as repo
 from polis.modules.planner import service
 from polis.modules.planner.composer import route_or_compose
-from polis.modules.planner.models import TaskRun
 from polis.modules.planner.schemas import (
     ApproveResult,
     AttachmentOut,
@@ -258,14 +257,14 @@ async def create_task_plan(task_id: uuid.UUID, org: CurrentOrg, session: Session
     plan = await repo.get_plan(session, org.org_id, plan_result.id)
     if plan is None:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "计划快照丢失")
-    run = TaskRun(
-        org_id=org.org_id,
+    await repo.create_task_run(
+        session,
+        org.org_id,
+        plan.id,
+        f"queued-plan-{plan.id}",
         task_id=task_id,
-        plan_id=plan.id,
         status="pending",
     )
-    session.add(run)
-    await session.flush()
 
     return plan_result
 
