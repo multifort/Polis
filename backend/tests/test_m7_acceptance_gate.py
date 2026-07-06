@@ -37,6 +37,7 @@ def test_verdict_prints_budget_dash_without_done_runs(capsys: pytest.CaptureFixt
             "ran": 0,
             "needs_review_runs": 2,
             "failed_runs": 0,
+            "non_terminal_runs": 0,
         }
     )
     out = capsys.readouterr().out
@@ -194,3 +195,79 @@ def test_run_gate_keeps_going_when_one_goal_times_out(
     assert report["rows"][0]["dag_ok"] is False
     assert "ReadTimeout" in report["rows"][0]["error"]
     assert report["rows"][1]["dag_ok"] is True
+
+
+def test_run_gate_counts_non_terminal_full_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    goals_file = tmp_path / "custom_goals.json"
+    goals_file.write_text('{"goals": [{"goal": "长跑目标"}]}', encoding="utf-8")
+
+    class _FakeClient:
+        def __init__(
+            self, _base: str, _email: str, _password: str, _request_timeout: float
+        ) -> None:
+            self.org_id = ""
+
+        def ensure_org(self, org_id: str | None) -> str:
+            self.org_id = org_id or "org-test"
+            return self.org_id
+
+        def agents(self) -> dict[str, list[str]]:
+            return {"报告Agent": ["report.generation"]}
+
+        def relogin(self) -> None:
+            return None
+
+        def create_plan(self, _goal: str) -> tuple[int, dict[str, Any]]:
+            return (
+                201,
+                {
+                    "id": "plan-test",
+                    "template": "generated",
+                    "dag": {
+                        "nodes": [
+                            {
+                                "id": "n1",
+                                "type": "agent",
+                                "required_capabilities": ["report.generation"],
+                            }
+                        ]
+                    },
+                    "routing": {"n1": "报告Agent"},
+                },
+            )
+
+        def approve(self, _plan_id: str) -> int:
+            return 201
+
+        def run(self, _plan_id: str) -> dict[str, Any]:
+            return {"status": "running"}
+
+        def observability(self, _plan_id: str) -> dict[str, Any]:
+            return {"totals": {"cost": 0}, "duration_seconds": None}
+
+    monkeypatch.setattr(acceptance_gate, "Gate", _FakeClient)
+    monkeypatch.setattr(acceptance_gate, "poll_until_terminal", lambda *_args: "running")
+    args = type(
+        "Args",
+        (),
+        {
+            "goals_file": str(goals_file),
+            "limit": 0,
+            "base": "http://test",
+            "email": "demo@polis.dev",
+            "password": "secret123",
+            "request_timeout": 120.0,
+            "org_id": None,
+            "full": True,
+            "timeout": 1.0,
+            "latency_budget": 600.0,
+        },
+    )()
+
+    report = acceptance_gate.run_gate(args)
+    assert report["metrics"]["approved_runs"] == 1
+    assert report["metrics"]["ran"] == 0
+    assert report["metrics"]["task_completion_rate"] == 0.0
+    assert report["metrics"]["non_terminal_runs"] == 1

@@ -157,6 +157,7 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     dag_ok = route_hit = route_total = 0
     approved = done_runs = eval_pass = within_budget = needs_review_runs = failed_runs = 0
+    non_terminal_runs = 0
     costs: list[float] = []
     durs: list[float] = []
 
@@ -199,6 +200,8 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
                     needs_review_runs += 1
                 elif status == "failed":
                     failed_runs += 1
+                else:
+                    non_terminal_runs += 1
                 obs = gate.observability(plan_id)
                 cost = float(obs.get("totals", {}).get("cost") or 0)
                 dur = obs.get("duration_seconds")
@@ -237,6 +240,7 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
         "task_completion_rate": round(done_runs / approved, 3) if approved else None,
         "needs_review_runs": needs_review_runs,
         "failed_runs": failed_runs,
+        "non_terminal_runs": non_terminal_runs,
         "avg_cost_yuan": round(sum(costs) / len(costs), 4) if costs else None,
         "avg_duration_s": round(sum(durs) / len(durs), 1) if durs else None,
         "within_budget_rate": round(within_budget / done_runs, 3) if done_runs else None,
@@ -271,7 +275,8 @@ def verdict(m: dict[str, Any]) -> None:
         print(
             f"  B任务完成 : {m['task_completion_rate']:.1%}  门槛 ≥ 90%  {mark} "
             f"(approved={m['approved_runs']}, done={m['ran']}, "
-            f"needs_review={m['needs_review_runs']}, failed={m['failed_runs']})",
+            f"needs_review={m['needs_review_runs']}, failed={m['failed_runs']}, "
+            f"non_terminal={m['non_terminal_runs']})",
             flush=True,
         )
     print("==========================================", flush=True)
