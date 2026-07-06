@@ -31,6 +31,7 @@ DEFAULT_BASE = "http://127.0.0.1:8000"
 DEFAULT_EMAIL = "demo_li@polis.dev"
 DEFAULT_PASSWORD = "secret123"
 GOALS_PATH = Path(__file__).with_name("goals.json")
+TERMINAL_RUN_STATUSES = {"done", "failed", "needs_review"}
 
 
 class Gate:
@@ -126,7 +127,7 @@ def poll_until_terminal(gate: Gate, plan_id: str, timeout: float) -> str:
     while time.time() < deadline:
         st = gate.run(plan_id)
         last = str(st.get("status", "unknown"))
-        if last in ("done", "failed"):
+        if last in TERMINAL_RUN_STATUSES:
             return last
         time.sleep(5)
     return last
@@ -152,7 +153,7 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
 
     rows: list[dict[str, Any]] = []
     dag_ok = route_hit = route_total = 0
-    ran = eval_pass = within_budget = 0
+    approved = done_runs = eval_pass = within_budget = needs_review_runs = failed_runs = 0
     costs: list[float] = []
     durs: list[float] = []
 
@@ -178,8 +179,15 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
             budget_yuan = (plan.get("dag", {}).get("budget_cents") or 0) / 100
             ac = gate.approve(plan_id)
             if 200 <= ac < 300:
+                approved += 1
                 status = poll_until_terminal(gate, plan_id, args.timeout)
                 row["run"] = status
+                if status == "done":
+                    done_runs += 1
+                elif status == "needs_review":
+                    needs_review_runs += 1
+                elif status == "failed":
+                    failed_runs += 1
                 obs = gate.observability(plan_id)
                 cost = float(obs.get("totals", {}).get("cost") or 0)
                 dur = obs.get("duration_seconds")
@@ -189,7 +197,6 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
                 row["cost"] = round(cost, 4)
                 row["dur_s"] = dur
                 if status == "done":
-                    ran += 1
                     out = final_output(obs)
                     ev = gate.eval_output(out, g.get("acceptance"))
                     row["judge"] = round(float(ev.get("judge_score", 0)), 2)
@@ -212,11 +219,15 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
         "goals": n,
         "dag_available_rate": round(dag_ok / n, 3) if n else 0,
         "routing_hit_rate": round(route_hit / route_total, 3) if route_total else None,
-        "human_pass_rate": round(eval_pass / ran, 3) if ran else None,
-        "ran": ran,
+        "human_pass_rate": round(eval_pass / done_runs, 3) if done_runs else None,
+        "ran": done_runs,
+        "approved_runs": approved,
+        "task_completion_rate": round(done_runs / approved, 3) if approved else None,
+        "needs_review_runs": needs_review_runs,
+        "failed_runs": failed_runs,
         "avg_cost_yuan": round(sum(costs) / len(costs), 4) if costs else None,
         "avg_duration_s": round(sum(durs) / len(durs), 1) if durs else None,
-        "within_budget_rate": round(within_budget / ran, 3) if ran else None,
+        "within_budget_rate": round(within_budget / done_runs, 3) if done_runs else None,
     }
     return {"mode": "full" if args.full else "dry", "metrics": metrics, "rows": rows}
 
@@ -235,9 +246,19 @@ def verdict(m: dict[str, Any]) -> None:
             mark = "✅" if val >= thr else "❌"
             print(f"  {name:<8} : {val:.1%}  门槛 ≥ {thr:.0%}  {mark}")
     if m.get("avg_cost_yuan") is not None:
+        within_budget = (
+            f"{m['within_budget_rate']:.0%}" if m.get("within_budget_rate") is not None else "—"
+        )
         print(
             f"  成本/时延 : 均成本 ¥{m['avg_cost_yuan']} · 均时延 {m['avg_duration_s']}s · "
-            f"预算内 {m['within_budget_rate']:.0%}"
+            f"预算内 {within_budget}"
+        )
+    if m.get("task_completion_rate") is not None:
+        mark = "✅" if m["task_completion_rate"] >= 0.90 else "❌"
+        print(
+            f"  B任务完成 : {m['task_completion_rate']:.1%}  门槛 ≥ 90%  {mark} "
+            f"(approved={m['approved_runs']}, done={m['ran']}, "
+            f"needs_review={m['needs_review_runs']}, failed={m['failed_runs']})"
         )
     print("==========================================")
 
