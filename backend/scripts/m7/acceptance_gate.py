@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,13 @@ DEFAULT_PASSWORD = "secret123"
 DEFAULT_REQUEST_TIMEOUT = 120.0
 GOALS_PATH = Path(__file__).with_name("goals.json")
 TERMINAL_RUN_STATUSES = {"done", "failed", "needs_review"}
+HUMAN_WAIT_STATUSES = {"waiting_human", "needs_human"}
+
+
+@dataclass(frozen=True)
+class PollResult:
+    status: str
+    human_signals: int = 0
 
 
 class Gate:
@@ -94,6 +102,14 @@ class Gate:
         r = self.client.get(f"/api/plans/{plan_id}/run", headers=self._h())
         return {"_status": r.status_code, **(r.json() if r.content else {})}
 
+    def signal(self, plan_id: str, node_id: str) -> int:
+        r = self.client.post(
+            f"/api/plans/{plan_id}/signal",
+            headers=self._h(),
+            json={"node_id": node_id},
+        )
+        return r.status_code
+
     def observability(self, plan_id: str) -> dict[str, Any]:
         r = self.client.get(f"/api/plans/{plan_id}/observability", headers=self._h())
         return {"_status": r.status_code, **(r.json() if r.content else {})}
@@ -123,16 +139,39 @@ def routing_hits(plan: dict[str, Any], agent_caps: dict[str, list[str]]) -> tupl
     return hit, total
 
 
-def poll_until_terminal(gate: Gate, plan_id: str, timeout: float) -> str:
+def _waiting_human_nodes(run_status: dict[str, Any]) -> list[str]:
+    nodes = run_status.get("nodes") or []
+    return [
+        str(node["id"])
+        for node in nodes
+        if isinstance(node, dict)
+        and node.get("id")
+        and str(node.get("status")) in HUMAN_WAIT_STATUSES
+    ]
+
+
+def poll_until_terminal(
+    gate: Gate, plan_id: str, timeout: float, *, auto_signal_human: bool = True
+) -> PollResult:
     deadline = time.time() + timeout
     last = "unknown"
+    signalled: set[str] = set()
+    human_signals = 0
     while time.time() < deadline:
         st = gate.run(plan_id)
         last = str(st.get("status", "unknown"))
         if last in TERMINAL_RUN_STATUSES:
-            return last
+            return PollResult(status=last, human_signals=human_signals)
+        if auto_signal_human:
+            for node_id in _waiting_human_nodes(st):
+                if node_id in signalled:
+                    continue
+                code = gate.signal(plan_id, node_id)
+                if 200 <= code < 300:
+                    signalled.add(node_id)
+                    human_signals += 1
         time.sleep(5)
-    return last
+    return PollResult(status=last, human_signals=human_signals)
 
 
 def final_output(obs: dict[str, Any]) -> str:
@@ -158,6 +197,7 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
     dag_ok = route_hit = route_total = 0
     approved = done_runs = eval_pass = within_budget = needs_review_runs = failed_runs = 0
     non_terminal_runs = 0
+    human_signals = 0
     costs: list[float] = []
     durs: list[float] = []
 
@@ -192,8 +232,17 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
             ac = gate.approve(plan_id)
             if 200 <= ac < 300:
                 approved += 1
-                status = poll_until_terminal(gate, plan_id, args.timeout)
+                poll = poll_until_terminal(
+                    gate,
+                    plan_id,
+                    args.timeout,
+                    auto_signal_human=args.auto_signal_human,
+                )
+                status = poll.status
                 row["run"] = status
+                if poll.human_signals:
+                    row["human_signals"] = poll.human_signals
+                    human_signals += poll.human_signals
                 if status == "done":
                     done_runs += 1
                 elif status == "needs_review":
@@ -241,6 +290,7 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
         "needs_review_runs": needs_review_runs,
         "failed_runs": failed_runs,
         "non_terminal_runs": non_terminal_runs,
+        "human_signals": human_signals,
         "avg_cost_yuan": round(sum(costs) / len(costs), 4) if costs else None,
         "avg_duration_s": round(sum(durs) / len(durs), 1) if durs else None,
         "within_budget_rate": round(within_budget / done_runs, 3) if done_runs else None,
@@ -276,7 +326,7 @@ def verdict(m: dict[str, Any]) -> None:
             f"  B任务完成 : {m['task_completion_rate']:.1%}  门槛 ≥ 90%  {mark} "
             f"(approved={m['approved_runs']}, done={m['ran']}, "
             f"needs_review={m['needs_review_runs']}, failed={m['failed_runs']}, "
-            f"non_terminal={m['non_terminal_runs']})",
+            f"non_terminal={m['non_terminal_runs']}, human_signals={m.get('human_signals', 0)})",
             flush=True,
         )
     print("==========================================", flush=True)
@@ -299,6 +349,13 @@ def main() -> None:
         help="单个 HTTP 请求超时(s)，生成路径可能超过 30s",
     )
     p.add_argument("--timeout", type=float, default=300.0, help="单任务运行轮询超时(s)")
+    p.add_argument(
+        "--no-auto-signal-human",
+        dest="auto_signal_human",
+        action="store_false",
+        help="关闭 benchmark 默认的人审节点自动 signal",
+    )
+    p.set_defaults(auto_signal_human=True)
     p.add_argument("--latency-budget", type=float, default=600.0, help="单任务时延预算(s)")
     p.add_argument("--out", default=None, help="把报告 JSON 写到文件")
     args = p.parse_args()

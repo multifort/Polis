@@ -16,11 +16,44 @@ class _FakeGate:
     def run(self, _plan_id: str) -> dict[str, Any]:
         return {"status": self.statuses.pop(0)}
 
+    def signal(self, _plan_id: str, _node_id: str) -> int:
+        return 204
+
 
 def test_poll_until_terminal_accepts_needs_review(monkeypatch: pytest.MonkeyPatch) -> None:
     gate = _FakeGate(["running", "needs_review"])
     monkeypatch.setattr(acceptance_gate.time, "sleep", lambda _seconds: None)
-    assert acceptance_gate.poll_until_terminal(gate, "plan-1", timeout=1) == "needs_review"
+    poll = acceptance_gate.poll_until_terminal(gate, "plan-1", timeout=1)
+    assert poll.status == "needs_review"
+    assert poll.human_signals == 0
+
+
+def test_poll_until_terminal_auto_signals_waiting_human(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _HumanGate:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.signals: list[tuple[str, str]] = []
+
+        def run(self, _plan_id: str) -> dict[str, Any]:
+            self.calls += 1
+            if self.calls == 1:
+                return {"status": "running", "nodes": [{"id": "h1", "status": "waiting_human"}]}
+            return {"status": "done", "nodes": [{"id": "h1", "status": "done"}]}
+
+        def signal(self, plan_id: str, node_id: str) -> int:
+            self.signals.append((plan_id, node_id))
+            return 204
+
+    gate = _HumanGate()
+    monkeypatch.setattr(acceptance_gate.time, "sleep", lambda _seconds: None)
+
+    poll = acceptance_gate.poll_until_terminal(gate, "plan-1", timeout=1)
+
+    assert poll.status == "done"
+    assert poll.human_signals == 1
+    assert gate.signals == [("plan-1", "h1")]
 
 
 def test_verdict_prints_budget_dash_without_done_runs(capsys: pytest.CaptureFixture[str]) -> None:
@@ -110,6 +143,7 @@ def test_run_gate_uses_custom_goals_file(tmp_path: Path, monkeypatch: pytest.Mon
             "request_timeout": 120.0,
             "org_id": None,
             "full": False,
+            "auto_signal_human": True,
         },
     )()
 
@@ -186,6 +220,7 @@ def test_run_gate_keeps_going_when_one_goal_times_out(
             "request_timeout": 120.0,
             "org_id": None,
             "full": False,
+            "auto_signal_human": True,
         },
     )()
 
@@ -248,7 +283,11 @@ def test_run_gate_counts_non_terminal_full_run(
             return {"totals": {"cost": 0}, "duration_seconds": None}
 
     monkeypatch.setattr(acceptance_gate, "Gate", _FakeClient)
-    monkeypatch.setattr(acceptance_gate, "poll_until_terminal", lambda *_args: "running")
+    monkeypatch.setattr(
+        acceptance_gate,
+        "poll_until_terminal",
+        lambda *_args, **_kwargs: acceptance_gate.PollResult("running"),
+    )
     args = type(
         "Args",
         (),
@@ -261,6 +300,7 @@ def test_run_gate_counts_non_terminal_full_run(
             "request_timeout": 120.0,
             "org_id": None,
             "full": True,
+            "auto_signal_human": True,
             "timeout": 1.0,
             "latency_budget": 600.0,
         },
@@ -271,3 +311,4 @@ def test_run_gate_counts_non_terminal_full_run(
     assert report["metrics"]["ran"] == 0
     assert report["metrics"]["task_completion_rate"] == 0.0
     assert report["metrics"]["non_terminal_runs"] == 1
+    assert report["metrics"]["human_signals"] == 0
