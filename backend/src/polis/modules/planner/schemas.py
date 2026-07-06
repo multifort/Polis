@@ -133,7 +133,7 @@ class TaskCreateIn(BaseModel):
     scenario_ref: str | None = None
     input_schema: dict[str, object] | None = None
     inputs: dict[str, object] | None = None
-    priority: int = Field(default=0, ge=0, le=100)
+    priority: int | None = Field(default=None, ge=0, le=100)
 
 
 class TaskOut(BaseModel):

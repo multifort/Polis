@@ -379,7 +379,14 @@ export const api = {
   // ── 任务实体（V2-P1）──
   createTask: (
     orgId: string,
-    body: { name: string; goal: string; scenario_ref?: string; priority?: number },
+    body: {
+      name: string;
+      goal: string;
+      scenario_ref?: string;
+      input_schema?: Record<string, unknown>;
+      inputs?: Record<string, unknown>;
+      priority?: number | null;
+    },
   ) =>
     request<Task>("/api/tasks", { method: "POST", body: JSON.stringify(body) }, true, orgId),
   listTasks: (orgId: string) => request<Task[]>("/api/tasks", {}, true, orgId),

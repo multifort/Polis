@@ -65,6 +65,33 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ApproverOrg = Annotated[OrgContext, Depends(require_role("owner", "approver"))]
 
 _TEMPORAL_CONNECT_TIMEOUT = 5.0
+_DEFAULT_TASK_PRIORITY = 0
+_MAX_TASK_PRIORITY = 100
+_SLA_PRIORITY = {
+    "p0": 100,
+    "critical": 90,
+    "urgent": 90,
+    "p1": 80,
+    "high": 70,
+    "normal": 0,
+    "medium": 0,
+    "low": 0,
+    "紧急": 90,
+    "高": 70,
+    "普通": 0,
+    "低": 0,
+}
+_TASK_TYPE_PRIORITY = {
+    "incident": 80,
+    "support": 60,
+    "customer": 50,
+    "report": 10,
+    "batch": 0,
+    "故障": 80,
+    "客户": 50,
+    "报告": 10,
+    "批处理": 0,
+}
 
 
 def get_template_embedding_gateway() -> ModelGateway:
@@ -72,6 +99,30 @@ def get_template_embedding_gateway() -> ModelGateway:
 
 
 TemplateEmbeddingGateway = Annotated[ModelGateway, Depends(get_template_embedding_gateway)]
+
+
+def _priority_from_mapping(value: object, mapping: dict[str, int]) -> int | None:
+    if value is None:
+        return None
+    key = str(value).strip().lower()
+    if not key:
+        return None
+    return mapping.get(key)
+
+
+def _derive_task_priority(data: TaskCreateIn) -> int:
+    """任务优先级：显式 priority 优先；未填时从 SLA/任务类型保守派生。"""
+    if data.priority is not None:
+        return data.priority
+    inputs = data.inputs or {}
+    candidates = [
+        _priority_from_mapping(inputs.get("sla"), _SLA_PRIORITY),
+        _priority_from_mapping(inputs.get("task_type"), _TASK_TYPE_PRIORITY),
+        _priority_from_mapping(inputs.get("taskType"), _TASK_TYPE_PRIORITY),
+        _priority_from_mapping(inputs.get("type"), _TASK_TYPE_PRIORITY),
+    ]
+    derived = max((p for p in candidates if p is not None), default=_DEFAULT_TASK_PRIORITY)
+    return min(max(derived, _DEFAULT_TASK_PRIORITY), _MAX_TASK_PRIORITY)
 
 
 async def _temporal_client() -> Any:
@@ -302,7 +353,7 @@ async def create_task(
         input_schema=data.input_schema,
         inputs=data.inputs,
         created_by=user_id,
-        priority=data.priority,
+        priority=_derive_task_priority(data),
     )
     return TaskOut.model_validate(task, from_attributes=True)
 

@@ -74,3 +74,44 @@ def test_task_crud_and_run_link(client: TestClient) -> None:
             await engine.dispose()
 
     asyncio.run(_link())
+
+
+def test_task_priority_derived_from_sla_inputs(client: TestClient) -> None:
+    c = cast(Any, client)
+    asyncio.run(seed())
+    auth = _auth(c, f"task_sla_{uuid.uuid4().hex[:8]}@polis.dev")
+    org_id = c.post(
+        "/api/provision", json={"name": "采购公司", "preset": "采购分析公司"}, headers=auth
+    ).json()["org"]["id"]
+    h = {**auth, "X-Org-Id": org_id}
+
+    derived = c.post(
+        "/api/tasks",
+        json={
+            "name": "紧急供应商故障处理",
+            "goal": "排查供应商交付故障",
+            "inputs": {"sla": "urgent", "task_type": "customer"},
+        },
+        headers=h,
+    )
+    assert derived.status_code == 201, derived.text
+    derived_task = derived.json()
+    assert derived_task["priority"] == 90
+
+    explicit_zero = c.post(
+        "/api/tasks",
+        json={
+            "name": "手动降级任务",
+            "goal": "保持低优先级处理",
+            "priority": 0,
+            "inputs": {"sla": "urgent", "task_type": "incident"},
+        },
+        headers=h,
+    )
+    assert explicit_zero.status_code == 201, explicit_zero.text
+    zero_task = explicit_zero.json()
+    assert zero_task["priority"] == 0
+
+    lst = c.get("/api/tasks", headers=h).json()
+    assert any(t["id"] == derived_task["id"] and t["priority"] == 90 for t in lst)
+    assert any(t["id"] == zero_task["id"] and t["priority"] == 0 for t in lst)
