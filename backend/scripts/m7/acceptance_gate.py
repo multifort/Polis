@@ -175,8 +175,11 @@ def poll_until_terminal(
 
 
 def final_output(obs: dict[str, Any]) -> str:
-    """取终产出文本：优先 report.generation 节点，否则最后一个有 summary 的节点。"""
+    """取终产出文本：优先全文 content，summary 仅作旧数据兜底。"""
     nodes = obs.get("nodes", [])
+    for n in reversed(nodes):
+        if n.get("content"):
+            return str(n["content"])
     for n in reversed(nodes):
         if n.get("summary"):
             return str(n["summary"])

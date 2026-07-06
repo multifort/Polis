@@ -78,6 +78,19 @@ def test_verdict_prints_budget_dash_without_done_runs(capsys: pytest.CaptureFixt
     assert "B任务完成 : 0.0%" in out
 
 
+def test_final_output_prefers_full_content_over_summary() -> None:
+    out = acceptance_gate.final_output(
+        {
+            "nodes": [
+                {"node_id": "n1", "summary": "上游摘要", "content": "上游全文"},
+                {"node_id": "n2", "summary": "终端摘要", "content": "终端全文"},
+            ]
+        }
+    )
+
+    assert out == "终端全文"
+
+
 def test_run_gate_uses_custom_goals_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     goals_file = tmp_path / "custom_goals.json"
     goals_file.write_text(
