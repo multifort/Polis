@@ -14,6 +14,7 @@
 用法（需先起后端 + worker + temporal，见续接指南 §3）：
   uv run python scripts/m7/acceptance_gate.py --dry
   uv run python scripts/m7/acceptance_gate.py --full --limit 3
+  uv run python scripts/m7/acceptance_gate.py --dry --goals-file scripts/m7/goals_b_stability.json
   可选：--org-id <已有花名册的公司>（缺省则用预设新建一家验收门公司）
 """
 
@@ -30,16 +31,17 @@ import httpx
 DEFAULT_BASE = "http://127.0.0.1:8000"
 DEFAULT_EMAIL = "demo_li@polis.dev"
 DEFAULT_PASSWORD = "secret123"
+DEFAULT_REQUEST_TIMEOUT = 120.0
 GOALS_PATH = Path(__file__).with_name("goals.json")
 TERMINAL_RUN_STATUSES = {"done", "failed", "needs_review"}
 
 
 class Gate:
-    def __init__(self, base: str, email: str, password: str) -> None:
+    def __init__(self, base: str, email: str, password: str, request_timeout: float) -> None:
         self.base = base.rstrip("/")
         self.email = email
         self.password = password
-        self.client = httpx.Client(base_url=self.base, trust_env=False, timeout=30.0)
+        self.client = httpx.Client(base_url=self.base, trust_env=False, timeout=request_timeout)
         self.token = self._login(email, password)
         self.org_id: str = ""
 
@@ -143,10 +145,11 @@ def final_output(obs: dict[str, Any]) -> str:
 
 
 def run_gate(args: argparse.Namespace) -> dict[str, Any]:
-    data = json.loads(GOALS_PATH.read_text(encoding="utf-8"))
+    goals_path = Path(args.goals_file)
+    data = json.loads(goals_path.read_text(encoding="utf-8"))
     goals = data["goals"][: args.limit] if args.limit else data["goals"]
 
-    gate = Gate(args.base, args.email, args.password)
+    gate = Gate(args.base, args.email, args.password, args.request_timeout)
     gate.ensure_org(args.org_id)
     caps = gate.agents()
     print(f"  · 花名册能力：{ {k: v for k, v in caps.items()} }\n")
@@ -161,7 +164,15 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
         gate.relogin()  # 刷新短时 access JWT，避免长跑中途过期
         goal = g["goal"]
         row: dict[str, Any] = {"goal": goal}
-        code, plan = gate.create_plan(goal)
+        try:
+            code, plan = gate.create_plan(goal)
+        except httpx.HTTPError as exc:
+            row["dag_ok"] = False
+            row["route"] = "-"
+            row["error"] = f"{type(exc).__name__}: {exc}"
+            rows.append(row)
+            print(f"[{i}/{len(goals)}] {json.dumps(row, ensure_ascii=False)}")
+            continue
         row["dag_ok"] = code == 201
         if code == 201:
             dag_ok += 1
@@ -217,6 +228,7 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
     n = len(goals)
     metrics = {
         "goals": n,
+        "goals_file": str(goals_path),
         "dag_available_rate": round(dag_ok / n, 3) if n else 0,
         "routing_hit_rate": round(route_hit / route_total, 3) if route_total else None,
         "human_pass_rate": round(eval_pass / done_runs, 3) if done_runs else None,
@@ -271,7 +283,14 @@ def main() -> None:
     p.add_argument("--org-id", default=None, help="已有花名册的公司；缺省则用预设新建")
     p.add_argument("--full", action="store_true", help="出图→运行→评测（真实 LLM）")
     p.add_argument("--dry", action="store_true", help="仅出图（默认；零 LLM）")
+    p.add_argument("--goals-file", default=str(GOALS_PATH), help="目标集 JSON 文件路径")
     p.add_argument("--limit", type=int, default=0, help="只跑前 N 个目标（0=全部）")
+    p.add_argument(
+        "--request-timeout",
+        type=float,
+        default=DEFAULT_REQUEST_TIMEOUT,
+        help="单个 HTTP 请求超时(s)，生成路径可能超过 30s",
+    )
     p.add_argument("--timeout", type=float, default=300.0, help="单任务运行轮询超时(s)")
     p.add_argument("--latency-budget", type=float, default=600.0, help="单任务时延预算(s)")
     p.add_argument("--out", default=None, help="把报告 JSON 写到文件")
