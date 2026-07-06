@@ -73,7 +73,7 @@ class Gate:
         )
         r.raise_for_status()
         self.org_id = str(r.json()["org"]["id"])
-        print(f"  · 新建验收门公司：{name}  org_id={self.org_id}")
+        print(f"  · 新建验收门公司：{name}  org_id={self.org_id}", flush=True)
         return self.org_id
 
     def agents(self) -> dict[str, list[str]]:
@@ -152,7 +152,7 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
     gate = Gate(args.base, args.email, args.password, args.request_timeout)
     gate.ensure_org(args.org_id)
     caps = gate.agents()
-    print(f"  · 花名册能力：{ {k: v for k, v in caps.items()} }\n")
+    print(f"  · 花名册能力：{ {k: v for k, v in caps.items()} }\n", flush=True)
 
     rows: list[dict[str, Any]] = []
     dag_ok = route_hit = route_total = 0
@@ -171,7 +171,7 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
             row["route"] = "-"
             row["error"] = f"{type(exc).__name__}: {exc}"
             rows.append(row)
-            print(f"[{i}/{len(goals)}] {json.dumps(row, ensure_ascii=False)}")
+            print(f"[{i}/{len(goals)}] {json.dumps(row, ensure_ascii=False)}", flush=True)
             continue
         row["dag_ok"] = code == 201
         if code == 201:
@@ -223,7 +223,7 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
             else:
                 row["run"] = f"approve={ac}（编排未就绪？）"
         rows.append(row)
-        print(f"[{i}/{len(goals)}] {json.dumps(row, ensure_ascii=False)}")
+        print(f"[{i}/{len(goals)}] {json.dumps(row, ensure_ascii=False)}", flush=True)
 
     n = len(goals)
     metrics = {
@@ -245,7 +245,7 @@ def run_gate(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def verdict(m: dict[str, Any]) -> None:
-    print("\n================ V1 验收门 ================")
+    print("\n================ V1 验收门 ================", flush=True)
     gates = [
         ("DAG 可用率", m["dag_available_rate"], 0.70),
         ("路由命中率", m["routing_hit_rate"], 0.75),
@@ -253,26 +253,28 @@ def verdict(m: dict[str, Any]) -> None:
     ]
     for name, val, thr in gates:
         if val is None:
-            print(f"  {name:<8} : —（未跑/不适用）  门槛 ≥ {thr:.0%}")
+            print(f"  {name:<8} : —（未跑/不适用）  门槛 ≥ {thr:.0%}", flush=True)
         else:
             mark = "✅" if val >= thr else "❌"
-            print(f"  {name:<8} : {val:.1%}  门槛 ≥ {thr:.0%}  {mark}")
+            print(f"  {name:<8} : {val:.1%}  门槛 ≥ {thr:.0%}  {mark}", flush=True)
     if m.get("avg_cost_yuan") is not None:
         within_budget = (
             f"{m['within_budget_rate']:.0%}" if m.get("within_budget_rate") is not None else "—"
         )
         print(
             f"  成本/时延 : 均成本 ¥{m['avg_cost_yuan']} · 均时延 {m['avg_duration_s']}s · "
-            f"预算内 {within_budget}"
+            f"预算内 {within_budget}",
+            flush=True,
         )
     if m.get("task_completion_rate") is not None:
         mark = "✅" if m["task_completion_rate"] >= 0.90 else "❌"
         print(
             f"  B任务完成 : {m['task_completion_rate']:.1%}  门槛 ≥ 90%  {mark} "
             f"(approved={m['approved_runs']}, done={m['ran']}, "
-            f"needs_review={m['needs_review_runs']}, failed={m['failed_runs']})"
+            f"needs_review={m['needs_review_runs']}, failed={m['failed_runs']})",
+            flush=True,
         )
-    print("==========================================")
+    print("==========================================", flush=True)
 
 
 def main() -> None:
@@ -302,7 +304,7 @@ def main() -> None:
         Path(args.out).write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        print(f"\n报告已写入 {args.out}")
+        print(f"\n报告已写入 {args.out}", flush=True)
 
 
 if __name__ == "__main__":
