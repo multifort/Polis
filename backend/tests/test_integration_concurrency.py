@@ -17,6 +17,9 @@ from polis.modules.planner import repository as repo
 from polis.modules.planner import workflow as planner_workflow
 from polis.seed import seed
 
+_LARGE_QUEUE_SIZE = 120
+_LARGE_QUEUE_FETCH = 40
+
 
 def _auth(c: Any, email: str) -> dict[str, str]:
     r = c.post("/api/auth/register", json={"email": email, "password": "secret123"})
@@ -319,7 +322,7 @@ def test_next_pending_runs_tiebreaks_fifo(pg_url: str) -> None:
 
 
 def test_next_pending_runs_large_batch_ordering(pg_url: str) -> None:
-    """S3 队列压力回归：批量 pending 按 priority、成本、FIFO 精确排序。"""
+    """S3 队列压力回归：较大批量 pending 按 priority、成本、FIFO 精确排序。"""
     engine = create_engine(pg_url.replace("+asyncpg", "+psycopg2"))
     try:
         with engine.begin() as conn:
@@ -347,7 +350,7 @@ def test_next_pending_runs_large_batch_ordering(pg_url: str) -> None:
             async with async_sessionmaker(db)() as s:
                 base = datetime.now(UTC)
                 rows: list[tuple[int, int, datetime, uuid.UUID]] = []
-                for idx in range(30):
+                for idx in range(_LARGE_QUEUE_SIZE):
                     priority = idx % 4
                     cost = [300, 100, 200, 100, 400][idx % 5]
                     created_at = base + timedelta(seconds=idx)
@@ -379,10 +382,10 @@ def test_next_pending_runs_large_batch_ordering(pg_url: str) -> None:
                 for _priority, _cost, _created_at, row_id in sorted(
                     rows,
                     key=lambda row: (-row[0], row[1], row[2]),
-                )[:12]
+                )[:_LARGE_QUEUE_FETCH]
             ]
             async with async_sessionmaker(db)() as s:
-                got = await repo.next_pending_runs(s, org_id, limit=12)
+                got = await repo.next_pending_runs(s, org_id, limit=_LARGE_QUEUE_FETCH)
                 assert [run.id for run in got] == expected
         finally:
             await db.dispose()
