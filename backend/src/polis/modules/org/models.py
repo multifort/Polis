@@ -13,6 +13,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Index,
     PrimaryKeyConstraint,
@@ -67,6 +68,19 @@ class PasswordResetToken(UUIDPkMixin, Base):
     expires_at: Mapped[datetime]
     used_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+
+
+class AuthRateLimitBucket(Base):
+    """登录失败限流桶（平台级，无 org_id）：跨进程共享，避免多实例各自计数。"""
+
+    __tablename__ = "auth_rate_limit_bucket"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    failures: Mapped[list[float]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
 
 
 # ---- 组织级 ----

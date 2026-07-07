@@ -108,12 +108,32 @@ async def _audit_login_failed(email: str, reason: str = "invalid_credentials") -
         logger.warning("登录失败审计写入失败（不影响 401）", exc_info=True)
 
 
+async def _rate_limit_retry_after(email: str, ip: str | None) -> int | None:
+    async with get_sessionmaker()() as s:
+        retry_after = await auth_rate_limit.retry_after_seconds_db(s, email, ip)
+        await s.commit()
+        return retry_after
+
+
+async def _record_login_failure(email: str, ip: str | None) -> int | None:
+    async with get_sessionmaker()() as s:
+        retry_after = await auth_rate_limit.record_failure_db(s, email, ip)
+        await s.commit()
+        return retry_after
+
+
+async def _record_login_success(email: str, ip: str | None) -> None:
+    async with get_sessionmaker()() as s:
+        await auth_rate_limit.record_success_db(s, email, ip)
+        await s.commit()
+
+
 @router.post("/auth/login", response_model=TokenOut)
 async def login(
     data: LoginIn, request: Request, response: Response, session: SessionDep
 ) -> TokenOut:
     ip = request.client.host if request.client else None
-    retry_after = auth_rate_limit.retry_after_seconds(data.email, ip)
+    retry_after = await _rate_limit_retry_after(data.email, ip)
     if retry_after is not None:
         await _audit_login_failed(data.email, reason="rate_limited")
         raise HTTPException(
@@ -123,11 +143,11 @@ async def login(
         )
     try:
         token = await service.login(session, data)
-        auth_rate_limit.record_success(data.email, ip)
+        await _record_login_success(data.email, ip)
         _set_auth_cookies(response, token)
         return token
     except service.InvalidCredentials as exc:
-        retry_after = auth_rate_limit.record_failure(data.email, ip)
+        retry_after = await _record_login_failure(data.email, ip)
         await _audit_login_failed(data.email)
         if retry_after is not None:
             raise HTTPException(

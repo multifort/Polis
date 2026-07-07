@@ -7,11 +7,13 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, delete, func, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.modules.org.models import (
     Agent,
     AppUser,
+    AuthRateLimitBucket,
     AuthSession,
     Org,
     OrgInvite,
@@ -127,6 +129,34 @@ async def mark_password_reset_token_used(session: AsyncSession, token_hash: str)
     )
     await session.flush()
     return result.rowcount > 0
+
+
+async def get_rate_limit_bucket_for_update(
+    session: AsyncSession, key: str
+) -> AuthRateLimitBucket | None:
+    row: AuthRateLimitBucket | None = await session.scalar(
+        select(AuthRateLimitBucket).where(AuthRateLimitBucket.key == key).with_for_update()
+    )
+    return row
+
+
+async def get_or_create_rate_limit_bucket_for_update(
+    session: AsyncSession, key: str
+) -> AuthRateLimitBucket:
+    await session.execute(
+        pg_insert(AuthRateLimitBucket)
+        .values(key=key, failures=[])
+        .on_conflict_do_nothing(index_elements=[AuthRateLimitBucket.key])
+    )
+    row = await get_rate_limit_bucket_for_update(session, key)
+    if row is None:  # pragma: no cover - defensive; insert/select should always produce a row.
+        raise RuntimeError("auth rate limit bucket insert failed")
+    return row
+
+
+async def delete_rate_limit_bucket(session: AsyncSession, key: str) -> None:
+    await session.execute(delete(AuthRateLimitBucket).where(AuthRateLimitBucket.key == key))
+    await session.flush()
 
 
 async def revoke_sessions_for_user(session: AsyncSession, user_id: uuid.UUID) -> int:
