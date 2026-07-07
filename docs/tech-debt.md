@@ -29,7 +29,7 @@
 | [TD-019](#td-019) | 节点终态仅靠 GET /run 触发回写（无 workflow 完成回调） | Low-Med | **closed** | 已补 finalize_run 工作流完成回调，见偿还记录 |
 | [TD-020](#td-020) | M3 Planner 仅模板优先，全自动 LLM 拆解兜底延后 | Low | **closed** | A2 generate_dag（RAG+双校验+自修复）已补，见偿还记录 |
 | [TD-021](#td-021) | M4 执行内核 5 处桩待真实化（模型/凭证/记忆/护栏/MCP） | Med | open(设计内·ADR-0007) | M5/M6 |
-| [TD-022](#td-022) | run_node 真实执行路径未经 Temporal worker 端到端测试 | Low-Med | open | worker+temporal 常驻测试环境就绪时 |
+| [TD-022](#td-022) | run_node 真实执行路径未经 Temporal worker 端到端测试 | Low-Med | **closed** | 已补真实 worker E2E 回归 |
 | [TD-023](#td-023) | SkillInvocation 计费/可观测为桩（latency/cost=0、聚合一条） | Low | **closed** | 实测 latency + 粗估 cost 已落，见偿还记录 |
 | [TD-024](#td-024) | M5 记忆用确定性检索/去重；embedding/向量RAG/语义近邻/reranker 已接入可回退路径 | Med | **closed** | 真实 rerank 模型按部署配置启用 |
 | [TD-025](#td-025) | Langfuse 采集+自建观测页(H-1/2/3) 完成；trace_ref 表落库未用(直查 API) | Low | **closed** | trace_ref 表后续按需 |
@@ -202,7 +202,10 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 `test_integration_execute` 直接测 `AgentRuntime.execute`（接 DB）。两者之间——
 `run_node(stub=False)→execute_node` 经真实 Temporal worker+DB 的全链路——只在手工联调验证过，无自动化测试。
 - 影响：worker 进程内 `init_engine`/session 生命周期、Activity 超时/重试与真实执行的交互无回归保护。
-- 偿还：worker+temporal+pgvector 常驻测试环境就绪后，补一条经 Temporal Client 启动→真实 execute_node→envelope 入库的端到端用例。
+- **已偿还（2026-07-07）**：新增 `tests/test_integration_workflow_real_node.py`，用 Temporal
+  `WorkflowEnvironment` + 真实 `Worker` 注册 `TaskWorkflow`/activities，启动 `run_node(stub=False)`，
+  经 `execute_node` 写入 `result_envelope`/`skill_invocation`，并由 `finalize_run` 回写 `task_run`/`plan`
+  终态。目标测试：`uv run pytest tests/test_integration_workflow_real_node.py -q` 通过。
 
 ### TD-023
 **SkillInvocation 计费/可观测为桩。** `AgentRuntime.execute` 每节点聚合写一条 `skill_invocation`，
