@@ -226,8 +226,22 @@ async def create_org(data: OrgCreateIn, user_id: CurrentUserId, session: Session
 async def update_org(
     org_id: uuid.UUID, data: OrgUpdateIn, user_id: CurrentUserId, session: SessionDep
 ) -> OrgOut:
+    if "primary_model_id" in data.model_fields_set and data.primary_model_id is not None:
+        model = await session.get(ModelCatalog, data.primary_model_id)
+        if model is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "模型不在目录中")
+        if "text-gen" not in (model.capabilities or []):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "只能选择推理模型")
     try:
-        return await service.update_org(session, user_id, org_id, data.name, data.description)
+        return await service.update_org(
+            session,
+            user_id,
+            org_id,
+            data.name,
+            data.description,
+            data.primary_model_id,
+            update_primary_model="primary_model_id" in data.model_fields_set,
+        )
     except service.NotOwner as exc:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "需所有者权限") from exc
 

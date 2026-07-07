@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from polis.config import get_settings
 from polis.modules.model.gateway import ChatResponse, StubModelGateway, ToolCall
+from polis.modules.org import repository as org_repo
 from polis.modules.org.models import Agent, AgentVersion
 from polis.modules.runtime import agent_runtime
 from polis.modules.runtime.guardrails import Guardrails
@@ -157,6 +158,59 @@ def test_execute_node_uses_agent_config_model(client: TestClient, pg_url: str) -
     facts = envs[0]["facts"]
     assert isinstance(facts, dict)
     assert facts["provenance"]["agent"] == "询价Agent"
+    assert facts["provenance"]["model"] == "deepseek-v4-pro"
+
+
+def test_execute_node_uses_org_primary_model_when_agent_unset(
+    client: TestClient, pg_url: str
+) -> None:
+    asyncio.run(seed())
+    org_id = _provision_procurement(client)
+
+    async def _set_primary_model() -> None:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                org = await org_repo.get_org_by_id(s, uuid.UUID(org_id))
+                assert org is not None
+                org_repo.set_org_primary_model_id(org, "deepseek-v4-pro")
+                await s.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_set_primary_model())
+
+    node = {
+        "id": "n1",
+        "type": "agent",
+        "required_capabilities": ["procurement.rfq"],
+        "input_hint": "向供应商询价",
+    }
+
+    async def _run() -> dict[str, object]:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                res = await agent_runtime.execute(
+                    s,
+                    node,
+                    org_id,
+                    gateway=StubModelGateway(),
+                    registry=default_registry(),
+                    guard=Guardrails(),
+                )
+                await s.commit()
+                return res
+        finally:
+            await engine.dispose()
+
+    result = asyncio.run(_run())
+    assert result["ok"] is True
+
+    envs = _envelopes(pg_url, org_id)
+    assert len(envs) == 1
+    facts = envs[0]["facts"]
+    assert isinstance(facts, dict)
     assert facts["provenance"]["model"] == "deepseek-v4-pro"
 
 

@@ -179,7 +179,16 @@ async def me(session: AsyncSession, user_id: uuid.UUID) -> MeOut:
     orgs = await repo.list_orgs_for_user(session, user_id)
     return MeOut(
         user=UserOut(id=user.id, email=user.email, display_name=user.display_name),
-        orgs=[OrgOut(id=o.id, name=o.name, role=role, description=o.charter) for o, role in orgs],
+        orgs=[
+            OrgOut(
+                id=o.id,
+                name=o.name,
+                role=role,
+                description=o.charter,
+                primary_model_id=repo.org_primary_model_id(o),
+            )
+            for o, role in orgs
+        ],
     )
 
 
@@ -194,7 +203,13 @@ async def create_org(session: AsyncSession, user_id: uuid.UUID, data: OrgCreateI
         target=str(org.id),
         detail={"name": org.name},
     )
-    return OrgOut(id=org.id, name=org.name, role="owner", description=org.charter)
+    return OrgOut(
+        id=org.id,
+        name=org.name,
+        role="owner",
+        description=org.charter,
+        primary_model_id=repo.org_primary_model_id(org),
+    )
 
 
 async def _require_owner(session: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID) -> str:
@@ -210,6 +225,8 @@ async def update_org(
     org_id: uuid.UUID,
     name: str,
     description: str | None,
+    primary_model_id: str | None,
+    update_primary_model: bool = False,
 ) -> OrgOut:
     role = await _require_owner(session, user_id, org_id)
     org = await repo.get_org_by_id(session, org_id)
@@ -217,6 +234,8 @@ async def update_org(
         raise NotOwner
     org.name = name
     org.charter = description
+    if update_primary_model:
+        repo.set_org_primary_model_id(org, primary_model_id)
     await session.flush()
     await write_audit(
         session,
@@ -226,7 +245,13 @@ async def update_org(
         target=str(org_id),
         detail={"name": name},
     )
-    return OrgOut(id=org.id, name=org.name, role=role, description=org.charter)
+    return OrgOut(
+        id=org.id,
+        name=org.name,
+        role=role,
+        description=org.charter,
+        primary_model_id=repo.org_primary_model_id(org),
+    )
 
 
 async def list_members(

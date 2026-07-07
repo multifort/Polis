@@ -126,6 +126,7 @@ export interface Org {
   name: string;
   role: string;
   description?: string | null;
+  primary_model_id?: string | null;
 }
 export interface Member {
   user_id: string;
@@ -364,12 +365,23 @@ export const api = {
   me: () => request<Me>("/api/me", {}, true),
   createOrg: (body: { name: string; charter?: string }) =>
     request<Org>("/api/orgs", { method: "POST", body: JSON.stringify(body) }, true),
-  updateOrg: (id: string, name: string, description: string | null) =>
-    request<Org>(
+  updateOrg: (
+    id: string,
+    name: string,
+    description: string | null,
+    primaryModelId?: string | null,
+  ) => {
+    const body: { name: string; description: string | null; primary_model_id?: string | null } = {
+      name,
+      description,
+    };
+    if (primaryModelId !== undefined) body.primary_model_id = primaryModelId;
+    return request<Org>(
       `/api/orgs/${id}`,
-      { method: "PATCH", body: JSON.stringify({ name, description }) },
+      { method: "PATCH", body: JSON.stringify(body) },
       true,
-    ),
+    );
+  },
   deleteOrg: (id: string) => request<null>(`/api/orgs/${id}`, { method: "DELETE" }, true),
   members: (id: string) => request<Member[]>(`/api/orgs/${id}/members`, {}, true),
   inviteMember: (id: string, body: { email: string; role: "approver" | "member" }) =>

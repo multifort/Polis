@@ -65,6 +65,64 @@ def test_org_rename_delete_and_owner_guard(client: TestClient) -> None:
     assert all(o["id"] != org_id for o in me["orgs"])
 
 
+def test_owner_updates_org_primary_model(client: TestClient) -> None:
+    asyncio.run(seed())
+    owner = _auth(client)
+    org_id = client.post("/api/orgs", json={"name": "主模型公司"}, headers=owner).json()["id"]
+
+    r = client.patch(
+        f"/api/orgs/{org_id}",
+        json={
+            "name": "主模型公司",
+            "description": "默认用 pro",
+            "primary_model_id": "deepseek-v4-pro",
+        },
+        headers=owner,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["primary_model_id"] == "deepseek-v4-pro"
+
+    me = client.get("/api/me", headers=owner).json()
+    org = next(o for o in me["orgs"] if o["id"] == org_id)
+    assert org["primary_model_id"] == "deepseek-v4-pro"
+
+    r = client.patch(
+        f"/api/orgs/{org_id}",
+        json={"name": "主模型公司", "description": "默认用 pro"},
+        headers=owner,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["primary_model_id"] == "deepseek-v4-pro"
+
+    r = client.patch(
+        f"/api/orgs/{org_id}",
+        json={"name": "主模型公司", "description": None, "primary_model_id": None},
+        headers=owner,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["primary_model_id"] is None
+
+
+def test_org_primary_model_guards(client: TestClient) -> None:
+    asyncio.run(seed())
+    owner = _auth(client)
+    org_id = client.post("/api/orgs", json={"name": "主模型权限公司"}, headers=owner).json()["id"]
+
+    r = client.patch(
+        f"/api/orgs/{org_id}",
+        json={"name": "主模型权限公司", "primary_model_id": "text-embedding-bge"},
+        headers=owner,
+    )
+    assert r.status_code == 400
+
+    r = client.patch(
+        f"/api/orgs/{org_id}",
+        json={"name": "主模型权限公司", "primary_model_id": "no-such-model"},
+        headers=owner,
+    )
+    assert r.status_code == 404
+
+
 def test_owner_invites_user_and_user_accepts(client: TestClient) -> None:
     owner = _auth(client)
     org_id = client.post("/api/orgs", json={"name": "邀请测试公司"}, headers=owner).json()["id"]

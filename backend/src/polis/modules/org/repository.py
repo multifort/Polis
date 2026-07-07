@@ -193,6 +193,25 @@ async def get_org_by_id(session: AsyncSession, org_id: uuid.UUID) -> Org | None:
     return await session.get(Org, org_id)
 
 
+def org_primary_model_id(org: Org) -> str | None:
+    value = (org.policies or {}).get("primary_model_id")
+    return value if isinstance(value, str) and value else None
+
+
+async def get_org_primary_model_id(session: AsyncSession, org_id: uuid.UUID) -> str | None:
+    org = await get_org_by_id(session, org_id)
+    return org_primary_model_id(org) if org is not None else None
+
+
+def set_org_primary_model_id(org: Org, model_id: str | None) -> None:
+    policies = dict(org.policies or {})
+    if model_id is None:
+        policies.pop("primary_model_id", None)
+    else:
+        policies["primary_model_id"] = model_id
+    org.policies = policies
+
+
 async def list_members(session: AsyncSession, org_id: uuid.UUID) -> list[tuple[AppUser, str]]:
     rows = await session.execute(
         select(AppUser, OrgMember.role)

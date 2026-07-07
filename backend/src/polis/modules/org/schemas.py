@@ -54,6 +54,7 @@ class OrgOut(BaseModel):
     name: str
     role: str
     description: str | None = None
+    primary_model_id: str | None = None
 
 
 class MeOut(BaseModel):
@@ -69,6 +70,7 @@ class OrgCreateIn(BaseModel):
 class OrgUpdateIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)
+    primary_model_id: str | None = Field(default=None, min_length=1)
 
 
 class InviteCreateIn(BaseModel):

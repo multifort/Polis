@@ -19,6 +19,7 @@ export default function OrgSettingsPage() {
   const [me, setMe] = useState<Me | null>(null);
   const [models, setModels] = useState<ModelCatalogItem[]>([]);
   const [modelId, setModelId] = useState("");
+  const [primaryModelId, setPrimaryModelId] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
@@ -34,7 +35,11 @@ export default function OrgSettingsPage() {
     api.me().then((m) => {
       setMe(m);
       const o = m.orgs.find((x) => x.id === orgId);
-      if (o) { setName(o.name); setDesc(o.description || ""); }
+      if (o) {
+        setName(o.name);
+        setDesc(o.description || "");
+        setPrimaryModelId(o.primary_model_id || "");
+      }
     }).catch(() => undefined);
     // 拉模型目录
     api.listModels().then((all) => {
@@ -61,12 +66,29 @@ export default function OrgSettingsPage() {
   const onSaveInfo = useCallback(async () => {
     setSavingInfo(true); setMsg(""); setErr("");
     try {
-      await api.updateOrg(orgId, name.trim(), desc.trim() || null);
+      await api.updateOrg(orgId, name.trim(), desc.trim() || null, primaryModelId || null);
       setMsg("公司信息已保存");
+      setMe((prev) =>
+        prev
+          ? {
+              ...prev,
+              orgs: prev.orgs.map((o) =>
+                o.id === orgId
+                  ? {
+                      ...o,
+                      name: name.trim(),
+                      description: desc.trim() || null,
+                      primary_model_id: primaryModelId || null,
+                    }
+                  : o,
+              ),
+            }
+          : prev,
+      );
     } catch (e2) {
       setErr(e2 instanceof Error ? e2.message : "保存失败");
     } finally { setSavingInfo(false); }
-  }, [orgId, name, desc]);
+  }, [orgId, name, desc, primaryModelId]);
 
   const onDelete = useCallback(async () => {
     if (!confirm("确定删除这家公司？其角色、Agent、记忆与运行历史将一并删除，不可恢复。")) return;
@@ -95,6 +117,15 @@ export default function OrgSettingsPage() {
           <input value={name} onChange={(e) => setName(e.target.value)} />
           <label>公司描述</label>
           <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={3} />
+          <label>主模型</label>
+          <select value={primaryModelId} onChange={(e) => setPrimaryModelId(e.target.value)}>
+            <option value="">系统默认模型</option>
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.id}
+              </option>
+            ))}
+          </select>
           <div className="settings-actions">
             <button className="btn-primary" onClick={onSaveInfo} disabled={savingInfo}>
               {savingInfo ? "保存中…" : "保存"}

@@ -140,7 +140,13 @@ async def provision(
         detail={"preset": preset.name, "agents": len(agents_out)},
     )
     return ProvisionOut(
-        org=OrgOut(id=org.id, name=org.name, role="owner", description=org.charter),
+        org=OrgOut(
+            id=org.id,
+            name=org.name,
+            role="owner",
+            description=org.charter,
+            primary_model_id=repo.org_primary_model_id(org),
+        ),
         preset=f"{preset.name}@{preset.version}",
         agents=agents_out,
     )
