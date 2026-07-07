@@ -40,7 +40,7 @@
 | [TD-030](#td-030) | 模板/预设/记忆语义检索已落；能力语义去重原语已接入 TD-032 goal 提案链 | Med | **closed** | 技能/角色语义检索按后续复用场景再切 |
 | [TD-032](#td-032) | Skill 生成链已落；manual 风险分级自动发布、tool/MCP 草稿最小权限+本地沙箱+人审墙、goal 端可达与语义去重已接线 | Med | **closed** | tool 类 LLM authoring / 外部真实 MCP server 沙箱后置 |
 | [TD-033](#td-033) | compose-eval 升级为「试产出」judge 并硬门控（judge≥τ active / <τ draft） | Med | **closed** | 已接试产出 eval（带技能 playbook），见偿还记录 |
-| [TD-034](#td-034) | 公司无法主动上传/编写自己的 Skill——后端 API 已补，前端技能库页待做 | Med | 部分偿还 | 前端入口/编辑体验就绪后关闭 |
+| [TD-034](#td-034) | 公司无法主动上传/编写自己的 Skill——manual 主动入口已补 | Med | **closed** | tool 类主动提交按需扩展 |
 
 ---
 
@@ -337,13 +337,15 @@ compose 后只用一次轻量 judge 评「岗位说明+技能名+声明能力」
   无法主动维护自己的私有技能库；"公司越用越像自己"的资产沉淀目前偏被动。
 - **不阻塞现状**：现有自动生成+风险分级机制已能覆盖"编配器缺能力"场景，属核心闭环已通。此项是
   **锦上添花的主动入口**，非缺陷。
-- **已部分偿还（2026-07-07）**：新增后端 `GET /api/skills` / `POST /api/skills`。
+- **已偿还（2026-07-07）**：新增后端 `GET /api/skills` / `POST /api/skills`。
   公司成员可提交私有 `manual` Skill 草稿（`visibility='org'`/`owner_org_id`），系统自动创建
   `skill_review` 审批；owner/approver 通过现有 `/api/approvals/{id}/decide` 发布后，
   `publish_skill` 置 `published/verified`，能力进入 `available_capabilities`，后续可被编配器拼装复用。
   回归 `tests/test_integration_skill_api.py` 覆盖创建、列表、审批发布、跨 org 不可见与重复名冲突。
-- **剩余**：前端"技能库"页（新建/查看/编辑私有 Skill，类比现有花名册/工作列表 IA）；
-  tool 类主动提交可复用 `create_tool_skill_draft` 的最小权限 + 本地 MCP 沙箱闸，后续按需开放。
+  前端新增 `/orgs/{id}/skills` 技能库页与左侧导航入口，可列出私有/可见 Skill、筛选状态、提交
+  manual 草稿并跳转审批收件箱。
+- **后续增强**：编辑已有 Skill、tool 类主动提交可复用 `create_tool_skill_draft` 的最小权限 + 本地
+  MCP 沙箱闸，按需开放。
 
 ### M3 后技术债清理批次（2026-06-20）
 - **TD-004 已偿还**：docker-compose 固定 litellm `main-stable→v1.89.2`、langfuse `2→2.95.11`

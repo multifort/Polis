@@ -1167,6 +1167,140 @@ a { color: var(--color-accent-text); text-decoration: none; }
 }
 .btn-danger-outline:hover { background: #fdecea; }
 
+/* ===== TD-034 技能库 ===== */
+.skill-head { margin-bottom: 18px; }
+.skill-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.skill-form-panel { position: sticky; top: 18px; }
+.skill-form { display: flex; flex-direction: column; gap: 12px; }
+.skill-form label { display: flex; flex-direction: column; gap: 6px; }
+.skill-form label span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.skill-form input,
+.skill-form textarea {
+  width: 100%;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+.skill-form input:focus,
+.skill-form textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-subtle);
+}
+.skill-form textarea {
+  min-height: 180px;
+  resize: vertical;
+  line-height: 1.7;
+}
+.skill-form .btn-primary { height: 40px; border-radius: 8px; font-size: 13px; }
+.skill-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.skill-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+.skill-toggle input { accent-color: var(--color-primary); }
+.skill-table-wrap {
+  background: var(--color-surface);
+  border: 1px solid #e6e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.skill-table-head,
+.skill-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 2fr) minmax(180px, 1.1fr) 90px 130px;
+  gap: 12px;
+  align-items: center;
+}
+.skill-table-head {
+  padding: 11px 16px;
+  background: #f5f6fa;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #8b8b93;
+  border-bottom: 1px solid #eef0f5;
+}
+.skill-row {
+  padding: 14px 16px;
+  border-bottom: 1px solid #f1f2f8;
+}
+.skill-row:last-child { border-bottom: none; }
+.skill-row:hover { background: #fafbff; }
+.skill-main { min-width: 0; }
+.skill-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f2440;
+  min-width: 0;
+}
+.skill-name > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-preview {
+  font-size: 11.5px;
+  color: var(--color-text-secondary);
+  margin-top: 4px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.skill-cap {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-trust { font-size: 12px; color: var(--color-text-secondary); }
+.skill-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.skill-review { font-size: 11px; color: #7a3e00; }
+@media (max-width: 980px) {
+  .skill-layout { grid-template-columns: 1fr; }
+  .skill-form-panel { position: static; }
+}
+@media (max-width: 760px) {
+  .skill-toolbar { align-items: flex-start; flex-direction: column; }
+  .skill-table-head { display: none; }
+  .skill-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .skill-cap::before { content: "能力："; color: #8b8b93; }
+  .skill-trust::before { content: "信任："; color: #8b8b93; }
+}
+
 /* ===== P5 场景树（重写） ===== */
 .scenario-domain { margin-bottom: 2px; }
 .scenario-domain-row {
