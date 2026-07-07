@@ -20,7 +20,7 @@
 | [TD-010](#td-010) | 运行时 RLS 未接线 | Med | **closed** | 已补（M2 T9.2），见偿还记录 |
 | [TD-011](#td-011) | 审计仅覆盖 org 写操作（auth 事件未） | Med | **closed** | 登录失败审计已补（独立事务），见偿还记录 |
 | [TD-012](#td-012) | 认证缺登出/刷新轮换/会话清理 | Med | **closed** | 已补，见偿还记录 |
-| [TD-013](#td-013) | 安全配置生产前须收紧（JWT 默认密钥/边缘限流） | Med | open(部分) | 边缘/网关限流待对外前 |
+| [TD-013](#td-013) | 安全配置生产前须收紧（JWT 默认密钥/边缘限流） | Med | **closed** | 已补生产 fail-closed、DB 共享限流、邮件投递与 compose 网关认证限流 |
 | [TD-014](#td-014) | 前端 token 存 localStorage + 无静默刷新 | Low-Med | **closed** | 已改 httpOnly cookie + 静默刷新 |
 | [TD-015](#td-015) | org 过滤 repo 基类未建 | Low | **closed** | 已提供 select_org_scoped 助手 |
 | [TD-016](#td-016) | 权限矩阵未完整落地（成员邀请/移除/角色调整） | Low-Med | **closed** | 已补成员管理闭环 |
@@ -124,8 +124,8 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 - 已完成（2026-07-07）：登录失败限流升级为 DB 共享桶（`auth_rate_limit_bucket`），失败/成功记录走独立事务；多后端实例共享同一邮箱+IP 计数。
 - 已完成（2026-07-07）：找回密码闭环落地——一次性 `password_reset_token` 只存哈希，30 分钟过期；确认重置后更新密码、消费 token、吊销该用户所有 refresh 会话，并写审计。前端登录页已接入「忘记密码」流程；dev/local 返回 token 便于联调，生产响应不回显 token。
 - 已完成（2026-07-07）：找回密码邮件投递接入——dev/local 可用 file outbox，生产 `validate_for_prod()` 要求 `POLIS_MAIL_BACKEND=smtp`、`POLIS_MAIL_FROM` 与 `POLIS_MAIL_SMTP_HOST`；API 生产响应不回显 token。
-- 剩余：对外前可在 CDN/WAF/API Gateway 加边缘限流，作为应用内 DB 限流的前置保护。
-- 偿还：CORS/JWT env 化、DB 共享登录失败限流、找回密码前后端闭环与邮件投递已落地；边缘/网关限流待对外前。
+- 已完成（2026-07-07）：新增 `infra` app profile 的 Nginx `gateway`，对 `/api/auth/register`、`/api/auth/login`、`/api/auth/refresh`、找回密码 request/confirm 做 IP 维度前置限流（默认 `10r/m`，burst `20`），作为应用内 DB 共享登录失败限流之前的网关保护。公网部署仍可在 CDN/WAF/Ingress 层叠加更靠外的策略。
+- 偿还：CORS/JWT env 化、DB 共享登录失败限流、找回密码前后端闭环与邮件投递、compose Nginx 网关认证入口限流已落地。
 
 ### TD-014
 **前端 token 存 localStorage（已关闭）。**
@@ -352,7 +352,7 @@ compose 后只用一次轻量 judge 评「岗位说明+技能名+声明能力」
   (`python -m polis.modules.org.cleanup`)；`test_integration_auth_lifecycle` 覆盖。
 - **TD-015 已偿还**：`db/org_scoped.py` 的 `select_org_scoped` 助手 + planner repo 采用为纵深防御示范；
   `test_org_scoped` 覆盖；约定「请求外任务必须用助手」文档化。
-- **TD-011/013 部分偿还，TD-014 已偿还**：TD-011 认证/审批成功/失败事件审计；TD-013 生产 fail-closed 校验(JWT/CORS/邮件)、DB 共享登录失败限流与找回密码前后端闭环；
-  TD-014 静默刷新 + httpOnly cookie token 存储硬化。剩余项（边缘/网关限流）见 TD-013。
+- **TD-011/013/014 已偿还**：TD-011 认证/审批成功/失败事件审计；TD-013 生产 fail-closed 校验(JWT/CORS/邮件)、DB 共享登录失败限流、找回密码前后端闭环与 compose 网关认证限流；
+  TD-014 静默刷新 + httpOnly cookie token 存储硬化。
 - **TD-018 已偿还**：`workflow.py` 在 `imports_passed_through` 块显式 pass through pydantic+pydantic_core，
   消除 Temporal 沙箱 UserWarning（实测计数 0）。

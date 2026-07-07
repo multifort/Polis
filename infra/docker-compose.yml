@@ -160,7 +160,7 @@ services:
     environment:
       <<: *backend-env
     command: ["sh", "-c", "alembic upgrade head && uvicorn polis.main:app --host 0.0.0.0 --port 8000"]
-    ports: ["8000:8000"]
+    ports: ["${API_PORT_BIND:-8000:8000}"]
     healthcheck:
       test:
         [
@@ -200,7 +200,24 @@ services:
         condition: service_healthy
     environment:
       NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
-    ports: ["3000:3000"]
+    ports: ["${WEB_PORT_BIND:-3000:3000}"]
+
+  gateway:
+    profiles: ["app"]
+    image: nginx:1.27.4-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+    environment:
+      GATEWAY_AUTH_RATE_PER_IP: ${GATEWAY_AUTH_RATE_PER_IP:-10r/m}
+      GATEWAY_AUTH_BURST: ${GATEWAY_AUTH_BURST:-20}
+    volumes:
+      - ./nginx/polis.conf.template:/etc/nginx/templates/polis.conf.template:ro
+    ports:
+      - "${GATEWAY_PORT_BIND:-8080:8080}"
 
 volumes:
   pgdata:
