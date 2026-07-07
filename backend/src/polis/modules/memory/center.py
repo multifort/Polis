@@ -1,7 +1,7 @@
 """MemoryCenter（design 05）：写入/检索管线。
 
-M5：写入 = 抽取标准化 + 评分 + 去噪去重 + 出处入库（embedding 经 ModelGateway.embed，
-M5 桩返 None、M6 接 LiteLLM）。检索（retrieve）见 M5-C。
+写入 = 抽取标准化 + 评分 + 去噪去重 + 出处入库；有 embedding 时用语义近邻去重，
+无 embedding 时保留确定性回退。检索（retrieve）支持向量 RAG + 关键词回退。
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from polis.modules.model.gateway import ChatMessage, ModelGateway, ResolvedModel
 logger = logging.getLogger(__name__)
 
 _MIN_CONTENT_LEN = 3
+_DUPLICATE_MAX_COSINE_DISTANCE = 0.08
 
 
 @dataclass
@@ -74,8 +75,19 @@ async def write_facts(
         if _is_noise(content):
             continue
         if await repo.find_by_content(session, org_id, scope, namespace, content) is not None:
-            continue  # 去重（M5 内容精确；M6 换语义近邻）
+            continue
         embedding = (await gateway.embed([content]))[0]
+        if embedding is not None:
+            duplicate = await repo.find_similar_by_vector(
+                session,
+                org_id,
+                scope,
+                namespace,
+                embedding,
+                max_distance=_DUPLICATE_MAX_COSINE_DISTANCE,
+            )
+            if duplicate is not None:
+                continue
         mem = await repo.insert_memory(
             session,
             org_id=org_id,
@@ -121,13 +133,25 @@ async def upsert_shared_fact(
     """共享(org 作用域)记忆并发裁决（design 05 §6）。
 
     近邻不存在→insert；新事实置信更高→覆盖；否则→标记 conflict（不静默硬合并，交人裁决）。
-    M5 用内容精确匹配做近邻（桩）；M6 换语义近邻 find_similar。
+    有 embedding 时用语义近邻裁决；无 embedding 时回退内容精确匹配。
     返回 (action, memory)，action ∈ inserted|overridden|conflict。
     """
     content = _normalize(fact.content)
     old = await repo.find_by_content(session, org_id, "org", namespace, content)
+    embedding: list[float] | None = None
     if old is None:
         embedding = (await gateway.embed([content]))[0]
+        if embedding is not None:
+            old = await repo.find_similar_by_vector(
+                session,
+                org_id,
+                "org",
+                namespace,
+                embedding,
+                max_distance=_DUPLICATE_MAX_COSINE_DISTANCE,
+            )
+
+    if old is None:
         mem = await repo.insert_memory(
             session,
             org_id=org_id,
@@ -145,6 +169,8 @@ async def upsert_shared_fact(
 
     if fact.confidence > old.confidence:
         old.content = content
+        if embedding is not None:
+            old.embedding = embedding
         old.confidence = fact.confidence
         old.importance = _score(fact)
         old.provenance = fact.provenance

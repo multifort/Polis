@@ -105,10 +105,36 @@ async def delete_memory(session: AsyncSession, mem: Memory) -> None:
 async def find_by_content(
     session: AsyncSession, org_id: uuid.UUID, scope: str, namespace: str, content: str
 ) -> Memory | None:
-    """按内容精确匹配查重（M5 去重桩；M6 换语义近邻 find_similar）。"""
+    """按内容精确匹配查重（低成本第一关；语义近邻见 find_similar_by_vector）。"""
     q = (
         select_org_scoped(Memory, org_id)
         .where(Memory.scope == scope, Memory.namespace == namespace, Memory.content == content)
+        .limit(1)
+    )
+    mem: Memory | None = await session.scalar(q)
+    return mem
+
+
+async def find_similar_by_vector(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    scope: str,
+    namespace: str,
+    query_embedding: list[float],
+    *,
+    max_distance: float = 0.08,
+) -> Memory | None:
+    """按 pgvector 余弦距离查近似重复记忆（距离越小越相似）。"""
+    distance = Memory.embedding.cosine_distance(query_embedding)
+    q = (
+        select_org_scoped(Memory, org_id)
+        .where(
+            Memory.scope == scope,
+            Memory.namespace == namespace,
+            Memory.embedding.isnot(None),
+            distance <= max_distance,
+        )
+        .order_by(distance)
         .limit(1)
     )
     mem: Memory | None = await session.scalar(q)

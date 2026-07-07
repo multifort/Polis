@@ -31,7 +31,7 @@
 | [TD-021](#td-021) | M4 执行内核 5 处桩待真实化（模型/凭证/记忆/护栏/MCP） | Med | open(设计内·ADR-0007) | M5/M6 |
 | [TD-022](#td-022) | run_node 真实执行路径未经 Temporal worker 端到端测试 | Low-Med | open | worker+temporal 常驻测试环境就绪时 |
 | [TD-023](#td-023) | SkillInvocation 计费/可观测为桩（latency/cost=0、聚合一条） | Low | **closed** | 实测 latency + 粗估 cost 已落，见偿还记录 |
-| [TD-024](#td-024) | M5 记忆用确定性检索/去重，embedding/向量RAG/reranker/语义近邻延后 | Med | **部分偿还(M6)** | reranker/语义去重待续 |
+| [TD-024](#td-024) | M5 记忆用确定性检索/去重；embedding/向量RAG/语义近邻已部分接入，reranker 待续 | Med | **部分偿还(M6)** | LiteLLM reranker 待续 |
 | [TD-025](#td-025) | Langfuse 采集+自建观测页(H-1/2/3) 完成；trace_ref 表落库未用(直查 API) | Low | **closed** | trace_ref 表后续按需 |
 | [TD-028](#td-028) | execute 写 result_envelope 未关联 task_run.id | Med | **closed** | 已贯通 task_run.id |
 | [TD-029](#td-029) | 部署：组件地址 dev 默认 localhost，生产需 env 覆盖 + 容器化用 service name | Low-Med | **closed** | 已补 compose service-name env 与生产模板 |
@@ -212,16 +212,15 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 - **已偿还（2026-06-27）**：`agent_runtime.execute` 记**实测 latency_ms**（节点墙钟 perf_counter）+ **粗估 cost_cents**（`_rough_cost_cents`：输出 token×目录价 price_out，权威成本仍在 observability 的 langfuse 实测 in+out）。单测 `test_integration_execute` 断言 latency_ms>0。仍为聚合一条（非按工具粒度拆分）——工具级拆分留后续。
 
 ### TD-024
-**M5 记忆为确定性实现，语义能力延后 M6（设计内，复用 ADR-0006/0007）。**
-M5 写入/检索/衰减/共享并发/治理均真实落地，但依赖 embedding 的部分用确定性桩：
-- `ModelGateway.embed` 桩返 None → `memory.embedding` 列写入为 NULL（hnsw 索引暂无数据）。
-- 检索 `retrieve` 用关键词 token 重叠（中文按单字，弱，同 TD-017）+ importance/recency，非向量 `<=>`。
+**M5 记忆为确定性实现；M6 已逐步接入语义能力（复用 ADR-0006/0007）。**
+M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding/向量 RAG 与去重近邻逐步接上：
+- `ModelGateway.embed` 有真实实现时会写入 `memory.embedding`，Stub 环境仍返回 None 并走确定性回退。
+- 检索 `retrieve` 有 query embedding 时走 pgvector 余弦近邻；无向量或无命中时回退关键词 token 重叠 + importance/recency。
 - rerank 为确定性加权排序，非 LiteLLM reranker。
-- 去重 `find_by_content` / 共享并发 `find_similar` 用内容精确匹配，非语义近邻。
-- 影响：跨表述/近义的检索与去重召回弱；M5 演示（写回→再检索闭环）在关键词重叠下可用。
-- 偿还：M6 接 LiteLLM embed/reranker——write 自动填充 embedding、retrieve 切向量 RAG、去重/近邻切语义。
-- **进展(M6)**：embed 已接本地 TEI(bge,1024)，write 自动填充 embedding、retrieve 切向量 RAG（M6-D）；
-  剩 **LiteLLM reranker** 与 **语义去重/近邻**（find_by_content/find_similar 仍内容精确匹配）待续。
+- 去重先用 `find_by_content` 精确匹配；有 embedding 时再用 `find_similar_by_vector` 做同 org/scope/namespace 语义近邻裁决（write_facts 去重、org 共享事实 override/conflict 共用）。
+- 影响：无 embedding 的本地/桩路径仍只能精确匹配；有 embedding 的路径已能覆盖近义重复。
+- **进展(M6)**：embed 已接本地 TEI(bge,1024)，write 自动填充 embedding、retrieve 切向量 RAG（M6-D），语义去重/近邻已接入；
+  剩 **LiteLLM reranker** 待续。
 
 ### TD-025
 **Langfuse 采集 + 自建观测页全通（已偿还）。**
