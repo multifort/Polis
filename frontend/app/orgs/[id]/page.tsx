@@ -12,6 +12,8 @@ const STATUS_LABEL: Record<string, string> = {
   draft: "草稿", active: "可用", running: "执行中", done: "已完成",
   failed: "失败", needs_review: "待复核", pending: "待执行",
 };
+const canApproveRole = (role: string | null | undefined) =>
+  role === "owner" || role === "approver";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -64,6 +66,7 @@ export default function WorkbenchPage() {
   }, [orgId, router]);
 
   const org = me?.orgs.find((o) => o.id === orgId) ?? null;
+  const canApprove = canApproveRole(org?.role);
   const userName = me?.user.display_name || me?.user.email?.split("@")[0] || "你";
 
   const submit = useCallback(() => {
@@ -76,7 +79,12 @@ export default function WorkbenchPage() {
   const recentRuns = runs.recent;
 
   return (
-    <AppShell orgId={orgId} active="home" breadcrumb="工作台" workBadge={approvals.length || undefined}>
+    <AppShell
+      orgId={orgId}
+      active="home"
+      breadcrumb="工作台"
+      workBadge={canApprove ? approvals.length || undefined : undefined}
+    >
       {/* Hero：目标输入 */}
       <section className="wb-hero">
         <h1>
@@ -102,7 +110,7 @@ export default function WorkbenchPage() {
       </section>
 
       {/* 需要你处理（审批收件箱）*/}
-      {approvals.length > 0 && (
+      {canApprove && approvals.length > 0 && (
         <section className="wb-block">
           <div className="wb-block-head">
             <h2>需要你处理</h2>

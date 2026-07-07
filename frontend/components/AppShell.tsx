@@ -17,6 +17,9 @@ const NAV: { key: NavKey; label: string; href: (id: string) => string; icon: JSX
   { key: "settings", label: "设置", href: (id) => `/orgs/${id}/settings`, icon: <IconGear /> },
 ];
 
+const roleLabel = (role: string | null | undefined) =>
+  role === "owner" ? "所有者" : role === "approver" ? "审批人" : "成员";
+
 export default function AppShell({
   orgId,
   active,
@@ -103,7 +106,7 @@ export default function AppShell({
           <span className="shell-avatar">{userName.slice(0, 1)}</span>
           <div className="shell-user-meta">
             <div className="shell-user-name">{userName}</div>
-            <div className="shell-user-role">{org?.role === "owner" ? "所有者" : "成员"}</div>
+            <div className="shell-user-role">{roleLabel(org?.role)}</div>
           </div>
           <button className="shell-logout" onClick={logout} title="退出登录">
             ⏻

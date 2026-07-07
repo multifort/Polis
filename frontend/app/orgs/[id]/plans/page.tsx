@@ -100,6 +100,9 @@ const fmtDuration = (sec: number | null | undefined) => {
   return `${hh}:${mm}:${ss}`;
 };
 
+const canApproveRole = (role: string | null | undefined) =>
+  role === "owner" || role === "approver";
+
 // 节点能力标签：优先展示技能/能力名（如 procurement.rfq），回退 executor/type。
 const capLabel = (n: PlanNode): string =>
   n.required_capabilities[0] ?? n.executor ?? n.type;
@@ -173,11 +176,19 @@ export default function PlansPage() {
   const [workTab, setWorkTab] = useState<"plan" | "log" | "cost">("plan"); // C0-3 tabs
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentModal, setAgentModal] = useState<Agent | null>(null);
+  const [orgRole, setOrgRole] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!getAccess()) router.replace("/");
   }, [router]);
+
+  useEffect(() => {
+    api
+      .me()
+      .then((me) => setOrgRole(me.orgs.find((o) => o.id === orgId)?.role ?? null))
+      .catch(() => setOrgRole(null));
+  }, [orgId]);
 
   // 拉当前公司花名册（Agent 名→详情），供节点卡描述与「Agent 详情」模态。
   useEffect(() => {
@@ -283,6 +294,10 @@ export default function PlansPage() {
 
   async function onApprove() {
     if (!plan) return;
+    if (!canApprove) {
+      setNotice("当前角色无审批权限，请联系所有者或审批人");
+      return;
+    }
     setApproving(true);
     setNotice("");
     try {
@@ -353,6 +368,10 @@ export default function PlansPage() {
 
   async function onSignal(nodeId: string) {
     if (!plan) return;
+    if (!canApprove) {
+      setNotice("当前角色无审批权限，请联系所有者或审批人");
+      return;
+    }
     try {
       await api.signalNode(orgId, plan.id, nodeId);
       await poll();
@@ -382,6 +401,7 @@ export default function PlansPage() {
 
   const runById = new Map((run?.nodes ?? []).map((n) => [n.id, n.status]));
   const layers = plan ? layerize(plan.dag.nodes) : [];
+  const canApprove = canApproveRole(orgRole);
   const flowStatus = (id: string): string | undefined =>
     runById.get(id) ?? (run ? "pending" : undefined);
   const nodeMetaById = new Map((plan?.dag.nodes ?? []).map((n) => [n.id, n]));
@@ -514,8 +534,13 @@ export default function PlansPage() {
                         </button>
                       </div>
                       {(plan.status === "draft" || plan.status === "approved") && !run && (
-                        <button className="btn-run" onClick={onApprove} disabled={approving}>
-                          {approving ? "启动中…" : "✓ 批准并运行"}
+                        <button
+                          className="btn-run"
+                          onClick={onApprove}
+                          disabled={approving || !canApprove}
+                          title={canApprove ? "批准并启动运行" : "仅所有者或审批人可批准运行"}
+                        >
+                          {approving ? "启动中…" : canApprove ? "✓ 批准并运行" : "无审批权限"}
                         </button>
                       )}
                     </div>
@@ -532,6 +557,7 @@ export default function PlansPage() {
                       selectedId={selectedNode}
                       onSelect={selectNode}
                       onSignal={onSignal}
+                      canApprove={canApprove}
                     />
                   ) : (
                     <ListView
@@ -544,6 +570,7 @@ export default function PlansPage() {
                       selectedId={selectedNode}
                       onSelect={selectNode}
                       onSignal={onSignal}
+                      canApprove={canApprove}
                     />
                   )}
 
@@ -1007,6 +1034,7 @@ function FlowGraph({
   selectedId,
   onSelect,
   onSignal,
+  canApprove,
 }: {
   layers: PlanNode[][];
   plan: PlanResult;
@@ -1017,6 +1045,7 @@ function FlowGraph({
   selectedId: string | null;
   onSelect: (id: string) => void;
   onSignal: (id: string) => void;
+  canApprove: boolean;
 }) {
   const { pos, width, height } = layoutFlow(layers);
   const edges: { from: string; to: string }[] = [];
@@ -1102,6 +1131,8 @@ function FlowGraph({
                   {st === "waiting_human" ? (
                     <button
                       className="btn-mini"
+                      disabled={!canApprove}
+                      title={canApprove ? "通过该人审节点" : "仅所有者或审批人可通过人审"}
                       onClick={(e) => {
                         e.stopPropagation();
                         onSignal(n.id);
@@ -1132,6 +1163,7 @@ function ListView({
   selectedId,
   onSelect,
   onSignal,
+  canApprove,
 }: {
   layers: PlanNode[][];
   plan: PlanResult;
@@ -1142,6 +1174,7 @@ function ListView({
   selectedId: string | null;
   onSelect: (id: string) => void;
   onSignal: (id: string) => void;
+  canApprove: boolean;
 }) {
   return (
     <div className="timeline">
@@ -1205,6 +1238,8 @@ function ListView({
                       {st === "waiting_human" ? (
                         <button
                           className="btn-mini"
+                          disabled={!canApprove}
+                          title={canApprove ? "通过该人审节点" : "仅所有者或审批人可通过人审"}
                           onClick={(e) => {
                             e.stopPropagation();
                             onSignal(n.id);

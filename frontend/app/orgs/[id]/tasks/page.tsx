@@ -43,6 +43,9 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "done", label: "已完成" },
 ];
 
+const canApproveRole = (role: string | null | undefined) =>
+  role === "owner" || role === "approver";
+
 function timeAgo(iso: string | null | undefined): string {
   if (!iso) return "—";
   const diff = Date.now() - new Date(iso).getTime();
@@ -87,10 +90,18 @@ export default function TasksPage() {
   const [exportingRun, setExportingRun] = useState<string | null>(null);
   const [delTask, setDelTask] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [orgRole, setOrgRole] = useState<string | null>(null);
 
   useEffect(() => {
     if (!getAccess()) router.replace("/");
   }, [router]);
+
+  useEffect(() => {
+    api
+      .me()
+      .then((me) => setOrgRole(me.orgs.find((o) => o.id === orgId)?.role ?? null))
+      .catch(() => setOrgRole(null));
+  }, [orgId]);
 
   const loadTasks = useCallback(async () => {
     try {
@@ -155,6 +166,10 @@ export default function TasksPage() {
 
   // 再次运行：复用已有计划，直接审批启动，不重新出图
   async function onRerun(taskId: string, planId: string) {
+    if (!canApproveRole(orgRole)) {
+      setNotice("当前角色无审批权限，请联系所有者或审批人");
+      return;
+    }
     setRunningId(taskId);
     setNotice("");
     try {
@@ -190,6 +205,10 @@ export default function TasksPage() {
 
   // 首次运行：出图 + 审批 + 启动
   async function onRun(taskId: string) {
+    if (!canApproveRole(orgRole)) {
+      setNotice("当前角色无审批权限，请联系所有者或审批人");
+      return;
+    }
     setRunningId(taskId);
     setNotice("");
     try {
@@ -239,6 +258,7 @@ export default function TasksPage() {
     if (!a.latestRun && b.latestRun) return 1;
     return 0;
   });
+  const canApprove = canApproveRole(orgRole);
 
   return (
     <AppShell orgId={orgId} active="work" breadcrumb="工作">
@@ -395,7 +415,8 @@ export default function TasksPage() {
                     <button
                       className="btn-mini danger"
                       onClick={() => onRerun(r.task.id, run.plan_id!)}
-                      disabled={runningId === r.task.id}
+                      disabled={runningId === r.task.id || !canApprove}
+                      title={canApprove ? "重新启动该计划" : "仅所有者或审批人可启动运行"}
                     >
                       重试
                     </button>
@@ -404,7 +425,8 @@ export default function TasksPage() {
                     <button
                       className="btn-mini"
                       onClick={() => onRerun(r.task.id, run.plan_id!)}
-                      disabled={runningId === r.task.id}
+                      disabled={runningId === r.task.id || !canApprove}
+                      title={canApprove ? "再次运行该计划" : "仅所有者或审批人可启动运行"}
                     >
                       再次运行
                     </button>
@@ -412,7 +434,8 @@ export default function TasksPage() {
                     <button
                       className="btn-mini"
                       onClick={() => onRun(r.task.id)}
-                      disabled={runningId === r.task.id}
+                      disabled={runningId === r.task.id || !canApprove}
+                      title={canApprove ? "运行该任务" : "仅所有者或审批人可启动运行"}
                     >
                       运行
                     </button>
