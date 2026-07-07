@@ -3,6 +3,7 @@ const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
 const ACCESS = "polis_access";
 const REFRESH = "polis_refresh";
+const AUTH_MARKER = "polis_auth";
 
 // 触发浏览器保存一个 blob（导出下载用）。
 export function downloadBlob(blob: Blob, filename: string) {
@@ -17,18 +18,26 @@ export function downloadBlob(blob: Blob, filename: string) {
 }
 
 export function setTokens(access: string, refresh: string) {
-  localStorage.setItem(ACCESS, access);
-  localStorage.setItem(REFRESH, refresh);
+  void access;
+  void refresh;
+  localStorage.removeItem(ACCESS);
+  localStorage.removeItem(REFRESH);
+  localStorage.setItem(AUTH_MARKER, "1");
 }
 export function clearTokens() {
   localStorage.removeItem(ACCESS);
   localStorage.removeItem(REFRESH);
+  localStorage.removeItem(AUTH_MARKER);
 }
 export function getAccess(): string | null {
-  return typeof window === "undefined" ? null : localStorage.getItem(ACCESS);
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(AUTH_MARKER) ?? localStorage.getItem(ACCESS);
 }
 export function getRefresh(): string | null {
   return typeof window === "undefined" ? null : localStorage.getItem(REFRESH);
+}
+function getBearerAccess(): string | null {
+  return typeof window === "undefined" ? null : localStorage.getItem(ACCESS);
 }
 
 // 静默刷新（TD-014）：access 过期(401)时用 refresh 换新一对并重试原请求一次。
@@ -39,12 +48,12 @@ async function tryRefresh(): Promise<boolean> {
   if (refreshing) return refreshing;
   refreshing = (async () => {
     const rt = getRefresh();
-    if (!rt) return false;
     try {
       const res = await fetch(`${BASE}/api/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: rt }),
+        credentials: "include",
+        ...(rt ? { body: JSON.stringify({ refresh_token: rt }) } : {}),
       });
       if (!res.ok) return false;
       const data = (await res.json()) as Tokens;
@@ -70,11 +79,11 @@ async function request<T>(
 ): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (auth) {
-    const token = getAccess();
+    const token = getBearerAccess();
     if (token) headers["Authorization"] = `Bearer ${token}`;
   }
   if (orgId) headers["X-Org-Id"] = orgId;
-  const res = await fetch(`${BASE}${path}`, { ...options, headers });
+  const res = await fetch(`${BASE}${path}`, { ...options, headers, credentials: "include" });
 
   // access 过期：静默刷新后重试一次（refresh 端点自身不参与，避免递归）
   if (res.status === 401 && auth && !_retried && path !== "/api/auth/refresh") {
@@ -330,15 +339,13 @@ export const api = {
     }),
   logout: async () => {
     const rt = getRefresh();
-    if (rt) {
-      try {
-        await request<null>("/api/auth/logout", {
-          method: "POST",
-          body: JSON.stringify({ refresh_token: rt }),
-        });
-      } catch {
-        // 登出尽力而为：即使后端不可达也清本地态
-      }
+    try {
+      await request<null>("/api/auth/logout", {
+        method: "POST",
+        ...(rt ? { body: JSON.stringify({ refresh_token: rt }) } : {}),
+      });
+    } catch {
+      // 登出尽力而为：即使后端不可达也清本地态
     }
     clearTokens();
   },
@@ -401,9 +408,10 @@ export const api = {
     ),
   // 结果导出（V2-P3b）：md/pdf，直接拿文件 blob（非 JSON），触发浏览器下载。
   exportPlan: async (orgId: string, planId: string, fmt: "md" | "pdf"): Promise<Blob> => {
-    const token = getAccess();
+    const token = getBearerAccess();
     const res = await fetch(`${BASE}/api/plans/${planId}/export?fmt=${fmt}`, {
       method: "POST",
+      credentials: "include",
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         "X-Org-Id": orgId,

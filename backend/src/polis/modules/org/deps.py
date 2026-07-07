@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Cookie, Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,11 +21,13 @@ _bearer = HTTPBearer(auto_error=False)
 
 def get_current_user_id(
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    access_cookie: Annotated[str | None, Cookie(alias="polis_access")] = None,
 ) -> uuid.UUID:
-    if creds is None:
+    token = creds.credentials if creds is not None else access_cookie
+    if token is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "缺少访问令牌")
     try:
-        payload = decode_token(creds.credentials)
+        payload = decode_token(token)
     except Exception as exc:  # noqa: BLE001 - 任何解码失败都视为未授权
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "令牌无效或已过期") from exc
     if payload.get("type") != "access":

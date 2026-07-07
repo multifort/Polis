@@ -19,6 +19,19 @@ def test_ready(client: TestClient) -> None:
     assert resp.json() == {"status": "ok", "db": "up"}
 
 
+def test_cors_allows_cookie_credentials_for_local_frontend(client: TestClient) -> None:
+    resp = client.options(
+        "/api/me",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert resp.headers["access-control-allow-credentials"] == "true"
+
+
 def test_register_login_me_create_org(client: TestClient) -> None:
     email = _email()
 
@@ -54,6 +67,18 @@ def test_register_login_me_create_org(client: TestClient) -> None:
     assert "access_token" in r.json()
 
 
+def test_auth_cookie_can_call_me_without_bearer(client: TestClient) -> None:
+    email = _email()
+    r = client.post("/api/auth/register", json={"email": email, "password": "secret123"})
+    assert r.status_code == 201
+    assert "polis_access" in client.cookies
+    assert "polis_refresh" in client.cookies
+
+    r = client.get("/api/me")
+    assert r.status_code == 200
+    assert r.json()["user"]["email"] == email
+
+
 def test_auth_failures(client: TestClient) -> None:
     email = _email()
     client.post("/api/auth/register", json={"email": email, "password": "secret123"})
@@ -68,6 +93,7 @@ def test_auth_failures(client: TestClient) -> None:
         ).status_code
         == 409
     )
+    client.cookies.clear()
     assert client.get("/api/me").status_code == 401  # 无令牌
 
 

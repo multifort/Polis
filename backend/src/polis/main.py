@@ -32,7 +32,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_credentials=False,  # 用 Bearer token，不依赖 cookie，故可配 "*"
+        allow_credentials=True,  # TD-014：前端使用 httpOnly auth cookies；生产 origin 必须显式收紧
         allow_methods=["*"],
         allow_headers=["*"],
     )

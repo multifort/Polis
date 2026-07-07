@@ -52,6 +52,28 @@ def test_refresh_rotation(client: TestClient) -> None:
     assert client.post("/api/auth/refresh", json={"refresh_token": new}).status_code == 200
 
 
+def test_refresh_rotation_from_http_only_cookie(client: TestClient) -> None:
+    tok = _register(client)
+    old_cookie = client.cookies.get("polis_refresh")
+    assert old_cookie == tok["refresh_token"]
+
+    r = client.post("/api/auth/refresh")
+    assert r.status_code == 200
+    assert client.cookies.get("polis_refresh") != old_cookie
+    assert client.cookies.get("polis_access") == r.json()["access_token"]
+
+
+def test_logout_clears_auth_cookies(client: TestClient) -> None:
+    _register(client)
+    assert "polis_refresh" in client.cookies
+
+    out = client.post("/api/auth/logout")
+    assert out.status_code == 204
+    assert "polis_access" not in client.cookies
+    assert "polis_refresh" not in client.cookies
+    assert client.post("/api/auth/refresh").status_code == 401
+
+
 def test_password_reset_changes_password_and_revokes_sessions(client: TestClient) -> None:
     tok = _register(client)
 

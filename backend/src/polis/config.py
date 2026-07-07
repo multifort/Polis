@@ -79,8 +79,22 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
 
-    # 前端跨域（CORS）。dev 默认放开（用 Bearer token，非 cookie）；生产用 POLIS_CORS_ORIGINS 收紧。
-    cors_origins: list[str] = ["*"]
+    # 前端跨域（CORS）。dev 默认允许常用本地 Next 端口；生产用 POLIS_CORS_ORIGINS 收紧。
+    # 认证 cookie 需要 credentials，因此不能依赖浏览器不接受的 "*"。
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:3003",
+        "http://localhost:3004",
+        "http://localhost:3005",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "http://127.0.0.1:3002",
+        "http://127.0.0.1:3003",
+        "http://127.0.0.1:3004",
+        "http://127.0.0.1:3005",
+    ]
 
     def is_prod(self) -> bool:
         """非 dev/test/local 即视为需收紧的生产类环境。"""

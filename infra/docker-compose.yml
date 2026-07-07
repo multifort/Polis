@@ -8,7 +8,7 @@ x-backend-env: &backend-env
   POLIS_ENV: ${POLIS_ENV:-dev}
   POLIS_JWT_SECRET: ${POLIS_JWT_SECRET:-dev-only-insecure-secret-change-in-prod-0123456789}
   POLIS_KMS_MASTER_KEY: ${POLIS_KMS_MASTER_KEY:-}
-  POLIS_CORS_ORIGINS: ${POLIS_CORS_ORIGINS:-["*"]}
+  POLIS_CORS_ORIGINS: ${POLIS_CORS_ORIGINS:-["http://localhost:3000","http://localhost:3001","http://localhost:3002","http://localhost:3003","http://localhost:3004","http://localhost:3005","http://127.0.0.1:3000","http://127.0.0.1:3001","http://127.0.0.1:3002","http://127.0.0.1:3003","http://127.0.0.1:3004","http://127.0.0.1:3005"]}
   POLIS_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-polis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-polis}
   POLIS_TEMPORAL_ADDR: temporal:7233
   POLIS_EMBEDDING_BASE_URL: http://text-embeddings:80

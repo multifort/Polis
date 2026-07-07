@@ -6,7 +6,7 @@ import logging
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.config import get_settings
@@ -42,14 +42,56 @@ router = APIRouter(prefix="/api", tags=["identity"])
 logger = logging.getLogger(__name__)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+OptionalRefreshBody = Annotated[RefreshIn | None, Body()]
+
+ACCESS_COOKIE = "polis_access"
+REFRESH_COOKIE = "polis_refresh"
+
+
+def _set_auth_cookies(response: Response, tokens: TokenOut) -> None:
+    settings = get_settings()
+    secure = settings.is_prod()
+    response.set_cookie(
+        ACCESS_COOKIE,
+        tokens.access_token,
+        max_age=settings.access_ttl_min * 60,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/",
+    )
+    response.set_cookie(
+        REFRESH_COOKIE,
+        tokens.refresh_token,
+        max_age=settings.refresh_ttl_days * 24 * 60 * 60,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/",
+    )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    secure = get_settings().is_prod()
+    response.delete_cookie(ACCESS_COOKIE, path="/", secure=secure, samesite="lax")
+    response.delete_cookie(REFRESH_COOKIE, path="/", secure=secure, samesite="lax")
+
+
+def _refresh_from_body_or_cookie(data: RefreshIn | None, request: Request) -> str:
+    token = data.refresh_token if data is not None else request.cookies.get(REFRESH_COOKIE)
+    if not token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "刷新令牌无效")
+    return token
 
 
 @router.post("/auth/register", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
-async def register(data: RegisterIn, session: SessionDep) -> TokenOut:
+async def register(data: RegisterIn, response: Response, session: SessionDep) -> TokenOut:
     try:
-        return await service.register(session, data)
+        tokens = await service.register(session, data)
     except service.EmailExists as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, "该邮箱已注册") from exc
+    _set_auth_cookies(response, tokens)
+    return tokens
 
 
 async def _audit_login_failed(email: str, reason: str = "invalid_credentials") -> None:
@@ -66,7 +108,9 @@ async def _audit_login_failed(email: str, reason: str = "invalid_credentials") -
 
 
 @router.post("/auth/login", response_model=TokenOut)
-async def login(data: LoginIn, request: Request, session: SessionDep) -> TokenOut:
+async def login(
+    data: LoginIn, request: Request, response: Response, session: SessionDep
+) -> TokenOut:
     ip = request.client.host if request.client else None
     retry_after = auth_rate_limit.retry_after_seconds(data.email, ip)
     if retry_after is not None:
@@ -79,6 +123,7 @@ async def login(data: LoginIn, request: Request, session: SessionDep) -> TokenOu
     try:
         token = await service.login(session, data)
         auth_rate_limit.record_success(data.email, ip)
+        _set_auth_cookies(response, token)
         return token
     except service.InvalidCredentials as exc:
         retry_after = auth_rate_limit.record_failure(data.email, ip)
@@ -93,17 +138,33 @@ async def login(data: LoginIn, request: Request, session: SessionDep) -> TokenOu
 
 
 @router.post("/auth/refresh", response_model=TokenOut)
-async def refresh(data: RefreshIn, session: SessionDep) -> TokenOut:
+async def refresh(
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    data: OptionalRefreshBody = None,
+) -> TokenOut:
     try:
-        return await service.refresh(session, data.refresh_token)
+        tokens = await service.refresh(session, _refresh_from_body_or_cookie(data, request))
     except service.InvalidToken as exc:
+        _clear_auth_cookies(response)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "刷新令牌无效") from exc
+    _set_auth_cookies(response, tokens)
+    return tokens
 
 
 @router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(data: RefreshIn, session: SessionDep) -> None:
+async def logout(
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    data: OptionalRefreshBody = None,
+) -> None:
     """吊销 refresh 会话（幂等）。"""
-    await service.logout(session, data.refresh_token)
+    token = data.refresh_token if data is not None else request.cookies.get(REFRESH_COOKIE)
+    if token:
+        await service.logout(session, token)
+    _clear_auth_cookies(response)
 
 
 @router.post("/auth/password/reset/request", response_model=PasswordResetRequestOut)
