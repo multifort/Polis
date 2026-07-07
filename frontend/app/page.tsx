@@ -57,6 +57,8 @@ const FEATURES = [
   { icon: "layers", title: "开放集成", sub: "灵活扩展能力", bg: "#ede7f6", fg: "#7e57c2" },
 ];
 
+type AuthMode = "login" | "register" | "reset";
+
 function FeatureIcon({ name }: { name: string }) {
   const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   if (name === "shield")
@@ -68,20 +70,56 @@ function FeatureIcon({ name }: { name: string }) {
 
 export default function AuthPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [resetToken, setResetToken] = useState("");
+  const [resetTokenIssued, setResetTokenIssued] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const subtitle =
+    mode === "login"
+      ? "登录你的虚拟智能企业工作台"
+      : mode === "register"
+        ? "创建账号，开启你的第一家虚拟公司"
+        : "重置密码后继续进入工作台";
+
+  function switchMode(next: AuthMode) {
+    setMode(next);
+    setError("");
+    setNotice("");
+    setPassword("");
+    setResetToken("");
+    setResetTokenIssued(false);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setNotice("");
     setBusy(true);
     try {
+      if (mode === "reset") {
+        if (!resetTokenIssued) {
+          const result = await api.requestPasswordReset({ email });
+          if (result.reset_token) setResetToken(result.reset_token);
+          setResetTokenIssued(true);
+          setNotice(result.reset_token ? "已生成重置令牌" : "如果邮箱存在，重置邮件会发送到该邮箱");
+          return;
+        }
+        await api.confirmPasswordReset({ token: resetToken, new_password: password });
+        setNotice("密码已更新，请使用新密码登录");
+        setMode("login");
+        setPassword("");
+        setResetToken("");
+        setResetTokenIssued(false);
+        return;
+      }
       const tokens =
         mode === "login"
           ? await api.login({ email, password })
@@ -136,11 +174,10 @@ export default function AuthPage() {
               <div className="logo sm">A</div>
               <span className="brand-name">Polis</span>
             </div>
-            <p className="subtitle">
-              {mode === "login" ? "登录你的虚拟智能企业工作台" : "创建账号，开启你的第一家虚拟公司"}
-            </p>
+            <p className="subtitle">{subtitle}</p>
 
             {error && <p className="error">{error}</p>}
+            {notice && <p className="notice">{notice}</p>}
 
             {mode === "register" && (
               <div className="field">
@@ -152,26 +189,38 @@ export default function AuthPage() {
               <label>邮箱</label>
               <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
             </div>
-            <div className="field">
-              <label>密码{mode === "register" ? "（至少 8 位）" : ""}</label>
-              <div className="pwd">
-              <input
-                type={showPwd ? "text" : "password"}
-                required
-                minLength={mode === "register" ? 8 : undefined}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-              />
-              <button type="button" className="eye" aria-label={showPwd ? "隐藏密码" : "显示密码"} onClick={() => setShowPwd(!showPwd)}>
-                {showPwd ? (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10 10 0 0 1 12 20C5 20 1 12 1 12a18 18 0 0 1 5.06-5.94M9.9 4.24A9 9 0 0 1 12 4c7 0 11 8 11 8a18 18 0 0 1-2.16 3.19M1 1l22 22" /></svg>
-                ) : (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
-                )}
-              </button>
+
+            {mode === "reset" && resetTokenIssued && (
+              <div className="field">
+                <label>重置令牌</label>
+                <input required value={resetToken} onChange={(e) => setResetToken(e.target.value)} placeholder="粘贴邮件中的一次性令牌" />
               </div>
-            </div>
+            )}
+
+            {(mode !== "reset" || resetTokenIssued) && (
+              <div className="field">
+                <label>
+                  {mode === "reset" ? "新密码（至少 8 位）" : `密码${mode === "register" ? "（至少 8 位）" : ""}`}
+                </label>
+                <div className="pwd">
+                  <input
+                    type={showPwd ? "text" : "password"}
+                    required
+                    minLength={mode === "register" || mode === "reset" ? 8 : undefined}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                  />
+                  <button type="button" className="eye" aria-label={showPwd ? "隐藏密码" : "显示密码"} onClick={() => setShowPwd(!showPwd)}>
+                    {showPwd ? (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10 10 0 0 1 12 20C5 20 1 12 1 12a18 18 0 0 1 5.06-5.94M9.9 4.24A9 9 0 0 1 12 4c7 0 11 8 11 8a18 18 0 0 1-2.16 3.19M1 1l22 22" /></svg>
+                    ) : (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {mode === "login" && (
               <div className="row-between">
@@ -179,19 +228,19 @@ export default function AuthPage() {
                   <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
                   记住我
                 </label>
-                <button type="button" className="link-btn" onClick={() => setError("找回密码功能即将上线")}>
+                <button type="button" className="link-btn" onClick={() => switchMode("reset")}>
                   忘记密码？
                 </button>
               </div>
             )}
 
             <button className="btn-primary" type="submit" disabled={busy}>
-              {busy ? "处理中…" : mode === "login" ? "登录" : "注册并进入"}
+              {busy ? "处理中…" : mode === "login" ? "登录" : mode === "register" ? "注册并进入" : resetTokenIssued ? "更新密码" : "发送重置邮件"}
             </button>
 
             <div className="switch">
-              {mode === "login" ? "还没有账号？" : "已有账号？"}
-              <button type="button" className="link-btn" onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}>
+              {mode === "login" ? "还没有账号？" : mode === "register" ? "已有账号？" : "想起密码了？"}
+              <button type="button" className="link-btn" onClick={() => switchMode(mode === "login" ? "register" : "login")}>
                 {mode === "login" ? "去注册" : "去登录"}
               </button>
             </div>

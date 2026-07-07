@@ -130,6 +130,7 @@ a { color: var(--color-accent-text); text-decoration: none; }
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 .link-btn { background: none; border: none; color: var(--color-accent-text); cursor: pointer; font-size: 13px; padding: 0; }
 .error { color: var(--color-danger); font-size: 13px; margin: 0 0 14px; }
+.notice { color: var(--color-success); font-size: 13px; margin: 0 0 14px; }
 .switch { text-align: center; margin-top: 18px; font-size: 13px; color: var(--color-text-secondary); }
 
 @media (max-width: 880px) {

@@ -108,6 +108,10 @@ export interface Tokens {
   access_token: string;
   refresh_token: string;
 }
+export interface PasswordResetRequestResult {
+  accepted: boolean;
+  reset_token: string | null;
+}
 export interface Org {
   id: string;
   name: string;
@@ -306,6 +310,16 @@ export const api = {
     request<Tokens>("/api/auth/register", { method: "POST", body: JSON.stringify(body) }),
   login: (body: { email: string; password: string }) =>
     request<Tokens>("/api/auth/login", { method: "POST", body: JSON.stringify(body) }),
+  requestPasswordReset: (body: { email: string }) =>
+    request<PasswordResetRequestResult>("/api/auth/password/reset/request", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  confirmPasswordReset: (body: { token: string; new_password: string }) =>
+    request<null>("/api/auth/password/reset/confirm", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   logout: async () => {
     const rt = getRefresh();
     if (rt) {
