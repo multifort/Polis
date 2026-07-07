@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     auth_login_max_failures: int = 5  # 登录失败限流：窗口内失败次数，<=0 关闭
     auth_login_window_seconds: int = 900
     auth_login_lock_seconds: int = 900
+    password_reset_ttl_minutes: int = 30
 
     # Temporal 编排服务地址（M3-C）
     temporal_addr: str = "localhost:7233"

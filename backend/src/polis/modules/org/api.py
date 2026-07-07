@@ -9,6 +9,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from polis.config import get_settings
 from polis.db.session import get_session, get_sessionmaker
 from polis.modules.observability.audit import write_audit
 from polis.modules.org import auth_rate_limit, provisioning, service
@@ -23,6 +24,9 @@ from polis.modules.org.schemas import (
     OrgCreateIn,
     OrgOut,
     OrgUpdateIn,
+    PasswordResetConfirmIn,
+    PasswordResetRequestIn,
+    PasswordResetRequestOut,
     ProvisionIn,
     ProvisionOut,
     RefreshIn,
@@ -97,6 +101,24 @@ async def refresh(data: RefreshIn, session: SessionDep) -> TokenOut:
 async def logout(data: RefreshIn, session: SessionDep) -> None:
     """吊销 refresh 会话（幂等）。"""
     await service.logout(session, data.refresh_token)
+
+
+@router.post("/auth/password/reset/request", response_model=PasswordResetRequestOut)
+async def request_password_reset(
+    data: PasswordResetRequestIn, session: SessionDep
+) -> PasswordResetRequestOut:
+    token = await service.request_password_reset(session, data)
+    if get_settings().is_prod():
+        token = None
+    return PasswordResetRequestOut(reset_token=token)
+
+
+@router.post("/auth/password/reset/confirm", status_code=status.HTTP_204_NO_CONTENT)
+async def confirm_password_reset(data: PasswordResetConfirmIn, session: SessionDep) -> None:
+    try:
+        await service.confirm_password_reset(session, data)
+    except service.InvalidPasswordResetToken as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "重置令牌无效或已过期") from exc
 
 
 @router.get("/me", response_model=MeOut)

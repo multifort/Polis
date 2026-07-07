@@ -15,6 +15,7 @@ from polis.modules.org.models import (
     AuthSession,
     Org,
     OrgMember,
+    PasswordResetToken,
     Role,
     ScenarioPreset,
 )
@@ -83,6 +84,57 @@ async def cleanup_auth_sessions(session: AsyncSession) -> int:
             delete(AuthSession).where(
                 or_(AuthSession.expires_at <= func.now(), AuthSession.revoked_at.is_not(None))
             )
+        ),
+    )
+    await session.flush()
+    return result.rowcount
+
+
+async def create_password_reset_token(
+    session: AsyncSession, user_id: uuid.UUID, token_hash: str, expires_at: datetime
+) -> PasswordResetToken:
+    row = PasswordResetToken(user_id=user_id, token_hash=token_hash, expires_at=expires_at)
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def get_active_password_reset_token(
+    session: AsyncSession, token_hash: str
+) -> PasswordResetToken | None:
+    row: PasswordResetToken | None = await session.scalar(
+        select(PasswordResetToken).where(
+            PasswordResetToken.token_hash == token_hash,
+            PasswordResetToken.used_at.is_(None),
+            PasswordResetToken.expires_at > func.now(),
+        )
+    )
+    return row
+
+
+async def mark_password_reset_token_used(session: AsyncSession, token_hash: str) -> bool:
+    result = cast(
+        "CursorResult[Any]",
+        await session.execute(
+            update(PasswordResetToken)
+            .where(
+                PasswordResetToken.token_hash == token_hash,
+                PasswordResetToken.used_at.is_(None),
+            )
+            .values(used_at=datetime.now(UTC))
+        ),
+    )
+    await session.flush()
+    return result.rowcount > 0
+
+
+async def revoke_sessions_for_user(session: AsyncSession, user_id: uuid.UUID) -> int:
+    result = cast(
+        "CursorResult[Any]",
+        await session.execute(
+            update(AuthSession)
+            .where(AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None))
+            .values(revoked_at=datetime.now(UTC))
         ),
     )
     await session.flush()

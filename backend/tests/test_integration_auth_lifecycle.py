@@ -52,6 +52,53 @@ def test_refresh_rotation(client: TestClient) -> None:
     assert client.post("/api/auth/refresh", json={"refresh_token": new}).status_code == 200
 
 
+def test_password_reset_changes_password_and_revokes_sessions(client: TestClient) -> None:
+    tok = _register(client)
+
+    r = client.post("/api/auth/password/reset/request", json={"email": tok["email"]})
+    assert r.status_code == 200
+    reset_token = r.json()["reset_token"]
+    assert reset_token
+
+    r = client.post(
+        "/api/auth/password/reset/confirm",
+        json={"token": reset_token, "new_password": "new-secret-123"},
+    )
+    assert r.status_code == 204
+
+    assert (
+        client.post(
+            "/api/auth/login", json={"email": tok["email"], "password": "secret123"}
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            "/api/auth/login", json={"email": tok["email"], "password": "new-secret-123"}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post("/api/auth/refresh", json={"refresh_token": tok["refresh_token"]}).status_code
+        == 401
+    )
+
+    reused = client.post(
+        "/api/auth/password/reset/confirm",
+        json={"token": reset_token, "new_password": "another-secret-123"},
+    )
+    assert reused.status_code == 400
+
+
+def test_password_reset_request_does_not_disclose_missing_email(client: TestClient) -> None:
+    r = client.post(
+        "/api/auth/password/reset/request",
+        json={"email": f"missing_{uuid.uuid4().hex[:8]}@polis.dev"},
+    )
+    assert r.status_code == 200
+    assert r.json() == {"accepted": True, "reset_token": None}
+
+
 def test_cleanup_removes_revoked(client: TestClient) -> None:
     import asyncio
 

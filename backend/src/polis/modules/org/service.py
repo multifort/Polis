@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from polis.config import get_settings
 from polis.core.security import (
     create_access_token,
     create_refresh_token,
@@ -23,6 +26,8 @@ from polis.modules.org.schemas import (
     MeOut,
     OrgCreateIn,
     OrgOut,
+    PasswordResetConfirmIn,
+    PasswordResetRequestIn,
     RegisterIn,
     TokenOut,
     UserOut,
@@ -44,6 +49,10 @@ class InvalidCredentials(AuthError):
 
 
 class InvalidToken(AuthError):
+    pass
+
+
+class InvalidPasswordResetToken(AuthError):
     pass
 
 
@@ -110,6 +119,35 @@ async def logout(session: AsyncSession, refresh_token: str) -> None:
             await write_audit(session, action="auth.logout", actor=str(payload.get("sub")))
         except Exception:  # noqa: BLE001 - 审计 actor 取不到不阻断登出
             logger.debug("登出审计 actor 解析失败，跳过审计")
+    await session.flush()
+
+
+async def request_password_reset(session: AsyncSession, data: PasswordResetRequestIn) -> str | None:
+    """创建一次性重置令牌；不存在的邮箱也返回 None，避免账号枚举。"""
+    user = await repo.get_user_by_email(session, data.email)
+    if user is None or user.password_hash is None or user.status != "active":
+        return None
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(UTC) + timedelta(minutes=get_settings().password_reset_ttl_minutes)
+    await repo.create_password_reset_token(session, user.id, hash_token(token), expires_at)
+    await write_audit(session, action="auth.password_reset.requested", actor=str(user.id))
+    await session.flush()
+    return token
+
+
+async def confirm_password_reset(session: AsyncSession, data: PasswordResetConfirmIn) -> None:
+    token_hash = hash_token(data.token)
+    row = await repo.get_active_password_reset_token(session, token_hash)
+    if row is None:
+        raise InvalidPasswordResetToken()
+    if not await repo.mark_password_reset_token_used(session, token_hash):
+        raise InvalidPasswordResetToken()
+    user = await repo.get_user_by_id(session, row.user_id)
+    if user is None or user.status != "active":
+        raise InvalidPasswordResetToken()
+    user.password_hash = hash_password(data.new_password)
+    await repo.revoke_sessions_for_user(session, user.id)
+    await write_audit(session, action="auth.password_reset.confirmed", actor=str(user.id))
     await session.flush()
 
 

@@ -55,6 +55,20 @@ class AuthSession(UUIDPkMixin, Base):
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
 
+class PasswordResetToken(UUIDPkMixin, Base):
+    """一次性密码重置令牌（平台级，无 org_id；只存哈希，不存明文）。"""
+
+    __tablename__ = "password_reset_token"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(Text, unique=True)
+    expires_at: Mapped[datetime]
+    used_at: Mapped[datetime | None]
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+
+
 # ---- 组织级 ----
 
 
