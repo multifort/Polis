@@ -127,6 +127,10 @@ class AgentOut(BaseModel):
     model: str | None = None
 
 
+class AgentModelUpdateIn(BaseModel):
+    model_id: str | None = Field(default=None, min_length=1)
+
+
 class ProvisionIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)  # 公司名
     description: str | None = Field(default=None, max_length=500)  # 公司描述（缺省取预设描述）

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from fastapi.testclient import TestClient
+
+from polis.seed import seed
 
 
 def _auth(client: TestClient, email: str | None = None) -> dict[str, str]:
@@ -235,3 +238,77 @@ def test_non_owner_cannot_update_member_role(client: TestClient) -> None:
         headers=member,
     )
     assert r.status_code == 403
+
+
+def test_owner_updates_agent_model_selection(client: TestClient) -> None:
+    asyncio.run(seed())
+    owner = _auth(client)
+    provision = client.post(
+        "/api/provision",
+        json={"name": "模型选择公司", "preset": "采购分析公司"},
+        headers=owner,
+    )
+    assert provision.status_code == 201, provision.text
+    org_id = provision.json()["org"]["id"]
+    owner_org = {**owner, "X-Org-Id": org_id}
+
+    agents = client.get("/api/orgs/current/agents", headers=owner_org).json()
+    agent = next(a for a in agents if a["name"] == "询价Agent")
+    assert agent["model"] is None
+
+    r = client.patch(
+        f"/api/orgs/current/agents/{agent['id']}/model",
+        json={"model_id": "deepseek-v4-pro"},
+        headers=owner_org,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["model"] == "deepseek-v4-pro"
+
+    agents = client.get("/api/orgs/current/agents", headers=owner_org).json()
+    assert next(a for a in agents if a["id"] == agent["id"])["model"] == "deepseek-v4-pro"
+
+    r = client.patch(
+        f"/api/orgs/current/agents/{agent['id']}/model",
+        json={"model_id": None},
+        headers=owner_org,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["model"] is None
+
+
+def test_agent_model_selection_guards(client: TestClient) -> None:
+    asyncio.run(seed())
+    owner = _auth(client)
+    provision = client.post(
+        "/api/provision",
+        json={"name": "模型权限公司", "preset": "采购分析公司"},
+        headers=owner,
+    )
+    assert provision.status_code == 201, provision.text
+    org_id = provision.json()["org"]["id"]
+    owner_org = {**owner, "X-Org-Id": org_id}
+    agent = client.get("/api/orgs/current/agents", headers=owner_org).json()[0]
+
+    member = _invite_and_accept(
+        client, owner, org_id, f"agent_model_{uuid.uuid4().hex[:8]}@polis.dev"
+    )
+    r = client.patch(
+        f"/api/orgs/current/agents/{agent['id']}/model",
+        json={"model_id": "deepseek-v4-pro"},
+        headers={**member, "X-Org-Id": org_id},
+    )
+    assert r.status_code == 403
+
+    r = client.patch(
+        f"/api/orgs/current/agents/{agent['id']}/model",
+        json={"model_id": "text-embedding-bge"},
+        headers=owner_org,
+    )
+    assert r.status_code == 400
+
+    r = client.patch(
+        f"/api/orgs/current/agents/{agent['id']}/model",
+        json={"model_id": "no-such-model"},
+        headers=owner_org,
+    )
+    assert r.status_code == 404

@@ -12,12 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polis.config import get_settings
 from polis.core.mail import MailDeliveryError
 from polis.db.session import get_session, get_sessionmaker
+from polis.modules.model.models import ModelCatalog
 from polis.modules.observability.audit import write_audit
 from polis.modules.org import auth_rate_limit, provisioning, service
 from polis.modules.org import repository as repo
-from polis.modules.org.deps import CurrentOrg, CurrentUserId
+from polis.modules.org.deps import CurrentOrg, CurrentUserId, OrgContext, require_role
 from polis.modules.org.models import Role
 from polis.modules.org.schemas import (
+    AgentModelUpdateIn,
     AgentOut,
     InviteCreateIn,
     InviteOut,
@@ -44,6 +46,7 @@ logger = logging.getLogger(__name__)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 OptionalRefreshBody = Annotated[RefreshIn | None, Body()]
+OwnerOrg = Annotated[OrgContext, Depends(require_role("owner"))]
 
 ACCESS_COOKIE = "polis_access"
 REFRESH_COOKIE = "polis_refresh"
@@ -314,6 +317,36 @@ async def list_current_org_roles(org: CurrentOrg, session: SessionDep) -> list[R
 async def list_current_org_agents(org: CurrentOrg, session: SessionDep) -> list[dict[str, Any]]:
     # 含角色名/描述(promptSkeleton)/能力/模型，供前端节点卡与「Agent 详情」模态展示。
     return await repo.list_agents_detailed(session)
+
+
+@router.patch("/orgs/current/agents/{agent_id}/model", response_model=AgentOut)
+async def update_current_org_agent_model(
+    agent_id: uuid.UUID,
+    data: AgentModelUpdateIn,
+    org: OwnerOrg,
+    user_id: CurrentUserId,
+    session: SessionDep,
+) -> dict[str, Any]:
+    """owner 更新当前公司某 Agent 的模型选择；null 表示回退系统默认模型。"""
+    if data.model_id is not None:
+        model = await session.get(ModelCatalog, data.model_id)
+        if model is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "模型不在目录中")
+        if "text-gen" not in (model.capabilities or []):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "只能选择推理模型")
+
+    updated = await repo.update_agent_model(session, agent_id, data.model_id)
+    if updated is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent 不存在")
+    await write_audit(
+        session,
+        action="agent.model.update",
+        actor=str(user_id),
+        org_id=org.org_id,
+        target=str(agent_id),
+        detail={"model_id": data.model_id},
+    )
+    return updated
 
 
 @router.post("/provision", response_model=ProvisionOut, status_code=status.HTTP_201_CREATED)

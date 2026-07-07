@@ -398,6 +398,13 @@ export const api = {
   provision: (body: { name: string; description?: string; preset?: string; keyword?: string }) =>
     request<ProvisionResult>("/api/provision", { method: "POST", body: JSON.stringify(body) }, true),
   agents: (orgId: string) => request<Agent[]>("/api/orgs/current/agents", {}, true, orgId),
+  updateAgentModel: (orgId: string, agentId: string, modelId: string | null) =>
+    request<Agent>(
+      `/api/orgs/current/agents/${agentId}/model`,
+      { method: "PATCH", body: JSON.stringify({ model_id: modelId }) },
+      true,
+      orgId,
+    ),
   roles: (orgId: string) => request<Role[]>("/api/orgs/current/roles", {}, true, orgId),
   listSkills: (orgId: string, opts?: { status?: string; mineOnly?: boolean }) => {
     const params = new URLSearchParams();

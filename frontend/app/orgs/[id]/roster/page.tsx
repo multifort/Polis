@@ -11,6 +11,7 @@ import {
   type Member,
   type MemberRole,
   type Me,
+  type ModelCatalogItem,
   type Role,
 } from "@/lib/api";
 
@@ -29,6 +30,7 @@ export default function RosterPage() {
   const [agents, setAgents] = useState<Agent[] | null>(null);
   const [roles, setRoles] = useState<Role[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [models, setModels] = useState<ModelCatalogItem[]>([]);
   const [me, setMe] = useState<Me | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"member" | "approver">("member");
@@ -41,12 +43,13 @@ export default function RosterPage() {
       router.replace("/");
       return;
     }
-    Promise.all([api.agents(orgId), api.roles(orgId), api.members(orgId), api.me()])
-      .then(([a, r, m, current]) => {
+    Promise.all([api.agents(orgId), api.roles(orgId), api.members(orgId), api.me(), api.listModels()])
+      .then(([a, r, m, current, modelCatalog]) => {
         setAgents(a);
         setRoles(r);
         setMembers(m);
         setMe(current);
+        setModels(modelCatalog.filter((model) => (model.capabilities ?? []).includes("text-gen")));
       })
       .catch(() => setAgents([]));
   }, [orgId, router]);
@@ -63,6 +66,23 @@ export default function RosterPage() {
 
   async function reloadMembers() {
     setMembers(await api.members(orgId));
+  }
+
+  async function onAgentModelChange(agent: Agent, modelId: string) {
+    setBusy(true);
+    setNotice("");
+    setError("");
+    try {
+      const updated = await api.updateAgentModel(orgId, agent.id, modelId || null);
+      setAgents((prev) =>
+        (prev ?? []).map((a) => (a.id === updated.id ? { ...a, model: updated.model } : a)),
+      );
+      setNotice(`${agent.name} 已切换为${updated.model ? ` ${updated.model}` : "默认模型"}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "模型更新失败");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function onInvite(e: React.FormEvent) {
@@ -186,6 +206,26 @@ export default function RosterPage() {
                   <span className="muted" style={{ fontSize: 11 }}>
                     暂无能力
                   </span>
+                )}
+              </div>
+              <div className="ra-model">
+                <span>模型</span>
+                {isOwner ? (
+                  <select
+                    value={a.model ?? ""}
+                    onChange={(e) => onAgentModelChange(a, e.target.value)}
+                    disabled={busy}
+                    aria-label={`${a.name} 模型`}
+                  >
+                    <option value="">默认模型</option>
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.id}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <em>{a.model || "默认模型"}</em>
                 )}
               </div>
             </div>

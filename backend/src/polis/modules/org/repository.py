@@ -358,6 +358,51 @@ async def list_agents_detailed(session: AsyncSession) -> list[dict[str, Any]]:
     return out
 
 
+async def update_agent_model(
+    session: AsyncSession, agent_id: uuid.UUID, model_id: str | None
+) -> dict[str, Any] | None:
+    """更新当前公司某 Agent 当前版本的模型选择（RLS 已按 app.current_org 过滤）。"""
+    from polis.modules.org.models import AgentVersion
+
+    row = (
+        await session.execute(
+            select(Agent, Role.name, Role.description, AgentVersion)
+            .outerjoin(Role, Agent.role_id == Role.id)
+            .outerjoin(
+                AgentVersion,
+                (AgentVersion.agent_id == Agent.id)
+                & (AgentVersion.version == Agent.current_version),
+            )
+            .where(Agent.id == agent_id)
+        )
+    ).first()
+    if row is None:
+        return None
+    agent, role_name, role_desc, version = row
+    if version is None:
+        return None
+
+    cfg = dict(version.config or {})
+    if model_id is None:
+        cfg.pop("model", None)
+    else:
+        cfg["model"] = model_id
+    version.config = cfg
+    await session.flush()
+
+    return {
+        "id": agent.id,
+        "name": agent.name,
+        "status": agent.status,
+        "source": agent.source,
+        "current_version": agent.current_version,
+        "role": role_name,
+        "description": cfg.get("prompt") or role_desc,
+        "capabilities": cfg.get("capabilities") or [],
+        "model": cfg.get("model"),
+    }
+
+
 async def get_preset_by_name(session: AsyncSession, name: str) -> ScenarioPreset | None:
     preset: ScenarioPreset | None = await session.scalar(
         select(ScenarioPreset)
