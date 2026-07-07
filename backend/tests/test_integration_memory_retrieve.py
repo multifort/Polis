@@ -11,6 +11,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from polis.config import get_settings
 from polis.modules.memory import repository as repo
 from polis.modules.memory.center import retrieve
+from polis.modules.model.gateway import StubModelGateway
+
+
+class ReverseRerankGateway(StubModelGateway):
+    async def rerank(self, query: str, documents: list[str], limit: int) -> list[int] | None:
+        return list(reversed(range(len(documents))))[:limit]
 
 
 def _make_org(pg_url: str) -> uuid.UUID:
@@ -77,6 +83,51 @@ def test_retrieve_scope_filter_and_relevance(pg_url: str) -> None:
                 assert sl.summaries[0] == "供应商A交付准时率95%"
                 assert sl.provenance[0] == {"sourceUrl": "http://a"}
                 assert sl.to_text().startswith("- 供应商A")
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+def test_retrieve_uses_gateway_rerank_when_available(pg_url: str) -> None:
+    org_id = _make_org(pg_url)
+
+    async def _run() -> None:
+        engine = create_async_engine(get_settings().database_url, pool_pre_ping=True)
+        try:
+            async with async_sessionmaker(engine, expire_on_commit=False)() as s:
+                await repo.insert_memory(
+                    s,
+                    org_id=org_id,
+                    scope="role",
+                    namespace="analyst",
+                    mem_type="factual",
+                    content="供应商A交付准时率95%",
+                    importance=0.8,
+                )
+                await repo.insert_memory(
+                    s,
+                    org_id=org_id,
+                    scope="role",
+                    namespace="analyst",
+                    mem_type="factual",
+                    content="供应商B报价偏高",
+                    importance=0.7,
+                )
+                await s.commit()
+
+                local = await retrieve(s, org_id, scopes=["role"], query="供应商A 交付", limit=2)
+                reranked = await retrieve(
+                    s,
+                    org_id,
+                    scopes=["role"],
+                    query="供应商A 交付",
+                    gateway=ReverseRerankGateway(),
+                    limit=2,
+                )
+
+                assert local.summaries[0] == "供应商A交付准时率95%"
+                assert reranked.summaries[0] == "供应商B报价偏高"
         finally:
             await engine.dispose()
 

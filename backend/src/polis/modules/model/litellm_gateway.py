@@ -132,6 +132,28 @@ class LiteLLMGateway:
         )
         return [item["embedding"] for item in resp.data]
 
+    async def rerank(self, query: str, documents: list[str], limit: int) -> list[int] | None:
+        """LiteLLM reranker；未配置或 provider 不可用时由调用方回退本地排序。"""
+        import litellm
+
+        settings = get_settings()
+        if not settings.rerank_model or not documents:
+            return None
+        resp = await litellm.arerank(
+            model=settings.rerank_model,
+            query=query,
+            documents=documents,
+            top_n=min(limit, len(documents)),
+            return_documents=False,
+        )
+        results = getattr(resp, "results", None) or []
+        indexes: list[int] = []
+        for item in results:
+            index = getattr(item, "index", None)
+            if isinstance(index, int):
+                indexes.append(index)
+        return indexes or None
+
 
 async def cost_aware_pick(session: AsyncSession, capability: str) -> ResolvedModel | None:
     """成本路由（design 06 §1.1，T6.2）：在具备某能力的模型中选最便宜的（够用选便宜）。"""

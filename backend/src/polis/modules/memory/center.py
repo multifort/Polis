@@ -196,19 +196,41 @@ async def retrieve(
     namespaces: list[str] | None = None,
     query: str,
     query_embedding: list[float] | None = None,
+    gateway: ModelGateway | None = None,
     limit: int = 5,
 ) -> MemorySlice:
-    """检索切片。query_embedding 可用→向量 RAG（M6-D）；否则确定性关键词（M5-C）。"""
+    """检索切片。query_embedding 可用→向量 RAG；gateway 可用→rerank；否则本地排序。"""
+
+    async def _rerank_or_local(candidates: list[Memory]) -> list[Memory]:
+        if gateway is not None and len(candidates) > 1:
+            try:
+                indexes = await gateway.rerank(query, [m.content for m in candidates], limit)
+            except Exception:
+                logger.warning("memory rerank 失败，回退本地排序", exc_info=True)
+            else:
+                if indexes:
+                    seen: set[int] = set()
+                    ranked: list[Memory] = []
+                    for index in indexes:
+                        if 0 <= index < len(candidates) and index not in seen:
+                            ranked.append(candidates[index])
+                            seen.add(index)
+                    ranked.extend(m for i, m in enumerate(candidates) if i not in seen)
+                    return ranked[:limit]
+        return candidates[:limit]
+
     # 向量 RAG 路径（pgvector 余弦近邻，仅命中有 embedding 的记忆）
     if query_embedding is not None:
+        candidate_limit = max(limit * 3, limit)
         hits = await repo.search_by_vector(
-            session, org_id, scopes, query_embedding, limit, namespaces
+            session, org_id, scopes, query_embedding, candidate_limit, namespaces
         )
         if hits:
-            await repo.touch_last_accessed(session, [m.id for m in hits])
+            top = await _rerank_or_local(hits)
+            await repo.touch_last_accessed(session, [m.id for m in top])
             return MemorySlice(
-                summaries=[m.content for m in hits],
-                provenance=[m.provenance or {} for m in hits],
+                summaries=[m.content for m in top],
+                provenance=[m.provenance or {} for m in top],
             )
 
     # 确定性关键词回退
@@ -223,7 +245,7 @@ async def retrieve(
 
     # 排序键：相关性 > importance > 最近访问（recency）
     rows.sort(key=lambda m: (_relevance(m), m.importance, m.last_accessed), reverse=True)
-    top = rows[:limit]
+    top = await _rerank_or_local(rows[: max(limit * 3, limit)])
     await repo.touch_last_accessed(session, [m.id for m in top])
     return MemorySlice(
         summaries=[m.content for m in top],

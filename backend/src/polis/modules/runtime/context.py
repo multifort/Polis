@@ -58,6 +58,7 @@ async def build(
         namespaces=None,
         query=query,
         query_embedding=query_embedding,
+        gateway=gateway,
     )
     memory_slice = slice_.to_text()
     skills = await load_skills(session, config.skills, config.authority)

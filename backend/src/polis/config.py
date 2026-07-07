@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     default_chat_model: str = "deepseek-v4-flash"  # model_catalog.id（同一 DeepSeek Key）
     embedding_base_url: str = "http://localhost:8082"  # 本地 TEI(bge-large-zh-v1.5, arm64)
+    rerank_model: str = ""  # 可选：LiteLLM rerank 模型名；留空则记忆检索走本地排序
     kms_master_key: str = ""  # 信封加密主密钥（base64 32B）；生产必填
 
     # 对象存储（MinIO/S3 兼容，V2-P2a）。附件 + 结果产物；凭证走 env，永不入库/日志（§4）。

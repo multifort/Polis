@@ -75,6 +75,10 @@ class ModelGateway(Protocol):
         """文本向量化。返回与 texts 等长的向量列表（M5 桩可返回 None，待 M6）。"""
         ...
 
+    async def rerank(self, query: str, documents: list[str], limit: int) -> list[int] | None:
+        """按相关性重排 documents，返回原 documents 的索引；不可用时返回 None。"""
+        ...
+
 
 class StubModelGateway:
     """确定性桩（ADR-0007）。
@@ -103,6 +107,9 @@ class StubModelGateway:
     async def embed(self, texts: list[str]) -> list[list[float] | None]:
         # 桩：不产生向量（M5 检索走确定性路径）；M6 LiteLLMGateway 返回真实 embedding
         return [None for _ in texts]
+
+    async def rerank(self, query: str, documents: list[str], limit: int) -> list[int] | None:
+        return None
 
 
 async def resolve_model(session: AsyncSession, model_id: str) -> ResolvedModel:
