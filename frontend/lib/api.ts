@@ -124,6 +124,13 @@ export interface Member {
   display_name: string | null;
   role: string;
 }
+export interface InviteResult {
+  id: string | null;
+  email: string;
+  role: string;
+  status: string;
+  invite_token: string | null;
+}
 export interface Me {
   user: { id: string; email: string; display_name: string | null };
   orgs: Org[];
@@ -345,6 +352,14 @@ export const api = {
     ),
   deleteOrg: (id: string) => request<null>(`/api/orgs/${id}`, { method: "DELETE" }, true),
   members: (id: string) => request<Member[]>(`/api/orgs/${id}/members`, {}, true),
+  inviteMember: (id: string, body: { email: string; role: "approver" | "member" }) =>
+    request<InviteResult>(
+      `/api/orgs/${id}/invites`,
+      { method: "POST", body: JSON.stringify(body) },
+      true,
+    ),
+  removeMember: (orgId: string, userId: string) =>
+    request<null>(`/api/orgs/${orgId}/members/${userId}`, { method: "DELETE" }, true),
   listPresets: () => request<Preset[]>("/api/catalog/presets"),
   listModels: () => request<ModelCatalogItem[]>("/api/catalog/models"),
   configureCredential: (orgId: string, modelId: string, apiKey: string) =>
