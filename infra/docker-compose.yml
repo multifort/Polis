@@ -183,6 +183,7 @@ services:
     build:
       context: ../frontend
       args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-alpine}
         NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
     restart: unless-stopped
     depends_on:

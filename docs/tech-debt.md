@@ -16,7 +16,7 @@
 | [TD-006](#td-006) | db 引擎模块级单例、无 readiness | Med | **closed** | 已补，见偿还记录 |
 | [TD-007](#td-007) | 无 DB 集成测试(testcontainers) | Med | **closed** | 已补，见偿还记录 |
 | [TD-008](#td-008) | 早期提交作者归属错误 | Low | accepted(won't-fix) | — |
-| [TD-009](#td-009) | 应用本体未容器化 | Low | 部分偿还(build 待验证) | 修复本机 buildx 权限后跑镜像构建 |
+| [TD-009](#td-009) | 应用本体未容器化 | Low | **closed** | 已补 Dockerfile + app profile 并完成镜像构建验证 |
 | [TD-010](#td-010) | 运行时 RLS 未接线 | Med | **closed** | 已补（M2 T9.2），见偿还记录 |
 | [TD-011](#td-011) | 审计仅覆盖 org 写操作（auth 事件未） | Med | **closed** | 登录失败审计已补（独立事务），见偿还记录 |
 | [TD-012](#td-012) | 认证缺登出/刷新轮换/会话清理 | Med | **closed** | 已补，见偿还记录 |
@@ -95,7 +95,9 @@
 **应用本体容器化入口已落。** 新增 `backend/Dockerfile`、`frontend/Dockerfile` 与 compose `app` profile：
 `api` 启动前跑 `alembic upgrade head`，`worker` 复用后端镜像，`web` 用 Next production server。
 - 已补（2026-07-07）：`docker compose --env-file .env --profile app config` 已验证配置可解析；整栈启动入口见 `infra/README.md`。
-- 剩余：镜像构建验证被本机 Docker buildx 状态文件权限阻断（`~/.docker/buildx/current: permission denied`）；修复 Docker 本机配置后跑 `docker compose --env-file .env --profile app build api web`，通过后关闭。
+- 已验证（2026-07-07）：使用独立 `BUILDX_CONFIG=/private/tmp/polis-buildx` 绕开本机 root-owned buildx 状态文件，并通过
+  `NODE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:22-alpine-linuxarm64 docker compose --env-file .env --profile app build api web`；
+  产物 `polis-api:local` / `polis-web:local` 均为 arm64 镜像。
 
 ### TD-010
 **运行时 RLS 未接线。** RLS 角色/策略/隔离回归(T8.3)已就位并测通，但**运行中的应用仍以 superuser `polis` 连接**

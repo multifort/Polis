@@ -1,4 +1,6 @@
-FROM node:22-alpine AS deps
+ARG NODE_IMAGE=node:22-alpine
+
+FROM ${NODE_IMAGE} AS deps
 
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.28.2 --activate
@@ -15,7 +17,7 @@ COPY . .
 RUN pnpm build
 RUN pnpm prune --prod
 
-FROM node:22-alpine AS runtime
+FROM ${NODE_IMAGE} AS runtime
 
 ENV NODE_ENV=production \
     PORT=3000
