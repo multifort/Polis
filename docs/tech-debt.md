@@ -9,7 +9,7 @@
 | ID | 标题 | 严重度 | 状态 | 偿还触发 |
 |---|---|---|---|---|
 | [TD-001](#td-001) | main 分支保护未启用 | Med | open | 引入第二贡献者 / V1 正式开发前 |
-| [TD-002](#td-002) | 无 CI，门禁仅本地 | Med | open(设计内 E4 后置) | 团队 >1 或进入 V2 |
+| [TD-002](#td-002) | CI workflow 模板已落，远程启用待 workflow scope | Med | 部分偿还 | 启用 main 保护 / 进 staging 前 |
 | [TD-003](#td-003) | gitleaks 非自举/跨平台 | Low | open | 随 CI(TD-002) |
 | [TD-004](#td-004) | 基础设施镜像用浮动 tag | Low-Med | **closed** | 已固定 litellm/langfuse，见偿还记录 |
 | [TD-005](#td-005) | bandit/pip-audit 临时安装未锁版本 | Low | **closed** | 已锁入 dev 依赖，见偿还记录 |
@@ -53,9 +53,10 @@
 - 偿还：GitHub `Settings → Rules → Rulesets`，对 `main` 勾选 *Require a pull request before merging* + *Require review* + *Require status checks*（配合 TD-002 的 CI）。需仓库管理员（人工，CLI/`gh` 当前不可用）。
 
 ### TD-002
-**无 CI，质量门禁仅本地 pre-commit/pre-push。** 这是约束 14 明确的 E4 后置项，非疏漏。
-- 影响：`--no-verify` 可绕过；未执行 `pre-commit install` 的环境完全不设防；门禁不在服务端强制。
-- 偿还：引入 CI（GitHub Actions 等）跑同一套 ruff/mypy/pytest/gitleaks/bandit/pip-audit + alembic check + 隔离测试，作为 `main` 的必过检查。
+**CI workflow 模板已落，远程启用待 workflow scope。** 早期质量门禁仅本地 pre-commit/pre-push，`--no-verify` 可绕过。
+- 已偿还（2026-07-07）：新增 `docs/ci/github-actions-ci.yml` 模板，覆盖后端 `ruff`/`mypy`/`pytest`/`bandit`/`pip-audit` 与前端 `tsc --noEmit`/`next build`，复用 `uv.lock` 与 `pnpm-lock.yaml`；本地已按等价命令验证通过。
+- 约束：当前 GitHub PAT 缺少 `workflow` scope，直接推送 `.github/workflows/ci.yml` 被远程拒绝；需仓库管理员用带 `workflow` scope 的凭证把模板复制到 `.github/workflows/ci.yml`。
+- 剩余：GitHub main 分支保护（TD-001）尚未启用，CI 还未成为必过 status check；gitleaks 服务端扫描/`alembic check` 可随分支保护或 staging 前补齐。
 
 ### TD-003
 **gitleaks 用本机预编译二进制，非自举、未跨平台。** 官方 pre-commit hook 需现编译 Go，曾因网络失败；
