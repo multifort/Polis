@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | [TD-001](#td-001) | main 分支保护未启用 | Med | open | 引入第二贡献者 / V1 正式开发前 |
 | [TD-002](#td-002) | CI workflow 模板已落，远程启用待 workflow scope | Med | 部分偿还 | 启用 main 保护 / 进 staging 前 |
-| [TD-003](#td-003) | gitleaks 非自举/跨平台 | Low | open | 随 CI(TD-002) |
+| [TD-003](#td-003) | gitleaks 本地仍依赖预装；CI 模板已补服务端扫描 | Low | 部分偿还 | 远程启用 CI 后关闭 |
 | [TD-004](#td-004) | 基础设施镜像用浮动 tag | Low-Med | **closed** | 已固定 litellm/langfuse，见偿还记录 |
 | [TD-005](#td-005) | bandit/pip-audit 临时安装未锁版本 | Low | **closed** | 已锁入 dev 依赖，见偿还记录 |
 | [TD-006](#td-006) | db 引擎模块级单例、无 readiness | Med | **closed** | 已补，见偿还记录 |
@@ -54,15 +54,15 @@
 
 ### TD-002
 **CI workflow 模板已落，远程启用待 workflow scope。** 早期质量门禁仅本地 pre-commit/pre-push，`--no-verify` 可绕过。
-- 已偿还（2026-07-07）：新增 `docs/ci/github-actions-ci.yml` 模板，覆盖后端 `ruff`/`mypy`/`pytest`/`bandit`/`pip-audit` 与前端 `tsc --noEmit`/`next build`，复用 `uv.lock` 与 `pnpm-lock.yaml`；本地已按等价命令验证通过。
+- 已偿还（2026-07-07）：新增 `docs/ci/github-actions-ci.yml` 模板，覆盖后端 `ruff`/`mypy`/`pytest`/`bandit`/`pip-audit`、Alembic `upgrade head` + `check` 迁移漂移门、Gitleaks secret scan 与前端 `tsc --noEmit`/`next build`，复用 `uv.lock` 与 `pnpm-lock.yaml`；已补迁移 `8c9d0e1f2a3b` 对齐 schema drift，本地 `alembic upgrade head && alembic check` 通过。
 - 约束：当前 GitHub PAT 缺少 `workflow` scope，直接推送 `.github/workflows/ci.yml` 被远程拒绝；需仓库管理员用带 `workflow` scope 的凭证把模板复制到 `.github/workflows/ci.yml`。
-- 剩余：GitHub main 分支保护（TD-001）尚未启用，CI 还未成为必过 status check；gitleaks 服务端扫描/`alembic check` 可随分支保护或 staging 前补齐。
+- 剩余：GitHub main 分支保护（TD-001）尚未启用，CI 还未成为必过 status check。
 
 ### TD-003
-**gitleaks 用本机预编译二进制，非自举、未跨平台。** 官方 pre-commit hook 需现编译 Go，曾因网络失败；
-改用 `~/.local/bin/gitleaks`（见 `.pre-commit-config.yaml` 头注）。
-- 影响：新成员 / Linux / CI 需自行安装 gitleaks，非"clone 即用"。
-- 偿还：CI 内用容器化 gitleaks，或固定二进制版本的安装脚本；随 TD-002 一并解决。
+**本地 gitleaks 仍用本机预编译二进制；CI 模板已补服务端扫描。** 官方 pre-commit hook 需现编译 Go，曾因网络失败；
+本地改用 `~/.local/bin/gitleaks`（见 `.pre-commit-config.yaml` 头注），CI 模板使用 `gitleaks/gitleaks-action` 在远程跑全仓 secret scan。
+- 影响：新成员本地仍需安装 gitleaks；远程启用 CI 后可补上服务端兜底。
+- 偿还：待 `docs/ci/github-actions-ci.yml` 复制到 `.github/workflows/ci.yml` 并启用后，关闭 TD-003；若要让本地 clone 即用，再补固定二进制版本安装脚本。
 
 ### TD-004
 **基础设施镜像部分用浮动 tag。** `infra/docker-compose.yml` 中 `litellm:main-stable`、`langfuse:2`
@@ -117,10 +117,10 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 - 偿还：补 logout(吊销)、refresh 轮换(旋转+吊销旧)、过期 session 清理任务；M2。
 
 ### TD-013
-**安全配置生产前须收紧（部分完成）。** dev 仍保留 JWT 默认密钥便利项；CORS 默认已收紧到常用本地前端端口以支持 cookie credentials；生产级边缘限流仍待接入。
+**安全配置生产前须收紧（已完成当前阶段基线）。** dev 仍保留 JWT 默认密钥便利项；CORS 默认已收紧到常用本地前端端口以支持 cookie credentials；生产类环境 fail-closed 校验和 compose 网关认证限流已接入。
 - 已完成（批次2）：`Settings.validate_for_prod()` 在 `env` 非 dev/test/local 时 fail-closed 校验——
   拒绝 JWT 默认密钥/长度<32、拒绝 CORS 通配 `*`；`create_app()` 启动调用；`test_config_prod` 覆盖。
-- 已完成（2026-07-07）：登录失败限流落地——默认同一邮箱+IP 在 15 分钟窗口内失败 5 次后锁定 15 分钟，返回 `429` 与 `Retry-After`；成功登录清桶。当前为进程内滑动窗口 MVP，适合单实例/本地开发。
+- 已完成（2026-07-07）：登录失败限流落地并升级为 DB 共享桶——默认同一邮箱+IP 在 15 分钟窗口内失败 5 次后锁定 15 分钟，返回 `429` 与 `Retry-After`；成功登录清桶，多后端实例共享计数。
 - 已完成（2026-07-07）：登录失败限流升级为 DB 共享桶（`auth_rate_limit_bucket`），失败/成功记录走独立事务；多后端实例共享同一邮箱+IP 计数。
 - 已完成（2026-07-07）：找回密码闭环落地——一次性 `password_reset_token` 只存哈希，30 分钟过期；确认重置后更新密码、消费 token、吊销该用户所有 refresh 会话，并写审计。前端登录页已接入「忘记密码」流程；dev/local 返回 token 便于联调，生产响应不回显 token。
 - 已完成（2026-07-07）：找回密码邮件投递接入——dev/local 可用 file outbox，生产 `validate_for_prod()` 要求 `POLIS_MAIL_BACKEND=smtp`、`POLIS_MAIL_FROM` 与 `POLIS_MAIL_SMTP_HOST`；API 生产响应不回显 token。

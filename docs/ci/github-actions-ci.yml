@@ -13,12 +13,43 @@ permissions:
   contents: read
 
 jobs:
+  secrets:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: polis
+          POSTGRES_PASSWORD: polis
+          POSTGRES_DB: polis
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U polis -d polis"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     defaults:
       run:
         working-directory: backend
+    env:
+      POLIS_ENV: test
+      POLIS_DATABASE_URL: postgresql+asyncpg://polis:polis@localhost:5432/polis
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,6 +73,11 @@ jobs:
 
       - name: Mypy
         run: uv run mypy src
+
+      - name: Alembic migration drift
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
 
       - name: Pytest
         run: uv run pytest
