@@ -214,6 +214,64 @@ def test_execute_node_uses_org_primary_model_when_agent_unset(
     assert facts["provenance"]["model"] == "deepseek-v4-pro"
 
 
+def test_execute_node_uses_cost_aware_model_when_unset(client: TestClient, pg_url: str) -> None:
+    asyncio.run(seed())
+    org_id = _provision_procurement(client)
+
+    async def _make_pro_cheapest() -> None:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                await s.execute(
+                    text(
+                        """
+                        UPDATE model_catalog
+                        SET price_in = CASE id WHEN 'deepseek-v4-pro' THEN 0 ELSE 10 END,
+                            price_out = CASE id WHEN 'deepseek-v4-pro' THEN 0 ELSE 10 END
+                        WHERE capabilities @> ARRAY['text-gen']::text[]
+                        """
+                    )
+                )
+                await s.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_make_pro_cheapest())
+
+    node = {
+        "id": "n1",
+        "type": "agent",
+        "required_capabilities": ["procurement.rfq"],
+        "input_hint": "向供应商询价",
+    }
+
+    async def _run() -> dict[str, object]:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                res = await agent_runtime.execute(
+                    s,
+                    node,
+                    org_id,
+                    gateway=StubModelGateway(),
+                    registry=default_registry(),
+                    guard=Guardrails(),
+                )
+                await s.commit()
+                return res
+        finally:
+            await engine.dispose()
+
+    result = asyncio.run(_run())
+    assert result["ok"] is True
+
+    envs = _envelopes(pg_url, org_id)
+    assert len(envs) == 1
+    facts = envs[0]["facts"]
+    assert isinstance(facts, dict)
+    assert facts["provenance"]["model"] == "deepseek-v4-pro"
+
+
 def test_execute_node_blocked_by_injection(client: TestClient, pg_url: str) -> None:
     asyncio.run(seed())
     org_id = _provision_procurement(client)

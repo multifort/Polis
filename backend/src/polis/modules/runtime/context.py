@@ -17,6 +17,7 @@ from polis.modules.memory import center as memory_center
 from polis.modules.model import credential
 from polis.modules.model.credential import ScopedCredential
 from polis.modules.model.gateway import ModelGateway, ResolvedModel, resolve_model
+from polis.modules.model.litellm_gateway import cost_aware_pick
 from polis.modules.org import repository as org_repo
 from polis.modules.org.schemas import AgentConfig
 from polis.modules.runtime.skills import LoadedSkills, load_skills
@@ -63,13 +64,14 @@ async def build(
     )
     memory_slice = slice_.to_text()
     skills = await load_skills(session, config.skills, config.authority)
-    # fallback 顺序：Agent 显式模型 → 公司主模型 → 系统默认 chat 模型
-    model_id = (
-        config.model
-        or await org_repo.get_org_primary_model_id(session, org_id)
-        or get_settings().default_chat_model
+    # fallback 顺序：Agent 显式模型 → 公司主模型 → 成本最优 text-gen → 系统默认 chat 模型
+    model_id = config.model or await org_repo.get_org_primary_model_id(session, org_id)
+    model = (
+        await resolve_model(session, model_id)
+        if model_id
+        else (await cost_aware_pick(session, "text-gen"))
+        or await resolve_model(session, get_settings().default_chat_model)
     )
-    model = await resolve_model(session, model_id)
     cred = await credential.scoped(session, org_id, model.id, task_id)
     # 目标优先用用户意图；回退节点静态 expected_output/input_hint
     eff_goal = goal or node.get("expected_output") or node.get("input_hint") or ""

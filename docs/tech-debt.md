@@ -35,7 +35,7 @@
 | [TD-025](#td-025) | Langfuse 采集+自建观测页(H-1/2/3) 完成；trace_ref 表落库未用(直查 API) | Low | **closed** | trace_ref 表后续按需 |
 | [TD-028](#td-028) | execute 写 result_envelope 未关联 task_run.id | Med | **closed** | 已贯通 task_run.id |
 | [TD-029](#td-029) | 部署：组件地址 dev 默认 localhost，生产需 env 覆盖 + 容器化用 service name | Low-Med | **closed** | 已补 compose service-name env 与生产模板 |
-| [TD-026](#td-026) | M6 仍有简化项：Guardrails 规则版/MCP 内置工具/cost-aware 路由未完整产品化 | Low-Med | open | Guardrails-AI/真实MCP/cost-aware 路由 |
+| [TD-026](#td-026) | M6 仍有简化项：Guardrails 规则版/MCP 内置工具 | Low-Med | open | Guardrails-AI/真实MCP |
 | [TD-027](#td-027) | TEI 模型须预下载离线挂载（hf-mirror 不返回 etag，在线下载失败） | Low | open(运维已知) | 换可返回 etag 的源 / 自建镜像 |
 | [TD-030](#td-030) | 模板/预设/记忆语义检索已落；能力语义去重原语已接入 TD-032 goal 提案链 | Med | **closed** | 技能/角色语义检索按后续复用场景再切 |
 | [TD-032](#td-032) | Skill 生成链已落；manual 风险分级自动发布、tool/MCP 草稿最小权限+本地沙箱+人审墙、goal 端可达与语义去重已接线 | Med | **closed** | tool 类 LLM authoring / 外部真实 MCP server 沙箱后置 |
@@ -257,11 +257,13 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   回归覆盖：`tests/test_integration_execute.py::test_execute_node_uses_agent_config_model` 与
   `tests/test_integration_orgmgmt.py::test_owner_updates_agent_model_selection`。
 - org 主模型已补：`org.policies.primary_model_id` 作为公司默认推理模型，设置页可更新；运行时 fallback 顺序为
-  Agent 模型 → 公司主模型 → 系统默认模型。回归覆盖：
+  Agent 模型 → 公司主模型 → cost-aware text-gen → 系统默认模型。回归覆盖：
   `tests/test_integration_orgmgmt.py::test_owner_updates_org_primary_model` 与
   `tests/test_integration_execute.py::test_execute_node_uses_org_primary_model_when_agent_unset`。
-- 剩余：缺少 cost-aware/能力约束的产品化路由。
-- 偿还：Guardrails-AI 接入；MCP 真实 server；多模型产品化后续（cost_aware_pick 路由）。
+- cost-aware 路由已接入执行 fallback：Agent/公司均未指定模型时，运行时按 `cost_aware_pick("text-gen")`
+  选择目录价最低的推理模型；无候选时再回退系统默认。回归覆盖：
+  `tests/test_integration_execute.py::test_execute_node_uses_cost_aware_model_when_unset`。
+- 剩余：Guardrails-AI 接入；MCP 真实 server。
 
 ### TD-027
 **TEI embedding 模型须预下载离线挂载。** hf-mirror 反代不返回 `etag` header，TEI rust 下载器在线下载失败；
