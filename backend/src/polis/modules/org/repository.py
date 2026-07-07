@@ -14,6 +14,7 @@ from polis.modules.org.models import (
     AppUser,
     AuthSession,
     Org,
+    OrgInvite,
     OrgMember,
     PasswordResetToken,
     Role,
@@ -170,6 +171,81 @@ async def list_members(session: AsyncSession, org_id: uuid.UUID) -> list[tuple[A
         .order_by(OrgMember.role, AppUser.email)
     )
     return [(u, role) for u, role in rows.all()]
+
+
+async def count_owners(session: AsyncSession, org_id: uuid.UUID) -> int:
+    count = await session.scalar(
+        select(func.count())
+        .select_from(OrgMember)
+        .where(OrgMember.org_id == org_id, OrgMember.role == "owner")
+    )
+    return int(count or 0)
+
+
+async def add_org_member(
+    session: AsyncSession, org_id: uuid.UUID, user_id: uuid.UUID, role: str
+) -> OrgMember:
+    member = OrgMember(org_id=org_id, user_id=user_id, role=role)
+    session.add(member)
+    await session.flush()
+    return member
+
+
+async def delete_org_member(session: AsyncSession, org_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+    result = cast(
+        "CursorResult[Any]",
+        await session.execute(
+            delete(OrgMember).where(OrgMember.org_id == org_id, OrgMember.user_id == user_id)
+        ),
+    )
+    await session.flush()
+    return result.rowcount > 0
+
+
+async def create_org_invite(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    email: str,
+    role: str,
+    token_hash: str,
+    invited_by: uuid.UUID,
+    expires_at: datetime,
+) -> OrgInvite:
+    invite = OrgInvite(
+        org_id=org_id,
+        email=email,
+        role=role,
+        token_hash=token_hash,
+        invited_by=invited_by,
+        expires_at=expires_at,
+    )
+    session.add(invite)
+    await session.flush()
+    return invite
+
+
+async def get_active_invite_by_hash(session: AsyncSession, token_hash: str) -> OrgInvite | None:
+    invite: OrgInvite | None = await session.scalar(
+        select(OrgInvite).where(
+            OrgInvite.token_hash == token_hash,
+            OrgInvite.status == "pending",
+            or_(OrgInvite.expires_at.is_(None), OrgInvite.expires_at > func.now()),
+        )
+    )
+    return invite
+
+
+async def mark_org_invite_accepted(session: AsyncSession, invite_id: uuid.UUID) -> bool:
+    result = cast(
+        "CursorResult[Any]",
+        await session.execute(
+            update(OrgInvite)
+            .where(OrgInvite.id == invite_id, OrgInvite.status == "pending")
+            .values(status="accepted")
+        ),
+    )
+    await session.flush()
+    return result.rowcount > 0
 
 
 async def list_roles(session: AsyncSession) -> list[Role]:

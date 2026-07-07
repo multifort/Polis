@@ -18,6 +18,8 @@ from polis.modules.org.deps import CurrentOrg, CurrentUserId
 from polis.modules.org.models import Role
 from polis.modules.org.schemas import (
     AgentOut,
+    InviteCreateIn,
+    InviteOut,
     LoginIn,
     MemberOut,
     MeOut,
@@ -149,6 +151,45 @@ async def list_members(
         return await service.list_members(session, user_id, org_id)
     except service.NotOwner as exc:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "你不属于该公司") from exc
+
+
+@router.post(
+    "/orgs/{org_id}/invites", response_model=InviteOut, status_code=status.HTTP_201_CREATED
+)
+async def create_invite(
+    org_id: uuid.UUID, data: InviteCreateIn, user_id: CurrentUserId, session: SessionDep
+) -> InviteOut:
+    try:
+        invite = await service.create_invite(session, user_id, org_id, data)
+    except service.NotOwner as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "需所有者权限") from exc
+    if get_settings().is_prod():
+        invite.invite_token = None
+    return invite
+
+
+@router.post("/invites/{token}/accept", response_model=MemberOut)
+async def accept_invite(token: str, user_id: CurrentUserId, session: SessionDep) -> MemberOut:
+    try:
+        return await service.accept_invite(session, user_id, token)
+    except service.InvalidInvite as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "邀请令牌无效或已过期") from exc
+    except service.InviteEmailMismatch as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "该邀请不属于当前账号") from exc
+
+
+@router.delete("/orgs/{org_id}/members/{member_user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_member(
+    org_id: uuid.UUID, member_user_id: uuid.UUID, user_id: CurrentUserId, session: SessionDep
+) -> None:
+    try:
+        await service.remove_member(session, user_id, org_id, member_user_id)
+    except service.NotOwner as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "需所有者权限") from exc
+    except service.MemberNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "成员不存在") from exc
+    except service.CannotRemoveLastOwner as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能移除最后一个所有者") from exc
 
 
 @router.delete("/orgs/{org_id}", status_code=status.HTTP_204_NO_CONTENT)

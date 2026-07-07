@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     auth_login_window_seconds: int = 900
     auth_login_lock_seconds: int = 900
     password_reset_ttl_minutes: int = 30
+    org_invite_ttl_days: int = 7
 
     # Temporal 编排服务地址（M3-C）
     temporal_addr: str = "localhost:7233"

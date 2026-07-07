@@ -23,7 +23,7 @@
 | [TD-013](#td-013) | 安全配置生产前须收紧（CORS `*`/JWT 默认密钥/邮件投递/边缘限流） | Med | open(部分) | 邮件投递/分布式边缘限流待对外前 |
 | [TD-014](#td-014) | 前端 token 存 localStorage + 无静默刷新 | Low-Med | open(部分) | localStorage→cookie 待前端硬化 |
 | [TD-015](#td-015) | org 过滤 repo 基类未建 | Low | **closed** | 已提供 select_org_scoped 助手 |
-| [TD-016](#td-016) | 权限矩阵未完整落地（成员邀请/移除） | Low-Med | open(部分) | 成员管理接入时 |
+| [TD-016](#td-016) | 权限矩阵未完整落地（成员邀请/移除） | Low-Med | open(前端入口/角色调整) | 成员管理 UI 接入时 |
 | [TD-017](#td-017) | 预设关键词匹配对中文弱（无分词/无语义） | Low | **closed** | provisioning 语义选预设已落，见偿还记录 |
 | [TD-018](#td-018) | Temporal worker 沙箱 pydantic_core 延迟导入 UserWarning | Low | **closed** | 已消除，见偿还记录 |
 | [TD-019](#td-019) | 节点终态仅靠 GET /run 触发回写（无 workflow 完成回调） | Low-Med | **closed** | 已补 finalize_run 工作流完成回调，见偿还记录 |
@@ -141,9 +141,9 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 **权限矩阵未完整落地。** M2 已用 owner 守卫（service 层内联 403）保护公司改名/删除/成员查看；
 **M3 收尾**首次启用 `require_role`：`POST /api/plans/{id}/approve`、`/signal` 限 owner/approver（提交 `80ac672`，单测 `test_require_role.py`）。
 已补：前端按角色门控审批入口——工作台仅 owner/approver 显示待处理审批，计划详情页禁用「批准并运行」/human gate「通过」，任务列表禁用直接启动类动作；AppShell 正确显示「审批人」角色。
-仍缺：**成员邀请/移除**端点（成员列表只读，对接 09 T9.5）。
-- 影响：审批权前后端已区分；成员管理是后续能力。
-- 偿还：成员管理接入时，补成员邀请流程 + 移除/角色调整。
+已补（2026-07-07）：成员邀请/接受/移除后端闭环——`POST /api/orgs/{id}/invites`、`POST /api/invites/{token}/accept`、`DELETE /api/orgs/{id}/members/{user_id}`；owner 才能邀请/移除，邀请已有成员幂等返回，最后一个 owner 不能被移除。回归：`tests/test_integration_orgmgmt.py`。
+- 影响：审批权前后端已区分；成员管理 API 已具备，前端成员管理入口和角色调整仍是后续产品能力。
+- 偿还：成员管理 UI 接入时，补邀请/移除入口；如需要 owner 改成员角色，再单独补角色调整端点与防降级最后 owner 规则。
 
 ### TD-017
 **预设关键词匹配对中文弱。** `provisioning.match_preset` 关键词按空格分词做子串匹配，

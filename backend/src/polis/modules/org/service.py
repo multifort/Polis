@@ -21,6 +21,8 @@ from polis.core.security import (
 from polis.modules.observability.audit import write_audit
 from polis.modules.org import repository as repo
 from polis.modules.org.schemas import (
+    InviteCreateIn,
+    InviteOut,
     LoginIn,
     MemberOut,
     MeOut,
@@ -58,6 +60,22 @@ class InvalidPasswordResetToken(AuthError):
 
 class NotOwner(AuthError):
     """需要所有者权限（T9.3 权限矩阵）。"""
+
+
+class InvalidInvite(AuthError):
+    pass
+
+
+class InviteEmailMismatch(AuthError):
+    pass
+
+
+class MemberNotFound(AuthError):
+    pass
+
+
+class CannotRemoveLastOwner(AuthError):
+    pass
 
 
 async def _issue_tokens(session: AsyncSession, user_id: uuid.UUID) -> TokenOut:
@@ -218,6 +236,98 @@ async def list_members(
         MemberOut(user_id=u.id, email=u.email, display_name=u.display_name, role=role)
         for u, role in rows
     ]
+
+
+async def create_invite(
+    session: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID, data: InviteCreateIn
+) -> InviteOut:
+    await _require_owner(session, user_id, org_id)
+    if await repo.get_org_by_id(session, org_id) is None:
+        raise NotOwner
+
+    email = str(data.email)
+    existing_user = await repo.get_user_by_email(session, email)
+    if existing_user is not None:
+        existing_member = await repo.get_member(session, org_id, existing_user.id)
+        if existing_member is not None:
+            return InviteOut(email=email, role=existing_member.role, status="accepted")
+
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(UTC) + timedelta(days=get_settings().org_invite_ttl_days)
+    invite = await repo.create_org_invite(
+        session,
+        org_id=org_id,
+        email=email,
+        role=data.role,
+        token_hash=hash_token(token),
+        invited_by=user_id,
+        expires_at=expires_at,
+    )
+    await write_audit(
+        session,
+        action="org.invite.create",
+        actor=str(user_id),
+        org_id=org_id,
+        target=str(invite.id),
+        detail={"email": email, "role": data.role},
+    )
+    await session.flush()
+    return InviteOut(
+        id=invite.id, email=invite.email, role=invite.role, status=invite.status, invite_token=token
+    )
+
+
+async def accept_invite(session: AsyncSession, user_id: uuid.UUID, token: str) -> MemberOut:
+    invite = await repo.get_active_invite_by_hash(session, hash_token(token))
+    if invite is None:
+        raise InvalidInvite
+    user = await repo.get_user_by_id(session, user_id)
+    if user is None:
+        raise InvalidInvite
+    if user.email.lower() != invite.email.lower():
+        raise InviteEmailMismatch
+
+    existing_member = await repo.get_member(session, invite.org_id, user_id)
+    if existing_member is None:
+        await repo.add_org_member(session, invite.org_id, user_id, invite.role)
+        role = invite.role
+    else:
+        role = existing_member.role
+
+    if not await repo.mark_org_invite_accepted(session, invite.id):
+        raise InvalidInvite
+    await write_audit(
+        session,
+        action="org.invite.accept",
+        actor=str(user_id),
+        org_id=invite.org_id,
+        target=str(invite.id),
+        detail={"email": invite.email, "role": role},
+    )
+    await session.flush()
+    return MemberOut(user_id=user.id, email=user.email, display_name=user.display_name, role=role)
+
+
+async def remove_member(
+    session: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID, member_user_id: uuid.UUID
+) -> None:
+    await _require_owner(session, user_id, org_id)
+    member = await repo.get_member(session, org_id, member_user_id)
+    if member is None:
+        raise MemberNotFound
+    if member.role == "owner" and await repo.count_owners(session, org_id) <= 1:
+        raise CannotRemoveLastOwner
+
+    await repo.delete_org_member(session, org_id, member_user_id)
+    await write_audit(
+        session,
+        action="org.member.remove",
+        actor=str(user_id),
+        org_id=org_id,
+        target=str(member_user_id),
+        detail={"role": member.role},
+    )
+    await session.flush()
 
 
 async def delete_org(session: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID) -> None:

@@ -71,6 +71,19 @@ class OrgUpdateIn(BaseModel):
     description: str | None = Field(default=None, max_length=500)
 
 
+class InviteCreateIn(BaseModel):
+    email: EmailStr
+    role: str = Field(pattern="^(approver|member)$")
+
+
+class InviteOut(BaseModel):
+    id: uuid.UUID | None = None
+    email: str
+    role: str
+    status: str
+    invite_token: str | None = None
+
+
 class RoleOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
