@@ -4,7 +4,19 @@ from __future__ import annotations
 
 import uuid
 
-from scripts.r4.role_template_reuse_gate import RoleTemplateKey, compute_reuse_summary
+from scripts.r4.role_template_reuse_gate import (
+    RoleTemplateKey,
+    compute_reuse_summary,
+    is_benchmark_org_name,
+)
+
+
+def test_r4_reuse_gate_marks_benchmark_org_names() -> None:
+    assert is_benchmark_org_name("M7验收门-1783332151") is True
+    assert is_benchmark_org_name("R4复用率样本公司") is True
+    assert is_benchmark_org_name("R4自然复用Smoke公司") is True
+    assert is_benchmark_org_name("真实采购公司") is False
+    assert is_benchmark_org_name(None) is False
 
 
 def test_r4_reuse_summary_counts_follow_up_manifest_occurrences() -> None:

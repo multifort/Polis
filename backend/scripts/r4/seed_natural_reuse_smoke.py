@@ -11,7 +11,7 @@
 用法：
   uv run python scripts/r4/seed_natural_reuse_smoke.py
   uv run python scripts/r4/seed_natural_reuse_smoke.py --write
-  uv run python scripts/r4/role_template_reuse_gate.py --threshold 0.6
+  uv run python scripts/r4/role_template_reuse_gate.py --threshold 0.6 --include-benchmark
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import argparse
 import asyncio
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import select
 
@@ -62,7 +62,7 @@ async def _ensure_org(session: Any) -> uuid.UUID:
         await session.flush()
         session.add(OrgMember(org_id=org.id, user_id=user.id, role="owner"))
         await session.flush()
-    return org.id
+    return cast(uuid.UUID, org.id)
 
 
 async def _ensure_skill(
@@ -93,7 +93,7 @@ async def _ensure_skill(
             )
         )
         await session.flush()
-    return skill
+    return cast(Skill, skill)
 
 
 async def _manifest_occurrences(session: Any, org_id: uuid.UUID, agent_name: str) -> int:
@@ -120,7 +120,7 @@ async def _create_manifest(
     agent_name: str,
     idx: int,
 ) -> None:
-    dag = {
+    dag: dict[str, Any] = {
         "workflow_name": "r4_natural_reuse_smoke",
         "goal": f"R4 natural reuse smoke #{idx}",
         "nodes": [
@@ -204,7 +204,7 @@ async def run(
                 idx=idx,
             )
         await session.commit()
-        print("write：完成。现在可运行默认 role_template_reuse_gate.py 验证。")
+        print("write：完成。现在可运行 role_template_reuse_gate.py --include-benchmark 验证。")
         return 0
 
 

@@ -4,11 +4,13 @@
 口径：
   - 分母：status=active 且 source=generated 的 role_template
   - 分子：该模板同名 Agent 在 run_manifest.agents_used 中出现次数 >= --min-occurrences
+  - 默认排除 M7 验收门 / R4 smoke 等 benchmark org；真实业务口径需要避免测试数据污染
 
 默认 --min-occurrences=2：第一次出现通常是沉淀来源/首次使用，第二次及以后才算“后续复用”。
 
 用法：
   uv run python scripts/r4/role_template_reuse_gate.py
+  uv run python scripts/r4/role_template_reuse_gate.py --include-benchmark
   uv run python scripts/r4/role_template_reuse_gate.py --include-samples
   uv run python scripts/r4/role_template_reuse_gate.py --org-id <org_uuid> --threshold 0.6
 """
@@ -25,7 +27,10 @@ from sqlalchemy import select
 
 from polis.db.session import get_sessionmaker, init_engine
 from polis.modules.observability.models import RunManifest
-from polis.modules.org.models import RoleTemplate
+from polis.modules.org.models import Org, RoleTemplate
+
+BENCHMARK_ORG_PREFIXES = ("M7验收门-",)
+BENCHMARK_ORG_NAMES = {"R4复用率样本公司", "R4自然复用Smoke公司"}
 
 
 @dataclass(frozen=True)
@@ -65,6 +70,14 @@ def _agent_names_from_manifest(agents_used: dict[str, Any] | None) -> set[str]:
     return names
 
 
+def is_benchmark_org_name(name: str | None) -> bool:
+    if not name:
+        return False
+    return name in BENCHMARK_ORG_NAMES or any(
+        name.startswith(prefix) for prefix in BENCHMARK_ORG_PREFIXES
+    )
+
+
 def compute_reuse_summary(
     templates: list[RoleTemplateKey],
     manifests: list[tuple[uuid.UUID, dict[str, Any] | None]],
@@ -94,26 +107,39 @@ async def _load_inputs(
     org_id: uuid.UUID | None,
     *,
     include_samples: bool,
+    include_benchmark: bool = False,
 ) -> tuple[list[RoleTemplateKey], list[tuple[uuid.UUID, dict[str, Any] | None]]]:
     init_engine()
     async with get_sessionmaker()() as session:
-        tpl_q = select(RoleTemplate).where(
-            RoleTemplate.source == "generated",
-            RoleTemplate.status == "active",
+        tpl_q = (
+            select(RoleTemplate, Org.name)
+            .outerjoin(Org, RoleTemplate.owner_org_id == Org.id)
+            .where(
+                RoleTemplate.source == "generated",
+                RoleTemplate.status == "active",
+            )
         )
-        mf_q = select(RunManifest.org_id, RunManifest.agents_used).where(
-            RunManifest.agents_used.is_not(None)
+        mf_q = (
+            select(RunManifest.org_id, RunManifest.agents_used, Org.name)
+            .outerjoin(Org, RunManifest.org_id == Org.id)
+            .where(RunManifest.agents_used.is_not(None))
         )
         if org_id is not None:
             tpl_q = tpl_q.where(RoleTemplate.owner_org_id == org_id)
             mf_q = mf_q.where(RunManifest.org_id == org_id)
         templates = []
-        for t in (await session.scalars(tpl_q)).all():
+        for t, org_name in (await session.execute(tpl_q)).all():
+            if not include_benchmark and is_benchmark_org_name(org_name):
+                continue
             meta = t.meta or {}
             if not include_samples and meta.get("sample") is True:
                 continue
             templates.append(RoleTemplateKey(org_id=t.owner_org_id, name=t.name))
-        manifests = [(oid, agents) for oid, agents in (await session.execute(mf_q)).all()]
+        manifests = [
+            (oid, agents)
+            for oid, agents, org_name in (await session.execute(mf_q)).all()
+            if include_benchmark or not is_benchmark_org_name(org_name)
+        ]
         return templates, manifests
 
 
@@ -123,8 +149,13 @@ async def run(
     min_occurrences: int,
     *,
     include_samples: bool = False,
+    include_benchmark: bool = False,
 ) -> int:
-    templates, manifests = await _load_inputs(org_id, include_samples=include_samples)
+    templates, manifests = await _load_inputs(
+        org_id,
+        include_samples=include_samples,
+        include_benchmark=include_benchmark,
+    )
     summary = compute_reuse_summary(
         templates,
         manifests,
@@ -136,6 +167,7 @@ async def run(
     print(f"R4 角色模板复用率验证门：{scope}")
     print(f"样本 role_template(generated/active)：{summary.total}")
     print(f"最小机制样本：{'包含' if include_samples else '排除'}（meta.sample=true）")
+    print(f"benchmark/smoke org：{'包含' if include_benchmark else '排除'}")
     print(f"复用定义：manifest 出现次数 >= {summary.min_occurrences}")
     if not summary.has_data:
         print("验证门：NO DATA（尚无 generated role_template 样本）")
@@ -169,6 +201,11 @@ def main() -> None:
         action="store_true",
         help="包含 seed_reuse_sample.py 写入的 meta.sample=true 最小机制样本",
     )
+    parser.add_argument(
+        "--include-benchmark",
+        action="store_true",
+        help="包含 M7 验收门 / R4 smoke 等 benchmark org；默认排除以代表真实业务口径",
+    )
     args = parser.parse_args()
     raise SystemExit(
         asyncio.run(
@@ -177,6 +214,7 @@ def main() -> None:
                 args.threshold,
                 args.min_occurrences,
                 include_samples=args.include_samples,
+                include_benchmark=args.include_benchmark,
             )
         )
     )
