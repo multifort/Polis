@@ -6,11 +6,12 @@ import asyncio
 import uuid
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from polis.config import get_settings
 from polis.modules.model.gateway import ChatResponse, StubModelGateway, ToolCall
+from polis.modules.org.models import Agent, AgentVersion
 from polis.modules.runtime import agent_runtime
 from polis.modules.runtime.guardrails import Guardrails
 from polis.modules.runtime.mcp import default_registry
@@ -97,6 +98,66 @@ def test_execute_node_writes_envelope(client: TestClient, pg_url: str) -> None:
         assert row is not None and row[0] > 0 and row[1] == "done"
     finally:
         eng.dispose()
+
+
+def test_execute_node_uses_agent_config_model(client: TestClient, pg_url: str) -> None:
+    asyncio.run(seed())
+    org_id = _provision_procurement(client)
+
+    async def _configure_agent_model() -> None:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                version = await s.scalar(
+                    select(AgentVersion)
+                    .join(Agent, Agent.id == AgentVersion.agent_id)
+                    .where(
+                        Agent.org_id == uuid.UUID(org_id),
+                        Agent.name == "询价Agent",
+                        AgentVersion.status == "published",
+                    )
+                )
+                assert version is not None
+                version.config = {**version.config, "model": "deepseek-v4-pro"}
+                await s.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_configure_agent_model())
+
+    node = {
+        "id": "n1",
+        "type": "agent",
+        "required_capabilities": ["procurement.rfq"],
+        "input_hint": "向供应商询价",
+    }
+
+    async def _run() -> dict[str, object]:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                res = await agent_runtime.execute(
+                    s,
+                    node,
+                    org_id,
+                    gateway=StubModelGateway(),
+                    registry=default_registry(),
+                    guard=Guardrails(),
+                )
+                await s.commit()
+                return res
+        finally:
+            await engine.dispose()
+
+    result = asyncio.run(_run())
+    assert result["ok"] is True
+
+    envs = _envelopes(pg_url, org_id)
+    assert len(envs) == 1
+    facts = envs[0]["facts"]
+    assert isinstance(facts, dict)
+    assert facts["provenance"]["agent"] == "询价Agent"
+    assert facts["provenance"]["model"] == "deepseek-v4-pro"
 
 
 def test_execute_node_blocked_by_injection(client: TestClient, pg_url: str) -> None:
