@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | [TD-001](#td-001) | main 分支保护未启用 | Med | open | 引入第二贡献者 / V1 正式开发前 |
 | [TD-002](#td-002) | CI workflow 模板已落，远程启用待 workflow scope | Med | 部分偿还 | 启用 main 保护 / 进 staging 前 |
-| [TD-003](#td-003) | gitleaks 本地仍依赖预装；CI 模板已补服务端扫描 | Low | 部分偿还 | 远程启用 CI 后关闭 |
+| [TD-003](#td-003) | gitleaks 本地安装脚本与 CI 模板已补；远程启用待 workflow scope | Low | 部分偿还 | 远程启用 CI 后关闭 |
 | [TD-004](#td-004) | 基础设施镜像用浮动 tag | Low-Med | **closed** | 已固定 litellm/langfuse，见偿还记录 |
 | [TD-005](#td-005) | bandit/pip-audit 临时安装未锁版本 | Low | **closed** | 已锁入 dev 依赖，见偿还记录 |
 | [TD-006](#td-006) | db 引擎模块级单例、无 readiness | Med | **closed** | 已补，见偿还记录 |
@@ -59,10 +59,10 @@
 - 剩余：GitHub main 分支保护（TD-001）尚未启用，CI 还未成为必过 status check。
 
 ### TD-003
-**本地 gitleaks 仍用本机预编译二进制；CI 模板已补服务端扫描。** 官方 pre-commit hook 需现编译 Go，曾因网络失败；
-本地改用 `~/.local/bin/gitleaks`（见 `.pre-commit-config.yaml` 头注），CI 模板使用 `gitleaks/gitleaks-action` 在远程跑全仓 secret scan。
-- 影响：新成员本地仍需安装 gitleaks；远程启用 CI 后可补上服务端兜底。
-- 偿还：待 `docs/ci/github-actions-ci.yml` 复制到 `.github/workflows/ci.yml` 并启用后，关闭 TD-003；若要让本地 clone 即用，再补固定二进制版本安装脚本。
+**本地 gitleaks 安装脚本与 CI 模板已补。** 官方 pre-commit hook 需现编译 Go，曾因网络失败；
+本地改用 `scripts/install-gitleaks.sh` 安装固定版本二进制到 `~/.local/bin`（见 `.pre-commit-config.yaml` 头注），CI 模板使用 `gitleaks/gitleaks-action` 在远程跑全仓 secret scan。
+- 影响：远程 CI 尚未启用前，仍依赖本地门禁。
+- 偿还：待 `docs/ci/github-actions-ci.yml` 复制到 `.github/workflows/ci.yml` 并启用后，关闭 TD-003。
 
 ### TD-004
 **基础设施镜像部分用浮动 tag。** `infra/docker-compose.yml` 中 `litellm:main-stable`、`langfuse:2`

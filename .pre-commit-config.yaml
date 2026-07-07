@@ -1,7 +1,7 @@
 # Polis 本地质量门禁（见 docs/constraints/14 E11/E14、CLAUDE.md §3）
 # 安装：uv tool install pre-commit && pre-commit install -t pre-commit -t commit-msg -t pre-push
 # Python 工具(ruff/mypy/bandit/pytest/pip-audit)走 local hook，全部经 uv 复用 backend/uv.lock 锁定版本（含 bandit/pip-audit，TD-005）。
-# 前置：本机需有 uv，并安装 gitleaks 二进制（brew install gitleaks 或下载 release 到 ~/.local/bin）。
+# 前置：本机需有 uv；gitleaks 可用 scripts/install-gitleaks.sh 安装到 ~/.local/bin。
 default_install_hook_types: [pre-commit, commit-msg, pre-push]
 
 repos:

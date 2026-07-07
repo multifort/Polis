@@ -120,6 +120,14 @@ docker compose --env-file .env --profile app up -d
 
 ## 常用命令
 
+本地质量门禁：
+
+```bash
+uv tool install pre-commit
+scripts/install-gitleaks.sh
+pre-commit install -t pre-commit -t commit-msg -t pre-push
+```
+
 后端：
 
 ```bash
