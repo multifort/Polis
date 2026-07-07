@@ -39,6 +39,17 @@ class Settings(BaseSettings):
     password_reset_ttl_minutes: int = 30
     org_invite_ttl_days: int = 7
 
+    # 邮件投递（TD-013）：dev/local 可用 none/file；生产必须 smtp + from/host。
+    mail_backend: str = "none"  # none|file|smtp
+    mail_from: str = ""
+    mail_outbox_path: str = "var/mail-outbox.jsonl"
+    mail_smtp_host: str = ""
+    mail_smtp_port: int = 587
+    mail_smtp_username: str = ""
+    mail_smtp_password: str = ""
+    mail_smtp_starttls: bool = True
+    public_app_url: str = "http://localhost:3000"
+
     # Temporal 编排服务地址（M3-C）
     temporal_addr: str = "localhost:7233"
 
@@ -116,6 +127,12 @@ class Settings(BaseSettings):
             problems.append("POLIS_CORS_ORIGINS 含通配 '*'，生产须收紧到具体域")
         if not self.kms_master_key:
             problems.append("POLIS_KMS_MASTER_KEY 未设置（凭证信封加密必需）")
+        if self.mail_backend != "smtp":
+            problems.append("POLIS_MAIL_BACKEND 生产须为 smtp")
+        if not self.mail_from:
+            problems.append("POLIS_MAIL_FROM 未设置")
+        if not self.mail_smtp_host:
+            problems.append("POLIS_MAIL_SMTP_HOST 未设置")
         # 对象存储（MinIO）的生产 fail-closed 校验随 P2b 接进启动链时再加
         # （届时配置了 endpoint 则要求 secret 已设 + SECURE=true）。当前仅引入存储层，未接线。
         if problems:

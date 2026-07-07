@@ -15,6 +15,9 @@ def _settings(**kw: object) -> Settings:
         "jwt_secret": _STRONG,
         "cors_origins": ["https://a.com"],
         "kms_master_key": _STRONG,
+        "mail_backend": "smtp",
+        "mail_from": "noreply@example.com",
+        "mail_smtp_host": "smtp.example.com",
     }
     base.update(kw)
     return Settings(**base)  # type: ignore[arg-type]
@@ -48,6 +51,15 @@ def test_prod_wildcard_cors_rejected() -> None:
 def test_prod_missing_kms_rejected() -> None:
     with pytest.raises(RuntimeError, match="KMS_MASTER_KEY"):
         _settings(kms_master_key="").validate_for_prod()
+
+
+def test_prod_missing_mail_config_rejected() -> None:
+    with pytest.raises(RuntimeError, match="MAIL_BACKEND"):
+        _settings(mail_backend="none").validate_for_prod()
+    with pytest.raises(RuntimeError, match="MAIL_FROM"):
+        _settings(mail_from="").validate_for_prod()
+    with pytest.raises(RuntimeError, match="MAIL_SMTP_HOST"):
+        _settings(mail_smtp_host="").validate_for_prod()
 
 
 def test_prod_reports_multiple_problems() -> None:

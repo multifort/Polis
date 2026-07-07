@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import uuid
+from pathlib import Path
 
 from fastapi.testclient import TestClient
+from pytest import MonkeyPatch
 
 
 def _register(client: TestClient) -> dict[str, str]:
@@ -110,6 +113,50 @@ def test_password_reset_changes_password_and_revokes_sessions(client: TestClient
         json={"token": reset_token, "new_password": "another-secret-123"},
     )
     assert reused.status_code == 400
+
+
+def test_password_reset_writes_dev_mail_outbox(
+    client: TestClient, monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    from polis.config import get_settings
+
+    outbox = tmp_path / "mail.jsonl"
+    monkeypatch.setenv("POLIS_MAIL_BACKEND", "file")
+    monkeypatch.setenv("POLIS_MAIL_OUTBOX_PATH", str(outbox))
+    monkeypatch.setenv("POLIS_PUBLIC_APP_URL", "http://localhost:3000")
+    get_settings.cache_clear()
+    try:
+        tok = _register(client)
+        r = client.post("/api/auth/password/reset/request", json={"email": tok["email"]})
+        assert r.status_code == 200
+        reset_token = r.json()["reset_token"]
+        assert reset_token
+
+        row = json.loads(outbox.read_text(encoding="utf-8").strip())
+        assert row["to"] == tok["email"]
+        assert "Polis" in row["subject"]
+        assert reset_token in row["text"]
+        assert "http://localhost:3000/?reset_token=" in row["text"]
+    finally:
+        get_settings.cache_clear()
+
+
+def test_password_reset_prod_hides_token(
+    client: TestClient, monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    from polis.config import get_settings
+
+    monkeypatch.setenv("POLIS_ENV", "prod")
+    monkeypatch.setenv("POLIS_MAIL_BACKEND", "file")
+    monkeypatch.setenv("POLIS_MAIL_OUTBOX_PATH", str(tmp_path / "mail.jsonl"))
+    get_settings.cache_clear()
+    try:
+        tok = _register(client)
+        r = client.post("/api/auth/password/reset/request", json={"email": tok["email"]})
+        assert r.status_code == 200
+        assert r.json() == {"accepted": True, "reset_token": None}
+    finally:
+        get_settings.cache_clear()
 
 
 def test_password_reset_request_does_not_disclose_missing_email(client: TestClient) -> None:

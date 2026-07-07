@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.config import get_settings
+from polis.core.mail import password_reset_message, send_mail
 from polis.core.security import (
     create_access_token,
     create_refresh_token,
@@ -149,6 +150,7 @@ async def request_password_reset(session: AsyncSession, data: PasswordResetReque
     token = secrets.token_urlsafe(32)
     expires_at = datetime.now(UTC) + timedelta(minutes=get_settings().password_reset_ttl_minutes)
     await repo.create_password_reset_token(session, user.id, hash_token(token), expires_at)
+    await send_mail(password_reset_message(user.email, token))
     await write_audit(session, action="auth.password_reset.requested", actor=str(user.id))
     await session.flush()
     return token

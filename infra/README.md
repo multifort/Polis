@@ -20,6 +20,7 @@ docker compose ps
 
 `api` 容器启动时会先执行 `alembic upgrade head`，再启动 FastAPI；`worker` 复用同一个后端镜像；`web` 镜像在构建时读取 `NEXT_PUBLIC_API_BASE`，本地默认指向 `http://localhost:8000`。
 本地 `.env.example` 默认给 `NODE_IMAGE` 配了 arm64 镜像源，便于国内网络 / Apple Silicon 构建；Docker Hub 可达时可改回 `node:22-alpine`。
+找回密码邮件本地默认写入后端容器内 `var/mail-outbox.jsonl`；生产或 staging 使用 `.env.production.example` 中的 SMTP 配置。
 
 ## 服务与端口
 | 服务 | 镜像 | 端口 | 用途 |

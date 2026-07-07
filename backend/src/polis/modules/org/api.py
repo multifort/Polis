@@ -10,6 +10,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.config import get_settings
+from polis.core.mail import MailDeliveryError
 from polis.db.session import get_session, get_sessionmaker
 from polis.modules.observability.audit import write_audit
 from polis.modules.org import auth_rate_limit, provisioning, service
@@ -171,7 +172,10 @@ async def logout(
 async def request_password_reset(
     data: PasswordResetRequestIn, session: SessionDep
 ) -> PasswordResetRequestOut:
-    token = await service.request_password_reset(session, data)
+    try:
+        token = await service.request_password_reset(session, data)
+    except MailDeliveryError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "重置邮件暂时无法发送") from exc
     if get_settings().is_prod():
         token = None
     return PasswordResetRequestOut(reset_token=token)

@@ -20,7 +20,7 @@
 | [TD-010](#td-010) | 运行时 RLS 未接线 | Med | **closed** | 已补（M2 T9.2），见偿还记录 |
 | [TD-011](#td-011) | 审计仅覆盖 org 写操作（auth 事件未） | Med | **closed** | 登录失败审计已补（独立事务），见偿还记录 |
 | [TD-012](#td-012) | 认证缺登出/刷新轮换/会话清理 | Med | **closed** | 已补，见偿还记录 |
-| [TD-013](#td-013) | 安全配置生产前须收紧（JWT 默认密钥/邮件投递/边缘限流） | Med | open(部分) | 邮件投递/分布式边缘限流待对外前 |
+| [TD-013](#td-013) | 安全配置生产前须收紧（JWT 默认密钥/边缘限流） | Med | open(部分) | 分布式/边缘限流待对外前 |
 | [TD-014](#td-014) | 前端 token 存 localStorage + 无静默刷新 | Low-Med | **closed** | 已改 httpOnly cookie + 静默刷新 |
 | [TD-015](#td-015) | org 过滤 repo 基类未建 | Low | **closed** | 已提供 select_org_scoped 助手 |
 | [TD-016](#td-016) | 权限矩阵未完整落地（成员邀请/移除/角色调整） | Low-Med | **closed** | 已补成员管理闭环 |
@@ -117,13 +117,14 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 - 偿还：补 logout(吊销)、refresh 轮换(旋转+吊销旧)、过期 session 清理任务；M2。
 
 ### TD-013
-**安全配置生产前须收紧（部分完成）。** dev 仍保留 JWT 默认密钥便利项；CORS 默认已收紧到常用本地前端端口以支持 cookie credentials；邮件投递与生产级边缘限流仍待接入。
+**安全配置生产前须收紧（部分完成）。** dev 仍保留 JWT 默认密钥便利项；CORS 默认已收紧到常用本地前端端口以支持 cookie credentials；生产级边缘限流仍待接入。
 - 已完成（批次2）：`Settings.validate_for_prod()` 在 `env` 非 dev/test/local 时 fail-closed 校验——
   拒绝 JWT 默认密钥/长度<32、拒绝 CORS 通配 `*`；`create_app()` 启动调用；`test_config_prod` 覆盖。
 - 已完成（2026-07-07）：登录失败限流落地——默认同一邮箱+IP 在 15 分钟窗口内失败 5 次后锁定 15 分钟，返回 `429` 与 `Retry-After`；成功登录清桶。当前为进程内滑动窗口 MVP，适合单实例/本地开发。
 - 已完成（2026-07-07）：找回密码闭环落地——一次性 `password_reset_token` 只存哈希，30 分钟过期；确认重置后更新密码、消费 token、吊销该用户所有 refresh 会话，并写审计。前端登录页已接入「忘记密码」流程；dev/local 返回 token 便于联调，生产响应不回显 token。
-- 剩余：**邮件投递**接入（把一次性 token 发送给用户）；多实例生产可升级 Redis/网关/边缘限流。
-- 偿还：CORS/JWT env 化、登录失败限流、找回密码前后端闭环已落地；邮件投递与分布式/边缘限流待对外前。
+- 已完成（2026-07-07）：找回密码邮件投递接入——dev/local 可用 file outbox，生产 `validate_for_prod()` 要求 `POLIS_MAIL_BACKEND=smtp`、`POLIS_MAIL_FROM` 与 `POLIS_MAIL_SMTP_HOST`；API 生产响应不回显 token。
+- 剩余：多实例生产可升级 Redis/网关/边缘限流。
+- 偿还：CORS/JWT env 化、登录失败限流、找回密码前后端闭环与邮件投递已落地；分布式/边缘限流待对外前。
 
 ### TD-014
 **前端 token 存 localStorage（已关闭）。**
@@ -350,7 +351,7 @@ compose 后只用一次轻量 judge 评「岗位说明+技能名+声明能力」
   (`python -m polis.modules.org.cleanup`)；`test_integration_auth_lifecycle` 覆盖。
 - **TD-015 已偿还**：`db/org_scoped.py` 的 `select_org_scoped` 助手 + planner repo 采用为纵深防御示范；
   `test_org_scoped` 覆盖；约定「请求外任务必须用助手」文档化。
-- **TD-011/013 部分偿还，TD-014 已偿还**：TD-011 认证/审批成功/失败事件审计；TD-013 生产 fail-closed 校验(JWT/CORS)、登录失败限流与找回密码前后端闭环；
-  TD-014 静默刷新 + httpOnly cookie token 存储硬化。剩余项（邮件投递、分布式/边缘限流）见 TD-013。
+- **TD-011/013 部分偿还，TD-014 已偿还**：TD-011 认证/审批成功/失败事件审计；TD-013 生产 fail-closed 校验(JWT/CORS/邮件)、登录失败限流与找回密码前后端闭环；
+  TD-014 静默刷新 + httpOnly cookie token 存储硬化。剩余项（分布式/边缘限流）见 TD-013。
 - **TD-018 已偿还**：`workflow.py` 在 `imports_passed_through` 块显式 pass through pydantic+pydantic_core，
   消除 Temporal 沙箱 UserWarning（实测计数 0）。
