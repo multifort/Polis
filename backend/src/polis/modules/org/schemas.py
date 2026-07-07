@@ -84,6 +84,10 @@ class InviteOut(BaseModel):
     invite_token: str | None = None
 
 
+class MemberRoleUpdateIn(BaseModel):
+    role: str = Field(pattern="^(owner|approver|member)$")
+
+
 class RoleOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID

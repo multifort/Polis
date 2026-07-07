@@ -17,6 +17,19 @@ def _user_id(client: TestClient, auth: dict[str, str]) -> str:
     return client.get("/api/me", headers=auth).json()["user"]["id"]
 
 
+def _invite_and_accept(
+    client: TestClient, owner: dict[str, str], org_id: str, email: str, role: str = "member"
+) -> dict[str, str]:
+    token = client.post(
+        f"/api/orgs/{org_id}/invites",
+        json={"email": email, "role": role},
+        headers=owner,
+    ).json()["invite_token"]
+    auth = _auth(client, email)
+    assert client.post(f"/api/invites/{token}/accept", headers=auth).status_code == 200
+    return auth
+
+
 def test_org_rename_delete_and_owner_guard(client: TestClient) -> None:
     owner = _auth(client)
     org_id = client.post("/api/orgs", json={"name": "待改公司"}, headers=owner).json()["id"]
@@ -161,3 +174,64 @@ def test_inviting_existing_member_is_idempotent(client: TestClient) -> None:
         if m["email"] == invitee_email
     ]
     assert len(members) == 1
+
+
+def test_owner_updates_member_roles_and_protects_last_owner(client: TestClient) -> None:
+    owner = _auth(client)
+    owner_user_id = _user_id(client, owner)
+    org_id = client.post("/api/orgs", json={"name": "角色调整公司"}, headers=owner).json()["id"]
+
+    member_email = f"role_{uuid.uuid4().hex[:8]}@polis.dev"
+    member = _invite_and_accept(client, owner, org_id, member_email)
+    member_user_id = _user_id(client, member)
+
+    r = client.patch(
+        f"/api/orgs/{org_id}/members/{member_user_id}",
+        json={"role": "approver"},
+        headers=owner,
+    )
+    assert r.status_code == 200
+    assert r.json()["role"] == "approver"
+    me = client.get("/api/me", headers=member).json()
+    assert next(o for o in me["orgs"] if o["id"] == org_id)["role"] == "approver"
+
+    r = client.patch(
+        f"/api/orgs/{org_id}/members/{owner_user_id}",
+        json={"role": "member"},
+        headers=owner,
+    )
+    assert r.status_code == 400
+
+    r = client.patch(
+        f"/api/orgs/{org_id}/members/{member_user_id}",
+        json={"role": "owner"},
+        headers=owner,
+    )
+    assert r.status_code == 200
+    assert r.json()["role"] == "owner"
+
+    r = client.patch(
+        f"/api/orgs/{org_id}/members/{owner_user_id}",
+        json={"role": "member"},
+        headers=owner,
+    )
+    assert r.status_code == 200
+    assert r.json()["role"] == "member"
+
+
+def test_non_owner_cannot_update_member_role(client: TestClient) -> None:
+    owner = _auth(client)
+    owner_user_id = _user_id(client, owner)
+    org_id = client.post("/api/orgs", json={"name": "非 owner 调整公司"}, headers=owner).json()[
+        "id"
+    ]
+
+    member_email = f"no_role_{uuid.uuid4().hex[:8]}@polis.dev"
+    member = _invite_and_accept(client, owner, org_id, member_email)
+
+    r = client.patch(
+        f"/api/orgs/{org_id}/members/{owner_user_id}",
+        json={"role": "member"},
+        headers=member,
+    )
+    assert r.status_code == 403

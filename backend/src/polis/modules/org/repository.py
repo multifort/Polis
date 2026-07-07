@@ -182,11 +182,41 @@ async def count_owners(session: AsyncSession, org_id: uuid.UUID) -> int:
     return int(count or 0)
 
 
+async def get_any_owner_user_id(
+    session: AsyncSession, org_id: uuid.UUID, exclude_user_id: uuid.UUID | None = None
+) -> uuid.UUID | None:
+    stmt = select(OrgMember.user_id).where(OrgMember.org_id == org_id, OrgMember.role == "owner")
+    if exclude_user_id is not None:
+        stmt = stmt.where(OrgMember.user_id != exclude_user_id)
+    owner_id: uuid.UUID | None = await session.scalar(stmt.order_by(OrgMember.user_id).limit(1))
+    return owner_id
+
+
+async def set_org_owner_user_id(
+    session: AsyncSession, org_id: uuid.UUID, owner_user_id: uuid.UUID
+) -> None:
+    org = await session.get(Org, org_id)
+    if org is not None:
+        org.owner_user_id = owner_user_id
+        await session.flush()
+
+
 async def add_org_member(
     session: AsyncSession, org_id: uuid.UUID, user_id: uuid.UUID, role: str
 ) -> OrgMember:
     member = OrgMember(org_id=org_id, user_id=user_id, role=role)
     session.add(member)
+    await session.flush()
+    return member
+
+
+async def update_org_member_role(
+    session: AsyncSession, org_id: uuid.UUID, user_id: uuid.UUID, role: str
+) -> OrgMember | None:
+    member = await get_member(session, org_id, user_id)
+    if member is None:
+        return None
+    member.role = role
     await session.flush()
     return member
 

@@ -25,6 +25,7 @@ from polis.modules.org.schemas import (
     InviteOut,
     LoginIn,
     MemberOut,
+    MemberRoleUpdateIn,
     MeOut,
     OrgCreateIn,
     OrgOut,
@@ -328,6 +329,54 @@ async def remove_member(
         detail={"role": member.role},
     )
     await session.flush()
+
+
+async def update_member_role(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    org_id: uuid.UUID,
+    member_user_id: uuid.UUID,
+    data: MemberRoleUpdateIn,
+) -> MemberOut:
+    await _require_owner(session, user_id, org_id)
+    member = await repo.get_member(session, org_id, member_user_id)
+    if member is None:
+        raise MemberNotFound
+
+    old_role = member.role
+    if (
+        old_role == "owner"
+        and data.role != "owner"
+        and await repo.count_owners(session, org_id) <= 1
+    ):
+        raise CannotRemoveLastOwner
+
+    await repo.update_org_member_role(session, org_id, member_user_id, data.role)
+    if data.role == "owner":
+        await repo.set_org_owner_user_id(session, org_id, member_user_id)
+    elif old_role == "owner":
+        replacement_owner_id = await repo.get_any_owner_user_id(
+            session, org_id, exclude_user_id=member_user_id
+        )
+        if replacement_owner_id is None:
+            raise CannotRemoveLastOwner
+        await repo.set_org_owner_user_id(session, org_id, replacement_owner_id)
+
+    user = await repo.get_user_by_id(session, member_user_id)
+    if user is None:
+        raise MemberNotFound
+    await write_audit(
+        session,
+        action="org.member.role_update",
+        actor=str(user_id),
+        org_id=org_id,
+        target=str(member_user_id),
+        detail={"from": old_role, "to": data.role},
+    )
+    await session.flush()
+    return MemberOut(
+        user_id=user.id, email=user.email, display_name=user.display_name, role=data.role
+    )
 
 
 async def delete_org(session: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID) -> None:

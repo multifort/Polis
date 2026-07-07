@@ -4,7 +4,15 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import { api, getAccess, type Agent, type Member, type Me, type Role } from "@/lib/api";
+import {
+  api,
+  getAccess,
+  type Agent,
+  type Member,
+  type MemberRole,
+  type Me,
+  type Role,
+} from "@/lib/api";
 
 const AGENT_COLORS = [
   ["#3F51B5", "#e8eaf6"],
@@ -95,6 +103,27 @@ export default function RosterPage() {
       setNotice(`${member.email} 已移除`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "移除失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRoleChange(member: Member, role: MemberRole) {
+    if (member.role === role) return;
+    setBusy(true);
+    setNotice("");
+    setError("");
+    try {
+      const updated = await api.updateMemberRole(orgId, member.user_id, role);
+      setMembers((prev) =>
+        prev.map((m) => (m.user_id === updated.user_id ? { ...m, role: updated.role } : m)),
+      );
+      if (member.user_id === currentUserId) {
+        setMe(await api.me());
+      }
+      setNotice(`${member.email} 已调整为${roleLabel(updated.role)}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "角色调整失败");
     } finally {
       setBusy(false);
     }
@@ -199,9 +228,22 @@ export default function RosterPage() {
               <div className="member-name">{m.display_name || m.email.split("@")[0]}</div>
               <div className="member-email">{m.email}</div>
             </div>
-            <span className={`role-chip${m.role === "owner" ? " owner" : ""}`}>
-              {roleLabel(m.role)}
-            </span>
+            {isOwner ? (
+              <select
+                className={`member-role-select${m.role === "owner" ? " owner" : ""}`}
+                value={m.role}
+                onChange={(e) => onRoleChange(m, e.target.value as MemberRole)}
+                disabled={busy}
+              >
+                <option value="member">成员</option>
+                <option value="approver">审批人</option>
+                <option value="owner">所有者</option>
+              </select>
+            ) : (
+              <span className={`role-chip${m.role === "owner" ? " owner" : ""}`}>
+                {roleLabel(m.role)}
+              </span>
+            )}
             {isOwner && m.role !== "owner" && m.user_id !== currentUserId && (
               <button className="member-remove" onClick={() => onRemove(m)} disabled={busy}>
                 移除

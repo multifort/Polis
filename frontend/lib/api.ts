@@ -131,6 +131,7 @@ export interface InviteResult {
   status: string;
   invite_token: string | null;
 }
+export type MemberRole = "owner" | "approver" | "member";
 export interface Me {
   user: { id: string; email: string; display_name: string | null };
   orgs: Org[];
@@ -360,6 +361,12 @@ export const api = {
     ),
   removeMember: (orgId: string, userId: string) =>
     request<null>(`/api/orgs/${orgId}/members/${userId}`, { method: "DELETE" }, true),
+  updateMemberRole: (orgId: string, userId: string, role: MemberRole) =>
+    request<Member>(
+      `/api/orgs/${orgId}/members/${userId}`,
+      { method: "PATCH", body: JSON.stringify({ role }) },
+      true,
+    ),
   listPresets: () => request<Preset[]>("/api/catalog/presets"),
   listModels: () => request<ModelCatalogItem[]>("/api/catalog/models"),
   configureCredential: (orgId: string, modelId: string, apiKey: string) =>

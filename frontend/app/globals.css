@@ -324,6 +324,16 @@ a { color: var(--color-accent-text); text-decoration: none; }
 }
 .member-remove:hover { background: #fdecea; }
 .member-remove:disabled { opacity: .55; cursor: default; }
+.member-role-select {
+  height: 30px; border: 1px solid var(--color-border-strong); border-radius: 8px;
+  padding: 0 26px 0 9px; font-size: 12px; color: var(--color-text);
+  background: var(--color-surface);
+}
+.member-role-select.owner {
+  border-color: #c5cae9; background: var(--color-primary-subtle-strong); color: #283593;
+  font-weight: 600;
+}
+.member-role-select:disabled { opacity: .7; }
 @media (max-width: 680px) {
   .member-invite { grid-template-columns: 1fr; }
   .member-invite .btn-primary { width: 100%; }

@@ -22,6 +22,7 @@ from polis.modules.org.schemas import (
     InviteOut,
     LoginIn,
     MemberOut,
+    MemberRoleUpdateIn,
     MeOut,
     OrgCreateIn,
     OrgOut,
@@ -190,6 +191,24 @@ async def remove_member(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "成员不存在") from exc
     except service.CannotRemoveLastOwner as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能移除最后一个所有者") from exc
+
+
+@router.patch("/orgs/{org_id}/members/{member_user_id}", response_model=MemberOut)
+async def update_member_role(
+    org_id: uuid.UUID,
+    member_user_id: uuid.UUID,
+    data: MemberRoleUpdateIn,
+    user_id: CurrentUserId,
+    session: SessionDep,
+) -> MemberOut:
+    try:
+        return await service.update_member_role(session, user_id, org_id, member_user_id, data)
+    except service.NotOwner as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "需所有者权限") from exc
+    except service.MemberNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "成员不存在") from exc
+    except service.CannotRemoveLastOwner as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能降级最后一个所有者") from exc
 
 
 @router.delete("/orgs/{org_id}", status_code=status.HTTP_204_NO_CONTENT)
