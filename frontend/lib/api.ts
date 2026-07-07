@@ -183,6 +183,18 @@ export interface ProvisionResult {
   preset: string;
   agents: ProvisionedAgent[];
 }
+export interface SkillRow {
+  id: string;
+  name: string;
+  kind: "manual" | "tool";
+  status: "draft" | "published" | "deprecated";
+  trust: "official" | "verified" | "community" | "private";
+  capability?: string | null;
+  visibility: string;
+  owner_org_id?: string | null;
+  content_preview?: string | null;
+  review_status?: string | null;
+}
 
 // ── 计划 / 运行（M3） ──────────────────────────────────────────────
 export interface PlanNode {
@@ -387,6 +399,15 @@ export const api = {
     request<ProvisionResult>("/api/provision", { method: "POST", body: JSON.stringify(body) }, true),
   agents: (orgId: string) => request<Agent[]>("/api/orgs/current/agents", {}, true, orgId),
   roles: (orgId: string) => request<Role[]>("/api/orgs/current/roles", {}, true, orgId),
+  listSkills: (orgId: string, opts?: { status?: string; mineOnly?: boolean }) => {
+    const params = new URLSearchParams();
+    if (opts?.status) params.set("status", opts.status);
+    if (opts?.mineOnly) params.set("mine_only", "true");
+    const qs = params.toString();
+    return request<SkillRow[]>(`/api/skills${qs ? `?${qs}` : ""}`, {}, true, orgId);
+  },
+  createSkill: (orgId: string, body: { name: string; capability: string; content: string }) =>
+    request<SkillRow>("/api/skills", { method: "POST", body: JSON.stringify(body) }, true, orgId),
   createPlan: (orgId: string, goal: string) =>
     request<PlanResult>("/api/plans", { method: "POST", body: JSON.stringify({ goal }) }, true, orgId),
   createTaskPlan: (orgId: string, taskId: string) =>

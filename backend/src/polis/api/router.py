@@ -10,6 +10,7 @@ from polis.modules.model import api as model_api
 from polis.modules.observability import api as observability_api
 from polis.modules.org import api as org_api
 from polis.modules.planner import api as planner_api
+from polis.modules.runtime import api as runtime_api
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -18,4 +19,5 @@ api_router.include_router(planner_api.router)
 api_router.include_router(memory_api.router)
 api_router.include_router(model_api.router)
 api_router.include_router(observability_api.router)
+api_router.include_router(runtime_api.router)
 api_router.include_router(catalog.router)

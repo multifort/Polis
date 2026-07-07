@@ -40,7 +40,7 @@
 | [TD-030](#td-030) | 模板/预设/记忆语义检索已落；能力语义去重原语已接入 TD-032 goal 提案链 | Med | **closed** | 技能/角色语义检索按后续复用场景再切 |
 | [TD-032](#td-032) | Skill 生成链已落；manual 风险分级自动发布、tool/MCP 草稿最小权限+本地沙箱+人审墙、goal 端可达与语义去重已接线 | Med | **closed** | tool 类 LLM authoring / 外部真实 MCP server 沙箱后置 |
 | [TD-033](#td-033) | compose-eval 升级为「试产出」judge 并硬门控（judge≥τ active / <τ draft） | Med | **closed** | 已接试产出 eval（带技能 playbook），见偿还记录 |
-| [TD-034](#td-034) | 公司无法主动上传/编写自己的 Skill——现仅系统按需自动生成(skillgen) | Med | open(设计内后置) | 用户提出优先做时 |
+| [TD-034](#td-034) | 公司无法主动上传/编写自己的 Skill——后端 API 已补，前端技能库页待做 | Med | 部分偿还 | 前端入口/编辑体验就绪后关闭 |
 
 ---
 
@@ -326,22 +326,24 @@ compose 后只用一次轻量 judge 评「岗位说明+技能名+声明能力」
   应用按请求 `SET ROLE`+`current_org` 中间件随 M2(T9.2) 接线。
 
 ### TD-034
-**公司无法主动上传/编写自己的 Skill——现仅系统按需自动生成，无「公司自定义技能库」入口。**
+**公司无法主动上传/编写自己的 Skill——原仅系统按需自动生成，无「公司自定义技能库」入口。**
 背景（2026-07-02 用户提出）：Skill/角色模板/场景模板三层资产已统一 `visibility`(public/private) +
 `owner_org_id` 可见性模型（design [v2/04](design/v2/04-资产仓库（三层·可见性·复用·晋升）.md) §5，R1 已落地），
 `skill` 表已有这两个字段。但**唯一产生 Skill 的路径是 `planner/skillgen.py` 的系统自动生成**：
 编配器（`composer.compose_agent`）缺某能力的 Skill 时，LLM 才会自动写一份 playbook 草稿 →
 按风险分级放行（`manual`/无副作用 → 自动 eval 过了就发布；`tool`/有副作用 → 人审墙）。
-公司自己**不能主动**说"我要新增一个技能，内容是这样"——没有对应的上传/编写 UI 或 API。
+公司自己原本**不能主动**说"我要新增一个技能，内容是这样"——没有对应的上传/编写 UI 或 API。
 - **影响**：公司想沉淀自己的专属打法（如内部话术模板、特定审批流程 playbook）只能等系统按需触发生成，
   无法主动维护自己的私有技能库；"公司越用越像自己"的资产沉淀目前偏被动。
 - **不阻塞现状**：现有自动生成+风险分级机制已能覆盖"编配器缺能力"场景，属核心闭环已通。此项是
   **锦上添花的主动入口**，非缺陷。
-- **触发时机**：用户明确要求做"公司自定义技能库"时再排期。届时落点：
-  ① `POST /api/skills`（公司手动创建 private Skill，复用现有 `visibility`/`owner_org_id`/审批墙——
-  `manual` 类可能仍需过一次 `skillgen._auto_eval`，`tool` 类必过人审，与自动生成路径公用同一套信任闸）；
-  ② 前端"技能库"页（新建/编辑/查看已有私有 Skill，类比现有花名册/工作列表的 IA）；
-  ③ 与 R3/R4（场景/角色模板飞轮）是并行独立的两条线，不互相阻塞。
+- **已部分偿还（2026-07-07）**：新增后端 `GET /api/skills` / `POST /api/skills`。
+  公司成员可提交私有 `manual` Skill 草稿（`visibility='org'`/`owner_org_id`），系统自动创建
+  `skill_review` 审批；owner/approver 通过现有 `/api/approvals/{id}/decide` 发布后，
+  `publish_skill` 置 `published/verified`，能力进入 `available_capabilities`，后续可被编配器拼装复用。
+  回归 `tests/test_integration_skill_api.py` 覆盖创建、列表、审批发布、跨 org 不可见与重复名冲突。
+- **剩余**：前端"技能库"页（新建/查看/编辑私有 Skill，类比现有花名册/工作列表 IA）；
+  tool 类主动提交可复用 `create_tool_skill_draft` 的最小权限 + 本地 MCP 沙箱闸，后续按需开放。
 
 ### M3 后技术债清理批次（2026-06-20）
 - **TD-004 已偿还**：docker-compose 固定 litellm `main-stable→v1.89.2`、langfuse `2→2.95.11`
