@@ -108,6 +108,14 @@ cd ../infra
 docker compose --env-file .env up -d minio langfuse litellm text-embeddings
 ```
 
+也可以用 compose profile 启动整栈容器：
+
+```bash
+cd infra
+cp -n .env.example .env
+docker compose --env-file .env --profile app up -d
+```
+
 更多环境细节、测试账号、DeepSeek/TEI/Langfuse 注意事项见 [docs/续接指南.md](docs/续接指南.md)。
 
 ## 常用命令

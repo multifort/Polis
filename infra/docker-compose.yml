@@ -1,7 +1,26 @@
-# Polis 本地基础设施（MVP，单机）。见 docs/design/07 §3、docs/constraints/14。
-# 仅 4 个外部依赖；Polis 应用本体仍用 backend 的 `make dev` 本地跑（容器化属 E8，后置）。
-# 起栈：cd infra && cp .env.example .env && docker compose up -d   （本次不拉起）
+# Polis 本地基础设施 + 可选应用服务（MVP，单机）。见 docs/design/07 §3、docs/constraints/14。
+# 默认只起基础设施；应用本体通过 `--profile app` 启用。
+# 起基础设施：cd infra && cp .env.example .env && docker compose up -d
+# 起整栈：docker compose --env-file .env --profile app up -d
 name: polis
+
+x-backend-env: &backend-env
+  POLIS_ENV: ${POLIS_ENV:-dev}
+  POLIS_JWT_SECRET: ${POLIS_JWT_SECRET:-dev-only-insecure-secret-change-in-prod-0123456789}
+  POLIS_KMS_MASTER_KEY: ${POLIS_KMS_MASTER_KEY:-}
+  POLIS_CORS_ORIGINS: ${POLIS_CORS_ORIGINS:-["*"]}
+  POLIS_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-polis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-polis}
+  POLIS_TEMPORAL_ADDR: temporal:7233
+  POLIS_EMBEDDING_BASE_URL: http://text-embeddings:80
+  POLIS_MINIO_ENDPOINT: minio:9000
+  POLIS_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-polis}
+  POLIS_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+  POLIS_MINIO_SECURE: "false"
+  POLIS_LANGFUSE_ENABLED: ${POLIS_LANGFUSE_ENABLED:-true}
+  POLIS_LANGFUSE_HOST: http://langfuse:3000
+  POLIS_LANGFUSE_PUBLIC_KEY: ${LANGFUSE_INIT_PUBLIC_KEY:-}
+  POLIS_LANGFUSE_SECRET_KEY: ${LANGFUSE_INIT_SECRET_KEY:-}
+  POLIS_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
 
 services:
   postgres:
@@ -115,6 +134,63 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  api:
+    profiles: ["app"]
+    image: polis-api:local
+    build:
+      context: ../backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    environment:
+      <<: *backend-env
+    command: ["sh", "-c", "alembic upgrade head && uvicorn polis.main:app --host 0.0.0.0 --port 8000"]
+    ports: ["8000:8000"]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).read()\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    profiles: ["app"]
+    image: polis-api:local
+    build:
+      context: ../backend
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    environment:
+      <<: *backend-env
+    command: ["python", "-m", "polis.modules.planner.worker"]
+
+  web:
+    profiles: ["app"]
+    image: polis-web:local
+    build:
+      context: ../frontend
+      args:
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
+    ports: ["3000:3000"]
 
 volumes:
   pgdata:

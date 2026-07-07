@@ -16,7 +16,7 @@
 | [TD-006](#td-006) | db 引擎模块级单例、无 readiness | Med | **closed** | 已补，见偿还记录 |
 | [TD-007](#td-007) | 无 DB 集成测试(testcontainers) | Med | **closed** | 已补，见偿还记录 |
 | [TD-008](#td-008) | 早期提交作者归属错误 | Low | accepted(won't-fix) | — |
-| [TD-009](#td-009) | 应用本体未容器化 | Low | open(设计内 E8 后置) | E8 启用时 |
+| [TD-009](#td-009) | 应用本体未容器化 | Low | 部分偿还(build 待验证) | 修复本机 buildx 权限后跑镜像构建 |
 | [TD-010](#td-010) | 运行时 RLS 未接线 | Med | **closed** | 已补（M2 T9.2），见偿还记录 |
 | [TD-011](#td-011) | 审计仅覆盖 org 写操作（auth 事件未） | Med | **closed** | 登录失败审计已补（独立事务），见偿还记录 |
 | [TD-012](#td-012) | 认证缺登出/刷新轮换/会话清理 | Med | **closed** | 已补，见偿还记录 |
@@ -34,7 +34,7 @@
 | [TD-024](#td-024) | M5 记忆用确定性检索/去重，embedding/向量RAG/reranker/语义近邻延后 | Med | **部分偿还(M6)** | reranker/语义去重待续 |
 | [TD-025](#td-025) | Langfuse 采集+自建观测页(H-1/2/3) 完成；trace_ref 表落库未用(直查 API) | Low | **closed** | trace_ref 表后续按需 |
 | [TD-028](#td-028) | execute 写 result_envelope 未关联 task_run.id | Med | **closed** | 已贯通 task_run.id |
-| [TD-029](#td-029) | 部署：组件地址 dev 默认 localhost，生产需 env 覆盖 + 容器化用 service name | Low-Med | open | 应用容器化(TD-009)/进 staging 前 |
+| [TD-029](#td-029) | 部署：组件地址 dev 默认 localhost，生产需 env 覆盖 + 容器化用 service name | Low-Med | **closed** | 已补 compose service-name env 与生产模板 |
 | [TD-026](#td-026) | M6 仍有桩：Guardrails 规则版/MCP 内置工具/单模型(无主模型·Agent选型) | Low-Med | open | Guardrails-AI/真实MCP/多模型第二步 |
 | [TD-027](#td-027) | TEI 模型须预下载离线挂载（hf-mirror 不返回 etag，在线下载失败） | Low | open(运维已知) | 换可返回 etag 的源 / 自建镜像 |
 | [TD-030](#td-030) | 模板/预设/记忆语义检索已落；能力语义去重原语已接入 TD-032 goal 提案链 | Med | **closed** | 技能/角色语义检索按后续复用场景再切 |
@@ -92,10 +92,10 @@
 - 处置：**接受历史**。已设仓库级 `user.email=fkdtz2008@gmail.com`，自 `d95deec` 起归属正确；不回改历史。
 
 ### TD-009
-**应用本体未容器化。** `infra/docker-compose.yml` 仅含 4 个基础设施，Polis 后端用 `make dev` 本地跑。
-这是约束 14 的 E8 后置项，非疏漏。
-- 影响：尚无"一键起含应用"的整栈；部署形态待补。
-- 偿还：E8 启用时新增 `backend/Dockerfile` 与 compose 的 app/web 服务（前端就绪后）。
+**应用本体容器化入口已落。** 新增 `backend/Dockerfile`、`frontend/Dockerfile` 与 compose `app` profile：
+`api` 启动前跑 `alembic upgrade head`，`worker` 复用后端镜像，`web` 用 Next production server。
+- 已补（2026-07-07）：`docker compose --env-file .env --profile app config` 已验证配置可解析；整栈启动入口见 `infra/README.md`。
+- 剩余：镜像构建验证被本机 Docker buildx 状态文件权限阻断（`~/.docker/buildx/current: permission denied`）；修复 Docker 本机配置后跑 `docker compose --env-file .env --profile app build api web`，通过后关闭。
 
 ### TD-010
 **运行时 RLS 未接线。** RLS 角色/策略/隔离回归(T8.3)已就位并测通，但**运行中的应用仍以 superuser `polis` 连接**
@@ -234,12 +234,12 @@ M5 写入/检索/衰减/共享并发/治理均真实落地，但依赖 embedding
 
 ### TD-029
 **部署：组件地址用 dev 默认 localhost，生产需 env 覆盖。** 现状是 12-factor（`config.py` 默认值 + `POLIS_*` env 可覆盖），
-架构正确，但部署时须显式配置：
+架构正确；容器化时已显式配置：
 - `POLIS_DATABASE_URL` / `POLIS_TEMPORAL_ADDR` / `POLIS_EMBEDDING_BASE_URL` / `POLIS_LANGFUSE_HOST` 指向真实地址。
-- 应用容器化（TD-009）后，env 用容器网络 **service name**（`postgres:5432` / `temporal:7233` /
+- 应用容器化后，env 用容器网络 **service name**（`postgres:5432` / `temporal:7233` /
   `text-embeddings:80` / `langfuse:3000`），而非 localhost。
 - 已修：`seed.py` 不再把 `connector.base_url=localhost` 写进 model_catalog（改为运行时由 `POLIS_EMBEDDING_BASE_URL` 决定）。
-- 偿还：进 staging / 应用容器化时，提供生产 env 清单 + compose `app` 服务示例（service name）+ 可选 `.env.production` 模板。
+- 偿还（2026-07-07）：`infra/docker-compose.yml` 的 `api/worker` 已使用 service-name env；新增 `infra/.env.production.example` 作为 staging/生产模板。
 
 ### TD-026
 **M6 仍有桩/简化项。**
