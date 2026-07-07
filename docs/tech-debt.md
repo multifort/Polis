@@ -20,7 +20,7 @@
 | [TD-010](#td-010) | 运行时 RLS 未接线 | Med | **closed** | 已补（M2 T9.2），见偿还记录 |
 | [TD-011](#td-011) | 审计仅覆盖 org 写操作（auth 事件未） | Med | **closed** | 登录失败审计已补（独立事务），见偿还记录 |
 | [TD-012](#td-012) | 认证缺登出/刷新轮换/会话清理 | Med | **closed** | 已补，见偿还记录 |
-| [TD-013](#td-013) | 安全配置生产前须收紧（CORS `*`/JWT 默认密钥/无限流/找回密码桩） | Med | open(部分) | 限流/找回密码仍待对外前 |
+| [TD-013](#td-013) | 安全配置生产前须收紧（CORS `*`/JWT 默认密钥/找回密码桩） | Med | open(部分) | 找回密码/分布式边缘限流待对外前 |
 | [TD-014](#td-014) | 前端 token 存 localStorage + 无静默刷新 | Low-Med | open(部分) | localStorage→cookie 待前端硬化 |
 | [TD-015](#td-015) | org 过滤 repo 基类未建 | Low | **closed** | 已提供 select_org_scoped 助手 |
 | [TD-016](#td-016) | 权限矩阵未完整落地（approver/member 区分 + 成员邀请/移除） | Low-Med | open | 审批/成员管理接入时 |
@@ -106,9 +106,7 @@
 ### TD-011
 **审计日志写入（部分完成）。** `audit_log` 表已建（T8.1）。
 已覆盖：org 增改删 + provision（M2）；**认证 register/login/refresh/logout + 审批 plan.approve/plan.signal**（技术债清理批次3/4）。
-- 剩余：**登录失败审计**（防暴力破解）需独立事务（失败路径回滚会丢审计），与登录限流(TD-013剩余)一并做。
-- 偿还：批次3 `write_audit` 接入认证/审批成功路径（`test_integration_audit`）；失败审计待限流。
-- **已偿还（2026-06-27）**：登录失败 → `auth.login_failed` 审计（actor=尝试邮箱，不记密码），走**独立 session 事务**（失败请求会回滚，故另起 session 提交才留得下）；best-effort 不影响 401。单测 `test_login_failure_audited`。登录限流仍随 TD-013 待对外前做。
+- **已偿还（2026-06-27）**：登录失败 → `auth.login_failed` 审计（actor=尝试邮箱，不记密码），走**独立 session 事务**（失败请求会回滚，故另起 session 提交才留得下）；best-effort 不影响 401。单测 `test_login_failure_audited`。
 
 ### TD-012
 **认证缺登出/刷新轮换/会话清理。** 已有 register/login/refresh，但**无 `/api/auth/logout`**（吊销 refresh）、
@@ -117,11 +115,12 @@ refresh **不轮换**（refresh 复用同值）、`auth_session` 行**不清理*
 - 偿还：补 logout(吊销)、refresh 轮换(旋转+吊销旧)、过期 session 清理任务；M2。
 
 ### TD-013
-**安全配置生产前须收紧（部分完成）。** dev 便利项：CORS `["*"]`、JWT 默认密钥、无限流、找回密码桩。
+**安全配置生产前须收紧（部分完成）。** dev 便利项：CORS `["*"]`、JWT 默认密钥、找回密码桩。
 - 已完成（批次2）：`Settings.validate_for_prod()` 在 `env` 非 dev/test/local 时 fail-closed 校验——
   拒绝 JWT 默认密钥/长度<32、拒绝 CORS 通配 `*`；`create_app()` 启动调用；`test_config_prod` 覆盖。
-- 剩余：**登录限流**（暴力破解）、**找回密码**实现；进 staging/对外前做。
-- 偿还：CORS/JWT env 化已落地；限流/找回密码待对外前。
+- 已完成（2026-07-07）：登录失败限流落地——默认同一邮箱+IP 在 15 分钟窗口内失败 5 次后锁定 15 分钟，返回 `429` 与 `Retry-After`；成功登录清桶。当前为进程内滑动窗口 MVP，适合单实例/本地开发。
+- 剩余：**找回密码**实现；多实例生产可升级 Redis/网关/边缘限流。
+- 偿还：CORS/JWT env 化已落地；登录失败限流已落地；找回密码与分布式/边缘限流待对外前。
 
 ### TD-014
 **前端 token 存 localStorage（部分完成）。**
@@ -344,7 +343,7 @@ compose 后只用一次轻量 judge 评「岗位说明+技能名+声明能力」
   (`python -m polis.modules.org.cleanup`)；`test_integration_auth_lifecycle` 覆盖。
 - **TD-015 已偿还**：`db/org_scoped.py` 的 `select_org_scoped` 助手 + planner repo 采用为纵深防御示范；
   `test_org_scoped` 覆盖；约定「请求外任务必须用助手」文档化。
-- **TD-011/013/014 部分偿还**：TD-011 认证/审批成功事件审计；TD-013 生产 fail-closed 校验(JWT/CORS)；
-  TD-014 前端静默刷新。三者剩余项（登录失败审计/限流/找回密码、token 存储硬化）见各自详情。
+- **TD-011/013/014 部分偿还**：TD-011 认证/审批成功/失败事件审计；TD-013 生产 fail-closed 校验(JWT/CORS)与登录失败限流；
+  TD-014 前端静默刷新。剩余项（找回密码、分布式/边缘限流、token 存储硬化）见各自详情。
 - **TD-018 已偿还**：`workflow.py` 在 `imports_passed_through` 块显式 pass through pydantic+pydantic_core，
   消除 Temporal 沙箱 UserWarning（实测计数 0）。

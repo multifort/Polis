@@ -61,6 +61,9 @@ def client(pg_url: str) -> Iterator[object]:
     from fastapi.testclient import TestClient
 
     from polis.main import app
+    from polis.modules.org import auth_rate_limit
 
+    auth_rate_limit.reset_for_tests()
     with TestClient(app) as c:
         yield c
+    auth_rate_limit.reset_for_tests()

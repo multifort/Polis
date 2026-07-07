@@ -71,6 +71,22 @@ def test_auth_failures(client: TestClient) -> None:
     assert client.get("/api/me").status_code == 401  # 无令牌
 
 
+def test_login_failures_are_rate_limited(client: TestClient) -> None:
+    email = _email()
+    client.post("/api/auth/register", json={"email": email, "password": "secret123"})
+
+    for _ in range(4):
+        r = client.post("/api/auth/login", json={"email": email, "password": "wrong"})
+        assert r.status_code == 401
+
+    r = client.post("/api/auth/login", json={"email": email, "password": "wrong"})
+    assert r.status_code == 429
+    assert int(r.headers["Retry-After"]) > 0
+
+    r = client.post("/api/auth/login", json={"email": email, "password": "secret123"})
+    assert r.status_code == 429
+
+
 def test_schema_and_rls(pg_url: str) -> None:
     engine = create_engine(pg_url.replace("+asyncpg", "+psycopg2"))
     try:

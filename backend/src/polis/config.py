@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     jwt_alg: str = "HS256"
     access_ttl_min: int = 15
     refresh_ttl_days: int = 14
+    auth_login_max_failures: int = 5  # 登录失败限流：窗口内失败次数，<=0 关闭
+    auth_login_window_seconds: int = 900
+    auth_login_lock_seconds: int = 900
 
     # Temporal 编排服务地址（M3-C）
     temporal_addr: str = "localhost:7233"
@@ -84,7 +87,7 @@ class Settings(BaseSettings):
     def validate_for_prod(self) -> None:
         """生产类环境下 fail-closed 校验不安全配置（TD-013）。dev 不受影响。
 
-        覆盖：JWT 默认密钥/过短、CORS 通配。限流/找回密码仍为后续项。
+        覆盖：JWT 默认密钥/过短、CORS 通配。找回密码仍为后续项。
         """
         if not self.is_prod():
             return

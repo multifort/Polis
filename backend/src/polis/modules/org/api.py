@@ -6,12 +6,12 @@ import logging
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polis.db.session import get_session, get_sessionmaker
 from polis.modules.observability.audit import write_audit
-from polis.modules.org import provisioning, service
+from polis.modules.org import auth_rate_limit, provisioning, service
 from polis.modules.org import repository as repo
 from polis.modules.org.deps import CurrentOrg, CurrentUserId
 from polis.modules.org.models import Role
@@ -45,27 +45,43 @@ async def register(data: RegisterIn, session: SessionDep) -> TokenOut:
         raise HTTPException(status.HTTP_409_CONFLICT, "该邮箱已注册") from exc
 
 
-async def _audit_login_failed(email: str) -> None:
+async def _audit_login_failed(email: str, reason: str = "invalid_credentials") -> None:
     """登录失败审计（TD-011，防暴力破解）。独立事务——失败路径请求会回滚，故另起 session 提交。
 
     best-effort：审计失败不影响 401 返回；绝不记密码。
     """
     try:
         async with get_sessionmaker()() as s:
-            await write_audit(
-                s, action="auth.login_failed", actor=email, detail={"reason": "invalid_credentials"}
-            )
+            await write_audit(s, action="auth.login_failed", actor=email, detail={"reason": reason})
             await s.commit()
     except Exception:
         logger.warning("登录失败审计写入失败（不影响 401）", exc_info=True)
 
 
 @router.post("/auth/login", response_model=TokenOut)
-async def login(data: LoginIn, session: SessionDep) -> TokenOut:
+async def login(data: LoginIn, request: Request, session: SessionDep) -> TokenOut:
+    ip = request.client.host if request.client else None
+    retry_after = auth_rate_limit.retry_after_seconds(data.email, ip)
+    if retry_after is not None:
+        await _audit_login_failed(data.email, reason="rate_limited")
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "登录尝试过多，请稍后再试",
+            headers={"Retry-After": str(retry_after)},
+        )
     try:
-        return await service.login(session, data)
+        token = await service.login(session, data)
+        auth_rate_limit.record_success(data.email, ip)
+        return token
     except service.InvalidCredentials as exc:
+        retry_after = auth_rate_limit.record_failure(data.email, ip)
         await _audit_login_failed(data.email)
+        if retry_after is not None:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "登录尝试过多，请稍后再试",
+                headers={"Retry-After": str(retry_after)},
+            ) from exc
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "邮箱或密码错误") from exc
 
 
