@@ -260,6 +260,11 @@ export interface ObsNode {
   needs_human: boolean;
   created_at: string | null;
   provenance: Record<string, unknown> | null;
+  guardrails: ObsGuardrails | null;
+}
+export interface ObsGuardrails {
+  changed: boolean;
+  redactions: Record<string, number>;
 }
 export interface ObsLLMCall {
   name: string | null;
@@ -344,6 +349,7 @@ export interface Observability {
   } | null;
   nodes: ObsNode[];
   llm_calls: ObsLLMCall[];
+  guardrails: ObsGuardrails;
   totals: ObsTotals;
   by_model: ObsModelUsage[];
 }

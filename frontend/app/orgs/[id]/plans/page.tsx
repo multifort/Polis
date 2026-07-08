@@ -83,6 +83,10 @@ const POLL_MS = 1500;
 const fmtCost = (yuan: number | null | undefined) =>
   yuan == null ? "—" : `¥${yuan.toFixed(4)}`;
 const fmtNum = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString());
+const fmtGuardrails = (redactions: Record<string, number> | null | undefined) => {
+  const total = Object.values(redactions ?? {}).reduce((sum, n) => sum + n, 0);
+  return total > 0 ? `安全脱敏 ${total} 处` : "无安全脱敏";
+};
 
 const fmtTime = (iso: string | null | undefined) => {
   if (!iso) return "";
@@ -937,7 +941,7 @@ function LogModal({
         <div className="modal-desc" style={{ marginBottom: 12 }}>
           任务 {obs.task_id.slice(0, 8)} · {STATUS_LABEL[obs.status] ?? obs.status} · 总耗时{" "}
           {fmtDuration(obs.duration_seconds)} · {fmtNum(obs.totals.total_tokens)} tokens ·{" "}
-          {fmtCost(obs.totals.cost)}
+          {fmtCost(obs.totals.cost)} · {fmtGuardrails(obs.guardrails.redactions)}
         </div>
 
         <div className="log-body">
@@ -953,6 +957,9 @@ function LogModal({
                     <span className="oagent">{String(n.provenance.agent)}</span>
                   )}
                   <span className={`pill ${n.status}`}>{STATUS_LABEL[n.status] ?? n.status}</span>
+                  {n.guardrails?.changed && (
+                    <span className="otime">{fmtGuardrails(n.guardrails.redactions)}</span>
+                  )}
                   {fmtTime(n.created_at) && <span className="otime">⏱ {fmtTime(n.created_at)}</span>}
                 </div>
                 <div className="md">

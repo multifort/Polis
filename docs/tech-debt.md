@@ -257,10 +257,13 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   `tests/test_guardrails.py::test_sanitize_redacts_common_cloud_and_chat_tokens`。
   `sanitize_with_report` 已提供脱敏输出 + injection/PII 命中计数，作为后续接审计/Guardrails-AI 的
   观测底座；运行时工具回流已累计 redaction 计数并写入
-  `result_envelope.facts.guardrails`，便于后续审计 API/UI 或 Guardrails-AI 替换对照。回归覆盖：
+  `result_envelope.facts.guardrails`；观测聚合 API 已暴露任务级 `guardrails` 汇总与节点级
+  `nodes[].guardrails`，前端完整运行日志可显示安全脱敏次数，便于后续 Guardrails-AI 替换对照。
+  回归覆盖：
   `tests/test_guardrails.py::test_sanitize_with_report_counts_redactions`、
   `tests/test_guardrails.py::test_loop_reports_tool_output_redactions`、
-  `tests/test_integration_execute.py::test_execute_node_records_guardrail_redactions`。
+  `tests/test_integration_execute.py::test_execute_node_records_guardrail_redactions`、
+  `tests/test_integration_observability.py::test_observability_exposes_guardrail_redaction_audit`。
 - MCP 已从纯本地工具推进到 HTTP tool bridge + MCP SDK transport adapter：
   `McpTool.http_endpoint` 可把外部 HTTP 工具服务注册进
   `McpRuntime`，运行时真实 POST `{server, tool, arguments}` 并解析 `content/result/text/output`；

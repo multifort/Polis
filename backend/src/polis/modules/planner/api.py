@@ -816,6 +816,7 @@ async def _gather_run_data(
     started = run.started_at or run.created_at or (min(env_times) if env_times else None)
     finished = run.finished_at or (max(env_times) if env_times else None)
     duration = (finished - started).total_seconds() if started and finished else None
+    guardrails = _aggregate_guardrails([e.facts for e in envelopes])
     return {
         "run": run,
         "task_id": str(run.id),
@@ -841,11 +842,13 @@ async def _gather_run_data(
                 "needs_human": e.needs_human,
                 "created_at": e.created_at.isoformat() if e.created_at is not None else None,
                 "provenance": (e.facts or {}).get("provenance") if e.facts else None,
+                "guardrails": (e.facts or {}).get("guardrails") if e.facts else None,
             }
             # 按 node_id 稳定排序（并行节点 created_at 会乱序），n4 等终端节点在后
             for e in sorted(envelopes, key=lambda x: x.node_id or "")
         ],
         "llm_calls": llm_calls,
+        "guardrails": guardrails,
         **_aggregate_usage(llm_calls),
     }
 
@@ -1113,6 +1116,26 @@ def _aggregate_usage(calls: list[dict[str, Any]]) -> dict[str, Any]:
         slot["cost"] += cost
         totals["cost"] += cost
     return {"totals": totals, "by_model": list(by_model.values())}
+
+
+def _aggregate_guardrails(facts_rows: list[dict[str, Any] | None]) -> dict[str, Any]:
+    """汇总节点级安全脱敏事实，供观测页审计工具回流是否被改写。"""
+    summary: dict[str, Any] = {"changed": False, "redactions": {}}
+    redactions: dict[str, int] = summary["redactions"]
+    for facts in facts_rows:
+        if not facts:
+            continue
+        guardrails = facts.get("guardrails")
+        if not isinstance(guardrails, dict):
+            continue
+        summary["changed"] = summary["changed"] or bool(guardrails.get("changed"))
+        counts = guardrails.get("redactions")
+        if not isinstance(counts, dict):
+            continue
+        for key, value in counts.items():
+            if isinstance(value, int):
+                redactions[str(key)] = redactions.get(str(key), 0) + value
+    return summary
 
 
 @router.get("/plans/{plan_id}/manifest")
