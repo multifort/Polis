@@ -56,6 +56,48 @@ async def get_any_skill_by_name(session: AsyncSession, name: str) -> Skill | Non
     return skill
 
 
+async def get_owned_skill_for_update(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    skill_id: uuid.UUID,
+) -> tuple[Skill, SkillVersion | None] | None:
+    """取本 org 拥有的 Skill 及最新版本，用于编辑草稿。"""
+    skill: Skill | None = await session.scalar(
+        select(Skill).where(Skill.id == skill_id, Skill.owner_org_id == org_id)
+    )
+    if skill is None:
+        return None
+    version = await session.scalar(
+        select(SkillVersion)
+        .where(SkillVersion.skill_id == skill.id)
+        .order_by(SkillVersion.version.desc())
+    )
+    return skill, version
+
+
+async def update_manual_skill_draft(
+    session: AsyncSession,
+    skill: Skill,
+    version: SkillVersion | None,
+    *,
+    name: str | None = None,
+    capability: str | None = None,
+    content: str | None = None,
+) -> SkillVersion:
+    """编辑公司私有 manual 草稿。发布后的 Skill 不在这里改，必须走新版/评审策略。"""
+    if name is not None:
+        skill.name = name
+    if capability is not None:
+        skill.capability = capability
+    if version is None:
+        version = SkillVersion(skill_id=skill.id, version="v1", content=content or "")
+        session.add(version)
+    elif content is not None:
+        version.content = content
+    await session.flush()
+    return version
+
+
 async def create_manual_skill_draft(
     session: AsyncSession,
     org_id: uuid.UUID,

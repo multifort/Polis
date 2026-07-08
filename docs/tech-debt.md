@@ -384,11 +384,13 @@ compose 后只用一次轻量 judge 评「岗位说明+技能名+声明能力」
   公司成员可提交私有 `manual` Skill 草稿（`visibility='org'`/`owner_org_id`），系统自动创建
   `skill_review` 审批；owner/approver 通过现有 `/api/approvals/{id}/decide` 发布后，
   `publish_skill` 置 `published/verified`，能力进入 `available_capabilities`，后续可被编配器拼装复用。
-  回归 `tests/test_integration_skill_api.py` 覆盖创建、列表、审批发布、跨 org 不可见与重复名冲突。
+  已补 `PATCH /api/skills/{id}` 编辑待审 manual 草稿，并刷新/重建 pending `skill_review`；published
+  Skill 拒绝直接改写，避免绕过人审与运行复现语义。回归 `tests/test_integration_skill_api.py`
+  覆盖创建、列表、编辑草稿、审批发布、已发布拒绝直接编辑、跨 org 不可见与重复名冲突。
   前端新增 `/orgs/{id}/skills` 技能库页与左侧导航入口，可列出私有/可见 Skill、筛选状态、提交
   manual 草稿并跳转审批收件箱。
-- **后续增强**：编辑已有 Skill、tool 类主动提交可复用 `create_tool_skill_draft` 的最小权限 + 本地
-  MCP 沙箱闸，按需开放。
+- **后续增强**：tool 类主动提交可复用 `create_tool_skill_draft` 的最小权限 + 本地 MCP 沙箱闸；published
+  Skill 的新版/废弃/升级提示策略按需开放。
 
 ### M3 后技术债清理批次（2026-06-20）
 - **TD-004 已偿还**：docker-compose 固定 litellm `main-stable→v1.89.2`、langfuse `2→2.95.11`

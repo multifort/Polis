@@ -86,6 +86,22 @@ async def list_approvals(
     return list((await session.scalars(q)).all())
 
 
+async def get_pending_approval_by_ref(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    *,
+    kind: str,
+    ref_id: str,
+) -> Approval | None:
+    q = select_org_scoped(Approval, org_id).where(
+        Approval.kind == kind,
+        Approval.ref_id == ref_id,
+        Approval.status == "pending",
+    )
+    approval: Approval | None = await session.scalar(q)
+    return approval
+
+
 async def get_approval(
     session: AsyncSession, org_id: uuid.UUID, approval_id: uuid.UUID
 ) -> Approval | None:

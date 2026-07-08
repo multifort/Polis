@@ -88,6 +88,105 @@ def test_create_manual_skill_draft_then_review_publish(client: TestClient, pg_ur
     assert any(row["id"] == skill["id"] for row in published.json())
 
 
+def test_update_manual_skill_draft_refreshes_review(client: TestClient, pg_url: str) -> None:
+    c = cast(Any, client)
+    auth = _register(c, f"skill_edit_{uuid.uuid4().hex[:8]}@polis.dev")
+    org_id = _create_org(c, auth, "技能编辑公司")
+    headers = {**auth, "X-Org-Id": org_id}
+    suffix = uuid.uuid4().hex[:6]
+
+    created = c.post(
+        "/api/skills",
+        json={
+            "name": f"manual.edit.{suffix}",
+            "capability": "procurement.old_review",
+            "content": "旧步骤：收集交付记录，整理风险，输出建议。这段内容足够长用于创建草稿。",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    skill_id = created.json()["id"]
+
+    updated_content = (
+        "新步骤1：收集供应商交付记录。新步骤2：按准时率、延误原因和赔付条款评分。"
+        "新步骤3：输出继续合作、降额或暂停合作建议。"
+    )
+    updated = c.patch(
+        f"/api/skills/{skill_id}",
+        json={
+            "name": f"manual.edit.updated.{suffix}",
+            "capability": "procurement.delivery_review",
+            "content": updated_content,
+        },
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert body["name"] == f"manual.edit.updated.{suffix}"
+    assert body["capability"] == "procurement.delivery_review"
+    assert body["review_status"] == "pending"
+    assert "新步骤1" in body["content_preview"]
+
+    assert (
+        _scalar(pg_url, "SELECT name FROM skill WHERE id = :skill_id", skill_id=skill_id)
+        == f"manual.edit.updated.{suffix}"
+    )
+    assert (
+        _scalar(
+            pg_url,
+            "SELECT content FROM skill_version WHERE skill_id = :skill_id",
+            skill_id=skill_id,
+        )
+        == updated_content
+    )
+
+    approvals = c.get("/api/approvals?status=pending", headers=headers)
+    assert approvals.status_code == 200, approvals.text
+    review = next(row for row in approvals.json() if row["ref_id"] == skill_id)
+    assert review["payload"]["skill_name"] == f"manual.edit.updated.{suffix}"
+    assert review["payload"]["capability"] == "procurement.delivery_review"
+    assert "新步骤1" in review["payload"]["preview"]
+
+
+def test_published_manual_skill_cannot_be_edited_directly(client: TestClient, pg_url: str) -> None:
+    c = cast(Any, client)
+    auth = _register(c, f"skill_published_{uuid.uuid4().hex[:8]}@polis.dev")
+    org_id = _create_org(c, auth, "技能已发布公司")
+    headers = {**auth, "X-Org-Id": org_id}
+
+    created = c.post(
+        "/api/skills",
+        json={
+            "name": f"manual.published.{uuid.uuid4().hex[:6]}",
+            "capability": "procurement.published_review",
+            "content": "发布前步骤：收集数据、形成结论、输出建议。这段内容足够长用于创建草稿。",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    skill_id = created.json()["id"]
+
+    approvals = c.get("/api/approvals?status=pending", headers=headers)
+    review = next(row for row in approvals.json() if row["ref_id"] == skill_id)
+    decided = c.post(
+        f"/api/approvals/{review['id']}/decide",
+        json={"approve": True},
+        headers=headers,
+    )
+    assert decided.status_code == 200, decided.text
+
+    denied = c.patch(
+        f"/api/skills/{skill_id}",
+        json={"content": "试图直接改写已发布 Skill，应被拒绝。这段内容足够长。"},
+        headers=headers,
+    )
+    assert denied.status_code == 409
+    assert (
+        _scalar(pg_url, "SELECT status FROM skill WHERE id = :skill_id", skill_id=skill_id)
+        == "published"
+    )
+
+
 def test_manual_skill_draft_is_private_to_owner_org(client: TestClient) -> None:
     c = cast(Any, client)
     suffix = uuid.uuid4().hex[:8]

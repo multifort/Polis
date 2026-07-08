@@ -32,6 +32,16 @@ class SkillCreateIn(BaseModel):
     content: str = Field(min_length=20, max_length=12000)
 
 
+class SkillUpdateIn(BaseModel):
+    """编辑公司私有 manual Skill 草稿。发布后的版本不允许直接改。"""
+
+    name: str | None = Field(
+        default=None, min_length=3, max_length=120, pattern=r"^[a-zA-Z0-9_.\-\u4e00-\u9fff]+$"
+    )
+    capability: str | None = Field(default=None, min_length=3, max_length=160)
+    content: str | None = Field(default=None, min_length=20, max_length=12000)
+
+
 class SkillOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -142,3 +152,68 @@ async def create_manual_skill(
         detail={"name": data.name, "capability": data.capability},
     )
     return _to_out(skill, content=data.content, review_status="pending")
+
+
+@router.patch("/skills/{skill_id}", response_model=SkillOut)
+async def update_manual_skill(
+    skill_id: uuid.UUID,
+    data: SkillUpdateIn,
+    org: CurrentOrg,
+    user_id: CurrentUserId,
+    session: SessionDep,
+) -> SkillOut:
+    """编辑公司私有 manual Skill 草稿，并保持/重建 skill_review 审批。
+
+    只允许编辑 draft：published/verified Skill 已进入编配可用能力，直接改写会绕过人审与复现语义。
+    """
+    if data.name is None and data.capability is None and data.content is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "至少提供一个待更新字段")
+    owned = await repo.get_owned_skill_for_update(session, org.org_id, skill_id)
+    if owned is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Skill 不存在")
+    skill, version = owned
+    if skill.kind != "manual" or skill.status != "draft":
+        raise HTTPException(status.HTTP_409_CONFLICT, "仅可编辑待审 manual Skill 草稿")
+    if data.name is not None and data.name != skill.name:
+        existing = await repo.get_any_skill_by_name(session, data.name)
+        if existing is not None and existing.id != skill.id:
+            raise HTTPException(status.HTTP_409_CONFLICT, "技能名已存在")
+    version = await repo.update_manual_skill_draft(
+        session,
+        skill,
+        version,
+        name=data.name,
+        capability=data.capability,
+        content=data.content,
+    )
+    content = version.content or ""
+    pending = await obs_repo.get_pending_approval_by_ref(
+        session, org.org_id, kind="skill_review", ref_id=str(skill.id)
+    )
+    payload = {
+        "capability": skill.capability,
+        "skill_name": skill.name,
+        "kind": "manual",
+        "source": "user_submitted",
+        "preview": content[:240],
+        "updated_by": str(user_id),
+    }
+    if pending is None:
+        await obs_repo.create_approval(
+            session,
+            org_id=org.org_id,
+            kind="skill_review",
+            ref_id=str(skill.id),
+            payload=payload,
+        )
+    else:
+        pending.payload = payload
+    await write_audit(
+        session,
+        action="skill.update_draft",
+        actor=str(user_id),
+        org_id=org.org_id,
+        target=str(skill.id),
+        detail={"name": skill.name, "capability": skill.capability},
+    )
+    return _to_out(skill, content=content, review_status="pending")
