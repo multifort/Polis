@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polis.db.session import get_session
 from polis.modules.observability import repository as obs_repo
 from polis.modules.observability.audit import write_audit
-from polis.modules.org.deps import CurrentOrg, CurrentUserId
+from polis.modules.org.deps import CurrentOrg, CurrentUserId, OrgContext, require_role
 from polis.modules.planner.skillgen import ToolSkillSandboxError, create_tool_skill_draft
 from polis.modules.runtime import repository as repo
 from polis.modules.runtime.mcp import McpToolCallError
@@ -21,6 +21,7 @@ from polis.modules.runtime.models import Skill
 router = APIRouter(prefix="/api", tags=["skills"])
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+ApproverOrg = Annotated[OrgContext, Depends(require_role("owner", "approver"))]
 
 
 class SkillCreateIn(BaseModel):
@@ -285,3 +286,30 @@ async def update_manual_skill(
         detail={"name": skill.name, "capability": skill.capability},
     )
     return _to_out(skill, content=content, review_status="pending")
+
+
+@router.post("/skills/{skill_id}/deprecate", response_model=SkillOut)
+async def deprecate_skill(
+    skill_id: uuid.UUID,
+    org: ApproverOrg,
+    user_id: CurrentUserId,
+    session: SessionDep,
+) -> SkillOut:
+    """停用本公司已发布 Skill。
+
+    停用不会删除历史版本/运行复现信息，只让该 Skill 退出后续 `published` 能力检索集合。
+    """
+    skill = await repo.deprecate_owned_skill(session, org.org_id, skill_id)
+    if skill is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "仅可停用本公司已发布 Skill")
+    versions = await repo.latest_versions_for_skills(session, [skill.id])
+    await write_audit(
+        session,
+        action="skill.deprecate",
+        actor=str(user_id),
+        org_id=org.org_id,
+        target=str(skill.id),
+        detail={"name": skill.name, "capability": skill.capability},
+    )
+    version = versions.get(skill.id)
+    return _to_out(skill, content=version.content if version is not None else None)

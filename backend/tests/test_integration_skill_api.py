@@ -189,6 +189,55 @@ def test_published_manual_skill_cannot_be_edited_directly(client: TestClient, pg
     )
 
 
+def test_deprecate_published_skill_removes_from_published_list(
+    client: TestClient, pg_url: str
+) -> None:
+    c = cast(Any, client)
+    auth = _register(c, f"skill_deprecate_{uuid.uuid4().hex[:8]}@polis.dev")
+    other_auth = _register(c, f"skill_deprecate_other_{uuid.uuid4().hex[:8]}@polis.dev")
+    org_id = _create_org(c, auth, "技能停用公司")
+    other_org = _create_org(c, other_auth, "技能停用其他公司")
+    headers = {**auth, "X-Org-Id": org_id}
+    other_headers = {**other_auth, "X-Org-Id": other_org}
+
+    created = c.post(
+        "/api/skills",
+        json={
+            "name": f"manual.deprecate.{uuid.uuid4().hex[:6]}",
+            "capability": "procurement.deprecate_review",
+            "content": "发布后准备停用的技能：收集数据、输出结论、形成建议。这段内容足够长。",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    skill_id = created.json()["id"]
+    approvals = c.get("/api/approvals?status=pending", headers=headers)
+    review = next(row for row in approvals.json() if row["ref_id"] == skill_id)
+    decided = c.post(
+        f"/api/approvals/{review['id']}/decide",
+        json={"approve": True},
+        headers=headers,
+    )
+    assert decided.status_code == 200, decided.text
+
+    forbidden = c.post(f"/api/skills/{skill_id}/deprecate", headers=other_headers)
+    assert forbidden.status_code in {403, 409}
+
+    deprecated = c.post(f"/api/skills/{skill_id}/deprecate", headers=headers)
+    assert deprecated.status_code == 200, deprecated.text
+    assert deprecated.json()["status"] == "deprecated"
+    assert (
+        _scalar(pg_url, "SELECT status FROM skill WHERE id = :skill_id", skill_id=skill_id)
+        == "deprecated"
+    )
+
+    published = c.get("/api/skills?status=published&mine_only=true", headers=headers)
+    assert published.status_code == 200, published.text
+    assert all(row["id"] != skill_id for row in published.json())
+    stopped = c.get("/api/skills?status=deprecated&mine_only=true", headers=headers)
+    assert any(row["id"] == skill_id for row in stopped.json())
+
+
 def test_create_tool_skill_draft_sandboxes_and_reviews(
     client: TestClient, pg_url: str, monkeypatch: Any
 ) -> None:

@@ -98,6 +98,26 @@ async def update_manual_skill_draft(
     return version
 
 
+async def deprecate_owned_skill(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    skill_id: uuid.UUID,
+) -> Skill | None:
+    """停用本 org 拥有的已发布 Skill。停用后不再进入 available_capabilities。"""
+    skill: Skill | None = await session.scalar(
+        select(Skill).where(
+            Skill.id == skill_id,
+            Skill.owner_org_id == org_id,
+            Skill.status == "published",
+        )
+    )
+    if skill is None:
+        return None
+    skill.status = "deprecated"
+    await session.flush()
+    return skill
+
+
 async def create_manual_skill_draft(
     session: AsyncSession,
     org_id: uuid.UUID,

@@ -7,7 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { api, getAccess, type SkillRow, type ToolSkillCreateBody } from "@/lib/api";
 
-type StatusFilter = "all" | "draft" | "published";
+type StatusFilter = "all" | "draft" | "published" | "deprecated";
 type FormMode = "manual" | "tool";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -182,6 +182,22 @@ export default function SkillsPage() {
     !httpEndpoint.trim() ||
     content.trim().length < 20;
 
+  async function deprecate(skill: SkillRow) {
+    if (!confirm(`停用技能 ${skill.name}？`)) return;
+    setBusy(true);
+    setNotice("");
+    setError("");
+    try {
+      await api.deprecateSkill(orgId, skill.id);
+      setNotice("技能已停用");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "停用技能失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <AppShell orgId={orgId} active="skills" breadcrumb="技能库">
       <div className="page-head skill-head">
@@ -320,7 +336,7 @@ export default function SkillsPage() {
         <section className="skill-list-section">
           <div className="skill-toolbar">
             <div className="seg">
-              {(["all", "draft", "published"] as StatusFilter[]).map((key) => (
+              {(["all", "draft", "published", "deprecated"] as StatusFilter[]).map((key) => (
                 <button
                   key={key}
                   className={status === key ? "on" : ""}
@@ -370,6 +386,16 @@ export default function SkillsPage() {
                     </span>
                     {skill.review_status === "pending" && (
                       <span className="skill-review">待审批</span>
+                    )}
+                    {skill.status === "published" && skill.owner_org_id === orgId && (
+                      <button
+                        className="skill-row-action"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void deprecate(skill)}
+                      >
+                        停用
+                      </button>
                     )}
                   </div>
                 </div>
