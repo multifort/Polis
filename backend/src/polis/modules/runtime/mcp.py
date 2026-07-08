@@ -281,6 +281,8 @@ def _stringify_mcp_result(result: Any) -> str:
     if structured is None:
         structured = getattr(result, "structured_content", None)
     if structured is not None:
+        if isinstance(structured, dict) and set(structured) == {"result"}:
+            return _dump_mcp_value(structured["result"])
         return _dump_mcp_value(structured)
 
     content = getattr(result, "content", None)

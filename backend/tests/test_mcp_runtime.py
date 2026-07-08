@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -317,6 +319,44 @@ def test_discover_mcp_sdk_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     assert tool.parameters["required"] == ["q"]
     assert tool.mcp_transport == "sse"
     assert tool.mcp_url == "http://tools.local/sse"
+
+
+def test_runtime_discovers_and_calls_real_stdio_mcp_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server_path = Path(__file__).parent / "fixtures" / "mcp_stdio_test_server.py"
+    monkeypatch.setattr(
+        mcp,
+        "get_settings",
+        lambda: SimpleNamespace(mcp_stdio_allowed_commands=[sys.executable]),
+    )
+
+    async def _run() -> tuple[list[str], str, str]:
+        config = McpServerConfig(
+            server="polis-stdio-test",
+            transport="stdio",
+            command=sys.executable,
+            args=[str(server_path)],
+            timeout_seconds=5.0,
+        )
+        tools = await discover_mcp_tools(config)
+        registry = McpRegistry()
+        for tool in tools:
+            registry.register(tool)
+        runtime = McpRuntime(registry)
+        echo_out = await runtime.call(
+            ToolCall(id="real-stdio-echo", name="echo", arguments={"text": "ok"})
+        )
+        add_out = await runtime.call(
+            ToolCall(id="real-stdio-add", name="add", arguments={"a": 2, "b": 3})
+        )
+        return sorted(tool.name for tool in tools), echo_out, add_out
+
+    names, echo_out, add_out = asyncio.run(_run())
+
+    assert names == ["add", "echo"]
+    assert echo_out == "echo:ok"
+    assert add_out == "5"
 
 
 def test_runtime_rejects_unlisted_mcp_stdio_command(monkeypatch: pytest.MonkeyPatch) -> None:
