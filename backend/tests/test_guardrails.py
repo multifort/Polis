@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+from types import ModuleType
 
 import pytest
 
@@ -20,6 +22,7 @@ from polis.modules.runtime.guardrails import (
     Guardrails,
     GuardrailSanitizeReport,
     GuardrailViolation,
+    load_guardrail_provider,
 )
 from polis.modules.runtime.mcp import McpRuntime, default_registry
 from polis.modules.runtime.skills import BoundTool, LoadedSkills
@@ -128,6 +131,79 @@ def test_guardrails_from_settings_fails_closed_for_unwired_guardrails_ai(
 
     with pytest.raises(RuntimeError, match="Guardrails-AI adapter"):
         Guardrails.from_settings()
+
+
+def test_load_guardrail_provider_from_module_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ExternalProvider:
+        name = "guardrails_ai"
+
+        def check_tool_input(self, _tool_call: ToolCall) -> None:
+            return None
+
+        def sanitize_with_report(self, output: str) -> GuardrailSanitizeReport:
+            return GuardrailSanitizeReport(
+                output=output.replace("secret", "[external]"),
+                pii_matches=1,
+                categories={"external": 1},
+            )
+
+    module = ModuleType("tests.fake_guardrails_adapter")
+    module.build = lambda: ExternalProvider()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "tests.fake_guardrails_adapter", module)
+
+    provider = load_guardrail_provider("tests.fake_guardrails_adapter:build")
+    report = Guardrails(provider).sanitize_with_report("secret")
+
+    assert provider.name == "guardrails_ai"
+    assert report.output == "[external]"
+    assert report.categories == {"external": 1}
+
+
+def test_guardrails_from_settings_loads_primary_and_shadow_adapters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class PrimaryProvider:
+        name = "guardrails_ai"
+
+        def check_tool_input(self, _tool_call: ToolCall) -> None:
+            return None
+
+        def sanitize_with_report(self, output: str) -> GuardrailSanitizeReport:
+            return GuardrailSanitizeReport(output=output, categories={"primary": 1})
+
+    class ShadowProvider:
+        name = "shadow_ai"
+
+        def check_tool_input(self, _tool_call: ToolCall) -> None:
+            return None
+
+        def sanitize_with_report(self, output: str) -> GuardrailSanitizeReport:
+            return GuardrailSanitizeReport(output=output, categories={"shadow": 2})
+
+    module = ModuleType("tests.fake_guardrails_pair")
+    module.primary = lambda: PrimaryProvider()  # type: ignore[attr-defined]
+    module.shadow = lambda: ShadowProvider()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "tests.fake_guardrails_pair", module)
+    monkeypatch.setattr(
+        "polis.modules.runtime.guardrails.get_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "guardrails_provider": "guardrails_ai",
+                "guardrails_provider_path": "tests.fake_guardrails_pair:primary",
+                "guardrails_shadow_provider_path": "tests.fake_guardrails_pair:shadow",
+            },
+        )(),
+    )
+
+    guard = Guardrails.from_settings()
+    report = guard.sanitize_with_report("ok")
+
+    assert guard.provider_name == "guardrails_ai+shadow:shadow_ai"
+    assert report.categories == {"primary": 1, "shadow.shadow_ai.shadow": 2}
 
 
 def test_sanitize_redacts_common_pii_and_secrets() -> None:

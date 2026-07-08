@@ -10,10 +10,11 @@ M4 为规则版（ADR-0007）；M6 逐步补齐 PII 脱敏，完整 Guardrails-A
 
 from __future__ import annotations
 
+import importlib
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Protocol, cast
 
 from polis.config import get_settings
 from polis.modules.model.gateway import ToolCall
@@ -90,6 +91,33 @@ class GuardrailProvider(Protocol):
     def sanitize_with_report(self, output: str) -> GuardrailSanitizeReport: ...
 
 
+def _is_guardrail_provider(value: object) -> bool:
+    return (
+        hasattr(value, "name")
+        and isinstance(value.name, str)
+        and callable(getattr(value, "check_tool_input", None))
+        and callable(getattr(value, "sanitize_with_report", None))
+    )
+
+
+def load_guardrail_provider(path: str) -> GuardrailProvider:
+    """按 module:factory 动态加载可选 Guardrails provider。"""
+    module_name, sep, factory_name = path.partition(":")
+    if not module_name or sep != ":" or not factory_name:
+        raise RuntimeError("Guardrails provider path 必须为 module.submodule:factory")
+    try:
+        module = importlib.import_module(module_name)
+        factory = getattr(module, factory_name)
+    except Exception as exc:  # noqa: BLE001 - 配置错误统一 fail-closed。
+        raise RuntimeError(f"Guardrails provider 加载失败：{path}") from exc
+    if not callable(factory):
+        raise RuntimeError(f"Guardrails provider 工厂不可调用：{path}")
+    provider = factory()
+    if not _is_guardrail_provider(provider):
+        raise RuntimeError(f"Guardrails provider 不符合协议：{path}")
+    return cast(GuardrailProvider, provider)
+
+
 def _find_injection(text: str) -> str | None:
     for pat in _INJECTION_PATTERNS:
         if pat.search(text):
@@ -151,15 +179,23 @@ class Guardrails:
 
     @classmethod
     def from_settings(cls) -> Guardrails:
-        """按配置创建 Guardrails；默认 rules，Guardrails-AI 未安装时 fail-closed。"""
+        """按配置创建 Guardrails；默认 rules，外部 adapter 缺失时 fail-closed。"""
         settings = get_settings()
         provider = settings.guardrails_provider.lower()
+        primary_path = getattr(settings, "guardrails_provider_path", "")
+        shadow_path = getattr(settings, "guardrails_shadow_provider_path", "")
+        shadow_provider = load_guardrail_provider(shadow_path) if shadow_path else None
         if provider == "rules":
-            return cls()
+            return cls(shadow_provider=shadow_provider)
         if provider == "guardrails_ai":
+            if primary_path:
+                return cls(
+                    load_guardrail_provider(primary_path),
+                    shadow_provider=shadow_provider,
+                )
             raise RuntimeError(
                 "POLIS_GUARDRAILS_PROVIDER=guardrails_ai 已启用，但 Guardrails-AI adapter "
-                "尚未配置；请保持 rules 或安装/接入 adapter 后再启用。"
+                "尚未配置；请设置 POLIS_GUARDRAILS_PROVIDER_PATH=module:factory，或保持 rules。"
             )
         raise RuntimeError(f"不支持的 POLIS_GUARDRAILS_PROVIDER：{settings.guardrails_provider}")
 

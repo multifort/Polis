@@ -92,6 +92,11 @@ class Settings(BaseSettings):
     # Guardrails provider：默认 rules。guardrails_ai 为后续 adapter 开关，启用但未接 adapter 时
     # fail-closed，避免误以为已由外部 Guardrails-AI 接管。
     guardrails_provider: str = "rules"
+    # 外部 Guardrails adapter 工厂，格式 module.submodule:factory。factory() 必须返回
+    # runtime.guardrails.GuardrailProvider 协议对象。用于把 Guardrails-AI 作为可选依赖接入。
+    guardrails_provider_path: str = ""
+    # 可选影子对照 provider，格式同上；不改变输出，只把命中计数以 shadow.<name>.* 记录到观测事实。
+    guardrails_shadow_provider_path: str = ""
 
     # Langfuse 可观测（M6-H）。Polis 自建可观测页面用，Langfuse 只做采集后端。
     langfuse_enabled: bool = False
