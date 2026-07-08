@@ -5,6 +5,8 @@ Examples:
     --url http://localhost:8765/sse
   uv run python scripts/mcp/external_smoke.py --server browser-pilot --transport streamable_http \
     --url http://localhost:8765/mcp --call-tool web_search --tool-args '{"q":"polis"}'
+  uv run python scripts/mcp/external_smoke.py --server browser-pilot --transport sse \
+    --url http://localhost:8765/sse --json-out var/mcp-smoke/browser-pilot.json
   POLIS_MCP_STDIO_ALLOWED_COMMANDS='["uvx"]' uv run python scripts/mcp/external_smoke.py \
     --server browser-pilot --transport stdio --command uvx --arg browser-pilot-mcp
 """
@@ -14,10 +16,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from pathlib import Path
 from typing import Any
 
 from polis.modules.runtime.mcp import McpServerConfig, McpToolCallError
-from polis.modules.runtime.mcp_smoke import run_external_mcp_smoke
+from polis.modules.runtime.mcp_smoke import failed_mcp_smoke_evidence, run_external_mcp_smoke
 
 
 def _json_object(value: str, *, label: str) -> dict[str, Any]:
@@ -67,6 +70,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--call-tool", default=None, help="Optional discovered tool name to call")
     parser.add_argument("--tool-args", default="{}", help="JSON object arguments for --call-tool")
     parser.add_argument("--preview-chars", type=int, default=500)
+    parser.add_argument(
+        "--json-out",
+        default=None,
+        help="Optional path to write credential-safe JSON evidence.",
+    )
     return parser
 
 
@@ -93,9 +101,12 @@ async def _run(args: argparse.Namespace) -> int:
             preview_chars=args.preview_chars,
         )
     except McpToolCallError as exc:
+        result = failed_mcp_smoke_evidence(config, str(exc))
+        _write_json_out(args.json_out, result.to_evidence())
         print(f"MCP external smoke: FAIL ({exc})")
         return 1
 
+    _write_json_out(args.json_out, result.to_evidence())
     print(f"MCP external smoke: PASS server={result.server} transport={result.transport}")
     print(f"Discovered tools: {len(result.tools)}")
     for tool in result.tools:
@@ -104,6 +115,14 @@ async def _run(args: argparse.Namespace) -> int:
         print(f"Called tool: {result.called_tool}")
         print(f"Result preview: {result.call_result_preview or ''}")
     return 0
+
+
+def _write_json_out(path: str | None, payload: dict[str, Any]) -> None:
+    if not path:
+        return
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def main() -> None:

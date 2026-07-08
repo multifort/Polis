@@ -298,7 +298,8 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   端到端调用；回归覆盖：
   `tests/test_mcp_runtime.py::test_runtime_discovers_and_calls_real_stdio_mcp_server`。
   外部部署联调入口已补：`backend/scripts/mcp/external_smoke.py` 支持 stdio/SSE/Streamable HTTP
-  发现工具，并可选试调一个工具；公共逻辑 `run_external_mcp_smoke` 有单测覆盖：
+  发现工具，并可选试调一个工具；`--json-out` 可写 credential-safe JSON 证据，成功/失败均不回显
+  headers/env；公共逻辑 `run_external_mcp_smoke` 有单测覆盖：
   `tests/test_mcp_smoke.py`。
 - 多模型 Agent 选型已部分产品化：`AgentConfig.model` 会在运行时解析为执行模型，并写入
   `result_envelope.facts.provenance.model`；owner 可通过花名册更新 Agent 当前版本模型。
