@@ -16,6 +16,7 @@ from polis.modules.runtime.mcp import (
     McpToolCallError,
     McpToolNotFound,
     default_registry,
+    is_stdio_command_allowed,
 )
 
 
@@ -186,6 +187,11 @@ def test_runtime_calls_mcp_sdk_stdio_tool(monkeypatch: pytest.MonkeyPatch) -> No
         raise AssertionError(name)
 
     monkeypatch.setattr(mcp.importlib, "import_module", import_module)
+    monkeypatch.setattr(
+        mcp,
+        "get_settings",
+        lambda: SimpleNamespace(mcp_stdio_allowed_commands=["python"]),
+    )
 
     reg = McpRegistry()
     reg.register(
@@ -214,6 +220,38 @@ def test_runtime_calls_mcp_sdk_stdio_tool(monkeypatch: pytest.MonkeyPatch) -> No
     assert captured["streams"] == ("read", "write")
     assert captured["initialized"] is True
     assert captured["tool_call"] == {"name": "web_search", "arguments": {"q": "风险"}}
+
+
+def test_runtime_rejects_unlisted_mcp_stdio_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        mcp,
+        "get_settings",
+        lambda: SimpleNamespace(mcp_stdio_allowed_commands=[]),
+    )
+    reg = McpRegistry()
+    reg.register(
+        McpTool(
+            server="browser-pilot",
+            name="web_search",
+            description="标准 MCP 搜索",
+            parameters={"type": "object"},
+            mcp_transport="stdio",
+            mcp_command="python",
+        )
+    )
+
+    with pytest.raises(McpToolCallError, match="白名单"):
+        asyncio.run(
+            McpRuntime(reg).call(
+                ToolCall(id="c6-denied", name="web_search", arguments={"q": "风险"})
+            )
+        )
+
+
+def test_stdio_command_allowlist_matches_name_or_exact_path() -> None:
+    assert is_stdio_command_allowed("/usr/bin/python", ["python"])
+    assert is_stdio_command_allowed("/usr/bin/python", ["/usr/bin/python"])
+    assert not is_stdio_command_allowed("/tmp/python", ["/usr/bin/python"])
 
 
 def test_runtime_calls_mcp_sdk_sse_tool(monkeypatch: pytest.MonkeyPatch) -> None:

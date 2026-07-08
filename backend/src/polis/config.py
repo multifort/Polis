@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     # 质量门通过阈值 τ_pass（S1/S2，design §4.3/§6/ADR-0012 初值 0.6；按数据校准）。
     quality_gate_tau: float = 0.6
 
+    # MCP stdio server 会启动本地进程，必须显式白名单放行。默认空列表 = fail-closed。
+    # 可填命令名（如 "uvx"）或绝对路径；裸命令名按 basename 匹配，带路径命令要求精确匹配。
+    mcp_stdio_allowed_commands: list[str] = []
+
     # Langfuse 可观测（M6-H）。Polis 自建可观测页面用，Langfuse 只做采集后端。
     langfuse_enabled: bool = False
     langfuse_host: str = "http://localhost:3001"

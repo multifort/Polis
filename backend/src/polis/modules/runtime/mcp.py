@@ -10,10 +10,12 @@ import importlib
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, cast
 
 import httpx
 
+from polis.config import get_settings
 from polis.modules.model.gateway import ToolCall, ToolSpec
 
 
@@ -140,6 +142,7 @@ async def _call_mcp_sdk_tool(tool: McpTool, arguments: dict[str, Any]) -> str:
         if transport == "stdio":
             if not tool.mcp_command:
                 raise McpToolCallError(f"工具 {tool.name} 缺少 stdio command")
+            _ensure_stdio_command_allowed(tool.mcp_command)
             stdio_mod = importlib.import_module("mcp.client.stdio")
             params_cls = mcp_pkg.StdioServerParameters
             transport_cm = stdio_mod.stdio_client(
@@ -215,6 +218,31 @@ def _dump_mcp_value(value: Any) -> str:
     elif hasattr(value, "dict"):
         value = value.dict()
     return json.dumps(value, ensure_ascii=False)
+
+
+def is_stdio_command_allowed(command: str, allowed_commands: list[str]) -> bool:
+    """stdio MCP 只允许显式白名单命令；裸命令按 basename 匹配，带路径命令必须精确匹配。"""
+    command = command.strip()
+    if not command:
+        return False
+    command_name = Path(command).name
+    for allowed in allowed_commands:
+        allowed = allowed.strip()
+        if not allowed:
+            continue
+        if "/" in allowed:
+            if command == allowed:
+                return True
+            continue
+        if command_name == allowed:
+            return True
+    return False
+
+
+def _ensure_stdio_command_allowed(command: str) -> None:
+    allowed = get_settings().mcp_stdio_allowed_commands
+    if not is_stdio_command_allowed(command, allowed):
+        raise McpToolCallError(f"MCP stdio command 未在白名单中：{command}")
 
 
 # ── 内置本地工具──────────────────────────────────────────────────────────

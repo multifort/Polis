@@ -30,7 +30,13 @@ from polis.modules.model.gateway import (
 from polis.modules.observability import repository as obs_repo
 from polis.modules.observability.evaluator import score
 from polis.modules.observability.models import Approval
-from polis.modules.runtime.mcp import McpRegistry, McpRuntime, McpTool, default_registry
+from polis.modules.runtime.mcp import (
+    McpRegistry,
+    McpRuntime,
+    McpTool,
+    default_registry,
+    is_stdio_command_allowed,
+)
 from polis.modules.runtime.models import Skill, SkillVersion
 
 logger = logging.getLogger(__name__)
@@ -150,7 +156,11 @@ async def generate_skill_draft(
 
 
 def _validate_tool_permissions(
-    tool: str, permissions: dict[str, Any], *, http_endpoint: str | None = None
+    tool: str,
+    permissions: dict[str, Any],
+    *,
+    http_endpoint: str | None = None,
+    mcp_transport: str | None = None,
 ) -> dict[str, Any]:
     """TD-032 tool-skill 最小权限闸：只允许无副作用/只读/计算类工具草稿进入人审。
 
@@ -162,14 +172,18 @@ def _validate_tool_permissions(
         raise ToolSkillSandboxError(f"tool skill 权限越界：effects={effects}")
     if permissions.get("requires_credentials") is True:
         raise ToolSkillSandboxError("tool skill 权限越界：requires_credentials=true")
-    if http_endpoint is None:
-        if permissions.get("network") not in (None, False):
-            raise ToolSkillSandboxError("tool skill 权限越界：network 必须为 false")
-        network: bool | str = False
-    else:
+    if http_endpoint is not None:
         if permissions.get("network") not in (None, "http_tool_bridge"):
             raise ToolSkillSandboxError("tool skill 权限越界：network 仅允许 http_tool_bridge")
-        network = "http_tool_bridge"
+        network: bool | str = "http_tool_bridge"
+    elif mcp_transport in {"sse", "streamable_http"}:
+        if permissions.get("network") not in (None, "mcp_sdk"):
+            raise ToolSkillSandboxError("tool skill 权限越界：network 仅允许 mcp_sdk")
+        network = "mcp_sdk"
+    else:
+        if permissions.get("network") not in (None, False):
+            raise ToolSkillSandboxError("tool skill 权限越界：network 必须为 false")
+        network = False
     if permissions.get("filesystem") not in (None, "none", False):
         raise ToolSkillSandboxError("tool skill 权限越界：filesystem 必须为 none")
     allowed_tools = permissions.get("allowed_tools") or [tool]
@@ -183,6 +197,43 @@ def _validate_tool_permissions(
         "filesystem": "none",
         "allowed_tools": [tool],
     }
+
+
+def _validate_mcp_skill_config(mcp_config: dict[str, Any] | None) -> dict[str, Any]:
+    if mcp_config is None:
+        return {}
+    transport = mcp_config.get("transport")
+    if transport not in {"stdio", "sse", "streamable_http"}:
+        raise ToolSkillSandboxError("tool skill MCP 配置越界：transport 不支持")
+
+    timeout = mcp_config.get("timeout_seconds")
+    normalized: dict[str, Any] = {
+        "transport": transport,
+        "timeout_seconds": float(timeout) if isinstance(timeout, int | float) else 5.0,
+    }
+    if transport == "stdio":
+        command = mcp_config.get("command")
+        if not isinstance(command, str) or not command:
+            raise ToolSkillSandboxError("tool skill MCP stdio 配置缺少 command")
+        if not is_stdio_command_allowed(command, get_settings().mcp_stdio_allowed_commands):
+            raise ToolSkillSandboxError(f"tool skill MCP stdio command 未在白名单中：{command}")
+        args = mcp_config.get("args")
+        env = mcp_config.get("env")
+        normalized["command"] = command
+        normalized["args"] = [str(arg) for arg in args] if isinstance(args, list) else []
+        normalized["env"] = (
+            {str(k): str(v) for k, v in env.items()} if isinstance(env, dict) else {}
+        )
+        return normalized
+
+    url = mcp_config.get("url")
+    if not isinstance(url, str) or not url:
+        raise ToolSkillSandboxError("tool skill MCP HTTP/SSE 配置缺少 url")
+    sse_read_timeout = mcp_config.get("sse_read_timeout_seconds")
+    normalized["url"] = url
+    if isinstance(sse_read_timeout, int | float):
+        normalized["sse_read_timeout_seconds"] = float(sse_read_timeout)
+    return normalized
 
 
 async def _sandbox_tool_call(
@@ -218,6 +269,7 @@ async def create_tool_skill_draft(
     permissions: dict[str, Any] | None = None,
     sandbox_args: dict[str, Any] | None = None,
     http_endpoint: str | None = None,
+    mcp_config: dict[str, Any] | None = None,
     timeout_seconds: float = 5.0,
     registry: McpRegistry | None = None,
 ) -> Skill:
@@ -236,11 +288,30 @@ async def create_tool_skill_draft(
     if existing is not None:
         return existing
 
+    mcp_policy = _validate_mcp_skill_config(mcp_config)
     normalized_permissions = _validate_tool_permissions(
-        tool, permissions or {}, http_endpoint=http_endpoint
+        tool,
+        permissions or {},
+        http_endpoint=http_endpoint,
+        mcp_transport=mcp_policy.get("transport") if mcp_policy else None,
     )
     effective_registry = registry or default_registry()
-    if http_endpoint is not None:
+    mcp_transport = (
+        mcp_policy.get("transport") if isinstance(mcp_policy.get("transport"), str) else None
+    )
+    mcp_url = mcp_policy.get("url") if isinstance(mcp_policy.get("url"), str) else None
+    mcp_command = mcp_policy.get("command") if isinstance(mcp_policy.get("command"), str) else None
+    raw_mcp_args = mcp_policy.get("args")
+    raw_mcp_env = mcp_policy.get("env")
+    raw_mcp_timeout = mcp_policy.get("timeout_seconds")
+    mcp_args = [str(arg) for arg in raw_mcp_args] if isinstance(raw_mcp_args, list) else []
+    mcp_env = (
+        {str(k): str(v) for k, v in raw_mcp_env.items()} if isinstance(raw_mcp_env, dict) else {}
+    )
+    registered_timeout = raw_mcp_timeout if isinstance(raw_mcp_timeout, float) else timeout_seconds
+    sse_read_timeout = mcp_policy.get("sse_read_timeout_seconds")
+    mcp_sse_read_timeout = sse_read_timeout if isinstance(sse_read_timeout, float) else None
+    if http_endpoint is not None or mcp_policy:
         effective_registry.register(
             McpTool(
                 server=mcp_server,
@@ -248,7 +319,13 @@ async def create_tool_skill_draft(
                 description=description,
                 parameters=io_schema,
                 http_endpoint=http_endpoint,
-                timeout_seconds=timeout_seconds,
+                timeout_seconds=registered_timeout,
+                mcp_transport=mcp_transport,
+                mcp_url=mcp_url,
+                mcp_command=mcp_command,
+                mcp_args=mcp_args,
+                mcp_env=mcp_env,
+                sse_read_timeout_seconds=mcp_sse_read_timeout,
             )
         )
     result = await _sandbox_tool_call(
@@ -270,6 +347,7 @@ async def create_tool_skill_draft(
         if http_endpoint is not None
         else {}
     )
+    mcp_permission_policy = {"mcp": mcp_policy} if mcp_policy else {}
     skill = Skill(
         name=name,
         kind="tool",
@@ -289,7 +367,12 @@ async def create_tool_skill_draft(
             mcp_server=mcp_server,
             tool=tool,
             io_schema=io_schema,
-            permissions={**normalized_permissions, **http_policy, "sandbox": sandbox},
+            permissions={
+                **normalized_permissions,
+                **http_policy,
+                **mcp_permission_policy,
+                "sandbox": sandbox,
+            },
         )
     )
     await session.flush()
