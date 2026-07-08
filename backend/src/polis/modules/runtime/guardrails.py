@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass, field
 
 from polis.modules.model.gateway import ToolCall
 
@@ -67,6 +68,18 @@ _PII_PATTERNS = [
 ]
 
 
+@dataclass(frozen=True)
+class GuardrailSanitizeReport:
+    output: str
+    injection_matches: int = 0
+    pii_matches: int = 0
+    categories: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def changed(self) -> bool:
+        return self.injection_matches > 0 or self.pii_matches > 0
+
+
 def _find_injection(text: str) -> str | None:
     for pat in _INJECTION_PATTERNS:
         if pat.search(text):
@@ -86,9 +99,27 @@ class Guardrails:
 
     def sanitize(self, output: str) -> str:
         """工具回流内容过滤：过滤注入片段并脱敏常见 PII/凭证。"""
+        return self.sanitize_with_report(output).output
+
+    def sanitize_with_report(self, output: str) -> GuardrailSanitizeReport:
+        """工具回流内容过滤，并返回命中计数，供审计/观测使用。"""
         out = output
+        injection_matches = 0
+        pii_matches = 0
+        categories: dict[str, int] = {}
         for pat in _INJECTION_PATTERNS:
-            out = pat.sub(_FILTERED, out)
+            out, count = pat.subn(_FILTERED, out)
+            if count:
+                injection_matches += count
+                categories["injection"] = categories.get("injection", 0) + count
         for pat in _PII_PATTERNS:
-            out = pat.sub(_PII_REDACTED, out)
-        return out
+            out, count = pat.subn(_PII_REDACTED, out)
+            if count:
+                pii_matches += count
+                categories["pii_or_secret"] = categories.get("pii_or_secret", 0) + count
+        return GuardrailSanitizeReport(
+            output=out,
+            injection_matches=injection_matches,
+            pii_matches=pii_matches,
+            categories=categories,
+        )

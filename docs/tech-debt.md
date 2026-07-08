@@ -255,6 +255,8 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   泄密动词、AWS/GitHub/Slack/JWT/Bearer token 等常见外部回流风险。回归覆盖：
   `tests/test_guardrails.py::test_sanitize_redacts_common_pii_and_secrets`、
   `tests/test_guardrails.py::test_sanitize_redacts_common_cloud_and_chat_tokens`。
+  `sanitize_with_report` 已提供脱敏输出 + injection/PII 命中计数，作为后续接审计/Guardrails-AI 的
+  观测底座；回归覆盖：`tests/test_guardrails.py::test_sanitize_with_report_counts_redactions`。
 - MCP 已从纯本地工具推进到 HTTP tool bridge + MCP SDK transport adapter：
   `McpTool.http_endpoint` 可把外部 HTTP 工具服务注册进
   `McpRuntime`，运行时真实 POST `{server, tool, arguments}` 并解析 `content/result/text/output`；
