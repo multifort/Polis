@@ -288,6 +288,9 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   真实 stdio MCP server smoke 已补：测试用 FastMCP 子进程通过标准协议完成 `list_tools` + `call_tool`
   端到端调用；回归覆盖：
   `tests/test_mcp_runtime.py::test_runtime_discovers_and_calls_real_stdio_mcp_server`。
+  外部部署联调入口已补：`backend/scripts/mcp/external_smoke.py` 支持 stdio/SSE/Streamable HTTP
+  发现工具，并可选试调一个工具；公共逻辑 `run_external_mcp_smoke` 有单测覆盖：
+  `tests/test_mcp_smoke.py`。
 - 多模型 Agent 选型已部分产品化：`AgentConfig.model` 会在运行时解析为执行模型，并写入
   `result_envelope.facts.provenance.model`；owner 可通过花名册更新 Agent 当前版本模型。
   回归覆盖：`tests/test_integration_execute.py::test_execute_node_uses_agent_config_model` 与
@@ -299,7 +302,8 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
 - cost-aware 路由已接入执行 fallback：Agent/公司均未指定模型时，运行时按 `cost_aware_pick("text-gen")`
   选择目录价最低的推理模型；无候选时再回退系统默认。回归覆盖：
   `tests/test_integration_execute.py::test_execute_node_uses_cost_aware_model_when_unset`。
-- 剩余：完整 Guardrails-AI 接入；接 browser-pilot 等真实外部 MCP server 的部署级联调。
+- 剩余：完整 Guardrails-AI 接入；拿 browser-pilot 等真实外部 MCP server 实例跑
+  `scripts/mcp/external_smoke.py` 并留部署证据。
 
 ### TD-027
 **TEI embedding 模型须预下载离线挂载。** hf-mirror 反代不返回 `etag` header，TEI rust 下载器在线下载失败；
