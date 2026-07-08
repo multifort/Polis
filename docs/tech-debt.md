@@ -35,7 +35,7 @@
 | [TD-025](#td-025) | Langfuse 采集+自建观测页(H-1/2/3) 完成；trace_ref 表落库未用(直查 API) | Low | **closed** | trace_ref 表后续按需 |
 | [TD-028](#td-028) | execute 写 result_envelope 未关联 task_run.id | Med | **closed** | 已贯通 task_run.id |
 | [TD-029](#td-029) | 部署：组件地址 dev 默认 localhost，生产需 env 覆盖 + 容器化用 service name | Low-Med | **closed** | 已补 compose service-name env 与生产模板 |
-| [TD-026](#td-026) | M6 仍有简化项：Guardrails 规则版/MCP 内置工具 | Low-Med | open | Guardrails-AI/真实MCP |
+| [TD-026](#td-026) | M6 仍有简化项：Guardrails 规则版/MCP stdio-sse SDK 未完整接入 | Low-Med | open | Guardrails-AI/完整 MCP SDK |
 | [TD-027](#td-027) | TEI 模型须预下载离线挂载（hf-mirror 不返回 etag，在线下载失败） | Low | open(运维已知) | 换可返回 etag 的源 / 自建镜像 |
 | [TD-030](#td-030) | 模板/预设/记忆语义检索已落；能力语义去重原语已接入 TD-032 goal 提案链 | Med | **closed** | 技能/角色语义检索按后续复用场景再切 |
 | [TD-032](#td-032) | Skill 生成链已落；manual 风险分级自动发布、tool/MCP 草稿最小权限+本地沙箱+人审墙、goal 端可达与语义去重已接线 | Med | **closed** | tool 类 LLM authoring / 外部真实 MCP server 沙箱后置 |
@@ -251,7 +251,9 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
 ### TD-026
 **M6 仍有桩/简化项。**
 - Guardrails 为规则版（正则注入检测），非 Guardrails-AI（注入/PII/内容过滤全量）。
-- MCP 仅内置本地工具(echo/calc)，无真实外部 server（browser-pilot 等）。
+- MCP 已从纯本地工具推进到 HTTP tool bridge：`McpTool.http_endpoint` 可把外部 HTTP 工具服务注册进
+  `McpRuntime`，运行时真实 POST `{server, tool, arguments}` 并解析 `content/result/text/output`。
+  回归覆盖：`tests/test_mcp_runtime.py::test_runtime_calls_http_tool`。
 - 多模型 Agent 选型已部分产品化：`AgentConfig.model` 会在运行时解析为执行模型，并写入
   `result_envelope.facts.provenance.model`；owner 可通过花名册更新 Agent 当前版本模型。
   回归覆盖：`tests/test_integration_execute.py::test_execute_node_uses_agent_config_model` 与
@@ -263,7 +265,7 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
 - cost-aware 路由已接入执行 fallback：Agent/公司均未指定模型时，运行时按 `cost_aware_pick("text-gen")`
   选择目录价最低的推理模型；无候选时再回退系统默认。回归覆盖：
   `tests/test_integration_execute.py::test_execute_node_uses_cost_aware_model_when_unset`。
-- 剩余：Guardrails-AI 接入；MCP 真实 server。
+- 剩余：Guardrails-AI 接入；完整 MCP stdio/sse SDK 接入。
 
 ### TD-027
 **TEI embedding 模型须预下载离线挂载。** hf-mirror 反代不返回 `etag` header，TEI rust 下载器在线下载失败；

@@ -1,21 +1,27 @@
 """MCP Runtime/Registry（design 04 §4）。
 
-M4 桩：注册「本地工具」(echo/calc) 作可调通工具，验证 _loop 工具调用链路（ADR-0007）。
-真实外部 MCP server（browser-pilot 等 stdio/sse）留后续——届时 McpRuntime.call 内部改为
-经 McpClient 调远端 server，registry/ToolSpec 契约不变。
+本地工具（echo/calc/黑板）与 HTTP MCP/tool bridge 共用同一 ToolSpec 契约。
+完整 stdio/sse MCP SDK 接入后，McpRuntime.call 的外层契约仍保持不变。
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+import httpx
 
 from polis.modules.model.gateway import ToolCall, ToolSpec
 
 
 class McpToolNotFound(Exception):
     """注册表中无该工具名。"""
+
+
+class McpToolCallError(Exception):
+    """远端 MCP/tool 调用失败。"""
 
 
 @dataclass
@@ -27,6 +33,9 @@ class McpTool:
     # 纯函数工具用 handler（echo/calc）；需 DB/任务上下文的工具用 ahandler（黑板取数）。
     handler: Callable[[dict[str, Any]], str] | None = None
     ahandler: Callable[[dict[str, Any], Any], Awaitable[str]] | None = None
+    http_endpoint: str | None = None
+    http_headers: dict[str, str] = field(default_factory=dict)
+    timeout_seconds: float = 5.0
 
 
 class McpRegistry:
@@ -71,10 +80,42 @@ class McpRuntime:
             return await tool.ahandler(tool_call.arguments, self._ctx)
         if tool.handler is not None:
             return tool.handler(tool_call.arguments)
+        if tool.http_endpoint is not None:
+            return await _call_http_tool(tool, tool_call.arguments)
         raise McpToolNotFound(tool_call.name)
 
 
-# ── 内置本地工具（桩）──────────────────────────────────────────────────────────
+async def _call_http_tool(tool: McpTool, arguments: dict[str, Any]) -> str:
+    """调用 HTTP MCP/tool bridge。
+
+    请求体采用稳定小契约：`server`、`tool`、`arguments`；响应兼容 `content`/`result`/`text`/`output`
+    字段，便于把现成 HTTP 工具服务包成 Polis 可调用工具。
+    """
+    endpoint = tool.http_endpoint
+    if endpoint is None:
+        raise McpToolNotFound(tool.name)
+    payload = {"server": tool.server, "tool": tool.name, "arguments": arguments}
+    try:
+        async with httpx.AsyncClient(trust_env=False, timeout=tool.timeout_seconds) as client:
+            resp = await client.post(endpoint, json=payload, headers=tool.http_headers or None)
+            resp.raise_for_status()
+    except Exception as exc:  # noqa: BLE001 - 对上层统一表现为工具调用失败。
+        raise McpToolCallError(f"工具 {tool.name} HTTP 调用失败") from exc
+
+    try:
+        data = resp.json()
+    except ValueError:
+        return resp.text
+    if not isinstance(data, dict):
+        return json.dumps(data, ensure_ascii=False)
+    for key in ("content", "result", "text", "output"):
+        if key in data:
+            value = data[key]
+            return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    return json.dumps(data, ensure_ascii=False)
+
+
+# ── 内置本地工具──────────────────────────────────────────────────────────
 
 
 def _echo(args: dict[str, Any]) -> str:

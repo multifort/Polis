@@ -1849,6 +1849,7 @@ dependencies = [
     { name = "cryptography" },
     { name = "email-validator" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "langfuse" },
     { name = "litellm" },
     { name = "minio" },
@@ -1867,7 +1868,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "bandit" },
-    { name = "httpx" },
     { name = "mypy" },
     { name = "pip-audit" },
     { name = "psycopg2-binary" },
@@ -1884,6 +1884,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=49.0.0" },
     { name = "email-validator", specifier = ">=2.3.0" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "langfuse", specifier = "<3" },
     { name = "litellm", specifier = ">=1.89.3" },
     { name = "minio", specifier = ">=7.2" },
@@ -1902,7 +1903,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "bandit", specifier = ">=1.7" },
-    { name = "httpx", specifier = ">=0.27" },
     { name = "mypy", specifier = ">=1.13" },
     { name = "pip-audit", specifier = ">=2.7" },
     { name = "psycopg2-binary", specifier = ">=2.9.12" },
