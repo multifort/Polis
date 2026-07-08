@@ -32,10 +32,16 @@ _INJECTION_PATTERNS = [
         r"disregard\s+(the\s+)?(above|previous)",
         r"you\s+are\s+now\s+",
         r"system\s+prompt",
+        r"developer\s+(message|instructions?)",
+        r"(BEGIN|END)\s+(SYSTEM|DEVELOPER)\s+(PROMPT|MESSAGE|INSTRUCTIONS?)",
+        r"act\s+as\s+(a\s+)?(system|developer|admin)",
         r"reveal\s+.{0,20}(prompt|instructions|system)",
+        r"(print|dump|show|exfiltrate)\s+.{0,24}(secrets?|tokens?|credentials?|api\s*keys?)",
+        r"<\s*(system|developer|assistant|tool)\s*>",
         r"忽略(以上|之前|前面|上述|所有).{0,8}(指令|提示|要求|规则)",
         r"无视(以上|之前|前面|上述).{0,8}(指令|提示|要求)",
         r"泄露.{0,10}(系统提示|提示词|指令)",
+        r"(输出|打印|展示|泄露).{0,12}(密钥|令牌|凭证|api\s*key)",
         r"<\|im_(start|end)\|>",
     )
 ]
@@ -51,6 +57,11 @@ _PII_PATTERNS = [
         r"(?<!\d)1[3-9]\d{9}(?!\d)",
         r"(?<!\d)\d{17}[\dXx](?!\d)",
         r"\b(?:sk|pk|rk|ak)-[A-Za-z0-9_-]{16,}\b",
+        r"\bAKIA[0-9A-Z]{16}\b",
+        r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b",
+        r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b",
+        r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b",
+        r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b",
         r"\b[A-Za-z0-9_]*(?:api[_-]?key|token|secret)[A-Za-z0-9_]*\s*[:=]\s*['\"]?[^'\"\s,;]{8,}",
     )
 ]

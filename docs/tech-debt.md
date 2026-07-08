@@ -251,8 +251,10 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
 ### TD-026
 **M6 仍有桩/简化项。**
 - Guardrails 仍为规则版，非 Guardrails-AI；已覆盖注入检测/内容过滤与常见 PII/凭证脱敏
-  （邮箱、手机号、身份证、API Key/secret/token 片段）。回归覆盖：
-  `tests/test_guardrails.py::test_sanitize_redacts_common_pii_and_secrets`。
+  （邮箱、手机号、身份证、API Key/secret/token 片段）。2026-07-08 继续补强 developer/system 标签、
+  泄密动词、AWS/GitHub/Slack/JWT/Bearer token 等常见外部回流风险。回归覆盖：
+  `tests/test_guardrails.py::test_sanitize_redacts_common_pii_and_secrets`、
+  `tests/test_guardrails.py::test_sanitize_redacts_common_cloud_and_chat_tokens`。
 - MCP 已从纯本地工具推进到 HTTP tool bridge + MCP SDK transport adapter：
   `McpTool.http_endpoint` 可把外部 HTTP 工具服务注册进
   `McpRuntime`，运行时真实 POST `{server, tool, arguments}` 并解析 `content/result/text/output`；
