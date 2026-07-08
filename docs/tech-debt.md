@@ -270,6 +270,10 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   草稿沙箱均会拒绝未放行 command；回归覆盖：
   `tests/test_mcp_runtime.py::test_runtime_rejects_unlisted_mcp_stdio_command`、
   `tests/test_skillgen_tool_sandbox.py::test_mcp_stdio_config_requires_allowed_command`。
+  工具发现/同步底座已补：`discover_mcp_tools` 通过 MCP SDK `list_tools` 拉取工具 schema，
+  `sync_mcp_tool_skill_drafts` 将发现结果逐个转为 tool Skill 草稿，并复用最小权限 + 沙箱 + 人审墙。
+  回归覆盖：`tests/test_mcp_runtime.py::test_discover_mcp_sdk_tools`、
+  `tests/test_integration_skillgen.py::test_sync_mcp_tool_skill_drafts_discovers_and_sandboxes`。
 - 多模型 Agent 选型已部分产品化：`AgentConfig.model` 会在运行时解析为执行模型，并写入
   `result_envelope.facts.provenance.model`；owner 可通过花名册更新 Agent 当前版本模型。
   回归覆盖：`tests/test_integration_execute.py::test_execute_node_uses_agent_config_model` 与
@@ -281,7 +285,7 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
 - cost-aware 路由已接入执行 fallback：Agent/公司均未指定模型时，运行时按 `cost_aware_pick("text-gen")`
   选择目录价最低的推理模型；无候选时再回退系统默认。回归覆盖：
   `tests/test_integration_execute.py::test_execute_node_uses_cost_aware_model_when_unset`。
-- 剩余：完整 Guardrails-AI 接入；真实外部 MCP server 联调与工具发现/同步。
+- 剩余：完整 Guardrails-AI 接入；真实外部 MCP server 端到端联调。
 
 ### TD-027
 **TEI embedding 模型须预下载离线挂载。** hf-mirror 反代不返回 `etag` header，TEI rust 下载器在线下载失败；

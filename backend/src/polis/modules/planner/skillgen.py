@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -33,8 +34,10 @@ from polis.modules.observability.models import Approval
 from polis.modules.runtime.mcp import (
     McpRegistry,
     McpRuntime,
+    McpServerConfig,
     McpTool,
     default_registry,
+    discover_mcp_tools,
     is_stdio_command_allowed,
 )
 from polis.modules.runtime.models import Skill, SkillVersion
@@ -44,6 +47,7 @@ logger = logging.getLogger(__name__)
 _PREVIEW_CHARS = 240
 _SKILL_EVAL_TAU = 0.6  # manual skill 自动放行的 judge 阈值
 _TOOL_ALLOWED_EFFECTS = {"none", "read", "compute"}
+_SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_.-]+")
 
 _SYSTEM = (
     "你是资深的 Agent 技能作者。请为给定「能力 key」编写一份**操作手册（playbook）**，供一个 "
@@ -311,7 +315,7 @@ async def create_tool_skill_draft(
     registered_timeout = raw_mcp_timeout if isinstance(raw_mcp_timeout, float) else timeout_seconds
     sse_read_timeout = mcp_policy.get("sse_read_timeout_seconds")
     mcp_sse_read_timeout = sse_read_timeout if isinstance(sse_read_timeout, float) else None
-    if http_endpoint is not None or mcp_policy:
+    if registry is None and (http_endpoint is not None or mcp_policy):
         effective_registry.register(
             McpTool(
                 server=mcp_server,
@@ -395,6 +399,76 @@ async def create_tool_skill_draft(
     await session.flush()
     logger.info("create_tool_skill_draft %s sandbox 通过 → draft + skill_review", name)
     return skill
+
+
+async def sync_mcp_tool_skill_drafts(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    *,
+    capability_prefix: str,
+    skill_name_prefix: str,
+    mcp_server: str,
+    mcp_config: dict[str, Any],
+    permissions: dict[str, Any] | None = None,
+    sandbox_args_by_tool: dict[str, dict[str, Any]] | None = None,
+) -> list[Skill]:
+    """发现标准 MCP server 工具，并同步为待人审 tool Skill 草稿。
+
+    发现只负责读取工具 schema；每个工具仍复用 `create_tool_skill_draft` 跑最小权限 + 沙箱。
+    对必填参数工具，调用方可用 `sandbox_args_by_tool` 提供每个 tool 的沙箱参数。
+    """
+    mcp_policy = _validate_mcp_skill_config(mcp_config)
+    raw_args = mcp_policy.get("args")
+    raw_env = mcp_policy.get("env")
+    discovered = await discover_mcp_tools(
+        McpServerConfig(
+            server=mcp_server,
+            transport=str(mcp_policy["transport"]),
+            url=mcp_policy.get("url") if isinstance(mcp_policy.get("url"), str) else None,
+            command=mcp_policy.get("command")
+            if isinstance(mcp_policy.get("command"), str)
+            else None,
+            args=[str(arg) for arg in raw_args] if isinstance(raw_args, list) else [],
+            env={str(k): str(v) for k, v in raw_env.items()} if isinstance(raw_env, dict) else {},
+            timeout_seconds=float(mcp_policy.get("timeout_seconds") or 5.0),
+            sse_read_timeout_seconds=(
+                float(mcp_policy["sse_read_timeout_seconds"])
+                if isinstance(mcp_policy.get("sse_read_timeout_seconds"), int | float)
+                else None
+            ),
+        )
+    )
+    registry = McpRegistry()
+    for tool in discovered:
+        registry.register(tool)
+
+    skills: list[Skill] = []
+    sandbox_args_by_tool = sandbox_args_by_tool or {}
+    for tool in discovered:
+        if not tool.name:
+            continue
+        safe_tool_name = _safe_skill_name(tool.name)
+        skill = await create_tool_skill_draft(
+            session,
+            org_id,
+            f"{capability_prefix}.{safe_tool_name}",
+            name=f"{skill_name_prefix}.{safe_tool_name}",
+            mcp_server=mcp_server,
+            tool=tool.name,
+            description=tool.description,
+            io_schema=tool.parameters,
+            permissions=permissions or {"effects": "read"},
+            sandbox_args=sandbox_args_by_tool.get(tool.name, {}),
+            mcp_config=mcp_policy,
+            registry=registry,
+        )
+        skills.append(skill)
+    return skills
+
+
+def _safe_skill_name(value: str) -> str:
+    normalized = _SAFE_NAME_RE.sub("_", value.strip()).strip("._-")
+    return normalized or f"tool_{uuid.uuid4().hex[:6]}"
 
 
 _TAU_DEDUP = 0.86  # 能力语义去重阈值（design §14.6）：≥τ 视为同义、复用已有 key

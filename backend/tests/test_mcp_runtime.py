@@ -12,10 +12,12 @@ from polis.modules.runtime import mcp
 from polis.modules.runtime.mcp import (
     McpRegistry,
     McpRuntime,
+    McpServerConfig,
     McpTool,
     McpToolCallError,
     McpToolNotFound,
     default_registry,
+    discover_mcp_tools,
     is_stdio_command_allowed,
 )
 
@@ -220,6 +222,101 @@ def test_runtime_calls_mcp_sdk_stdio_tool(monkeypatch: pytest.MonkeyPatch) -> No
     assert captured["streams"] == ("read", "write")
     assert captured["initialized"] is True
     assert captured["tool_call"] == {"name": "web_search", "arguments": {"q": "风险"}}
+
+
+def test_discover_mcp_sdk_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class AsyncContext:
+        def __init__(self, value: object) -> None:
+            self._value = value
+
+        async def __aenter__(self) -> object:
+            return self._value
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    class Session:
+        def __init__(self, read_stream: object, write_stream: object) -> None:
+            captured["streams"] = (read_stream, write_stream)
+
+        async def __aenter__(self) -> Session:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def initialize(self) -> None:
+            captured["initialized"] = True
+
+        async def list_tools(self) -> object:
+            return SimpleNamespace(
+                tools=[
+                    SimpleNamespace(
+                        name="web_search",
+                        description="联网搜索",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {"q": {"type": "string"}},
+                            "required": ["q"],
+                        },
+                    )
+                ]
+            )
+
+    def sse_client(
+        url: str,
+        *,
+        headers: dict[str, str] | None,
+        timeout: float,
+        sse_read_timeout: float,
+    ) -> AsyncContext:
+        captured["sse"] = {
+            "url": url,
+            "headers": headers,
+            "timeout": timeout,
+            "sse_read_timeout": sse_read_timeout,
+        }
+        return AsyncContext(("read", "write"))
+
+    def import_module(name: str) -> object:
+        if name == "mcp":
+            return SimpleNamespace(ClientSession=Session)
+        if name == "mcp.client.sse":
+            return SimpleNamespace(sse_client=sse_client)
+        raise AssertionError(name)
+
+    monkeypatch.setattr(mcp.importlib, "import_module", import_module)
+
+    tools = asyncio.run(
+        discover_mcp_tools(
+            McpServerConfig(
+                server="browser-pilot",
+                transport="sse",
+                url="http://tools.local/sse",
+                headers={"Authorization": "Bearer handle"},
+                timeout_seconds=4.0,
+                sse_read_timeout_seconds=9.0,
+            )
+        )
+    )
+
+    assert captured["initialized"] is True
+    assert captured["sse"] == {
+        "url": "http://tools.local/sse",
+        "headers": {"Authorization": "Bearer handle"},
+        "timeout": 4.0,
+        "sse_read_timeout": 9.0,
+    }
+    assert len(tools) == 1
+    tool = tools[0]
+    assert tool.server == "browser-pilot"
+    assert tool.name == "web_search"
+    assert tool.description == "联网搜索"
+    assert tool.parameters["required"] == ["q"]
+    assert tool.mcp_transport == "sse"
+    assert tool.mcp_url == "http://tools.local/sse"
 
 
 def test_runtime_rejects_unlisted_mcp_stdio_command(monkeypatch: pytest.MonkeyPatch) -> None:

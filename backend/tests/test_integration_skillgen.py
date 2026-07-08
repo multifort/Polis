@@ -22,8 +22,10 @@ from polis.modules.planner.skillgen import (
     create_tool_skill_draft,
     generate_skill_draft,
     publish_skill,
+    sync_mcp_tool_skill_drafts,
 )
 from polis.modules.runtime import mcp
+from polis.modules.runtime.mcp import McpTool
 
 
 def _seed_org_model(pg_url: str, model_id: str) -> uuid.UUID:
@@ -320,6 +322,100 @@ def test_http_tool_skill_draft_sandboxes_and_persists_bridge(
                 assert sv[2]["http"]["endpoint"] == "http://tools.local/mcp"
                 assert sv[2]["http"]["timeout_seconds"] == 2.0
                 assert sv[2]["sandbox"]["result_preview"] == "http-sandbox-ok"
+                await s.rollback()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+def test_sync_mcp_tool_skill_drafts_discovers_and_sandboxes(
+    pg_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MCP 工具发现结果可批量同步为 tool Skill 草稿，仍逐个沙箱并进人审。"""
+    org_id = _seed_org_model(pg_url, get_settings().default_chat_model)
+    name_prefix = f"mcp_sync_{uuid.uuid4().hex[:6]}"
+
+    async def fake_discover(_config: object) -> list[McpTool]:
+        return [
+            McpTool(
+                server="browser-pilot",
+                name="web.search",
+                description="搜索公开网页",
+                parameters={
+                    "type": "object",
+                    "properties": {"q": {"type": "string"}},
+                    "required": ["q"],
+                },
+                handler=lambda args: f"search:{args.get('q')}",
+            ),
+            McpTool(
+                server="browser-pilot",
+                name="page/read",
+                description="读取页面",
+                parameters={
+                    "type": "object",
+                    "properties": {"url": {"type": "string"}},
+                    "required": ["url"],
+                },
+                handler=lambda args: f"read:{args.get('url')}",
+            ),
+        ]
+
+    monkeypatch.setattr("polis.modules.planner.skillgen.discover_mcp_tools", fake_discover)
+
+    async def _run() -> None:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                skills = await sync_mcp_tool_skill_drafts(
+                    s,
+                    org_id,
+                    capability_prefix="tool.browser",
+                    skill_name_prefix=name_prefix,
+                    mcp_server="browser-pilot",
+                    mcp_config={
+                        "transport": "sse",
+                        "url": "http://tools.local/sse",
+                        "timeout_seconds": 3,
+                    },
+                    permissions={"effects": "read"},
+                    sandbox_args_by_tool={
+                        "web.search": {"q": "polis"},
+                        "page/read": {"url": "https://example.com"},
+                    },
+                )
+                assert len(skills) == 2
+                rows = (
+                    await s.execute(
+                        text(
+                            "SELECT sk.name, sk.capability, sv.tool, sv.permissions "
+                            "FROM skill sk JOIN skill_version sv ON sv.skill_id = sk.id "
+                            "WHERE sk.owner_org_id = :o AND sk.name LIKE :p "
+                            "ORDER BY sk.name"
+                        ).bindparams(o=org_id, p=f"{name_prefix}.%")
+                    )
+                ).all()
+                assert [r[0] for r in rows] == [
+                    f"{name_prefix}.page_read",
+                    f"{name_prefix}.web.search",
+                ]
+                assert rows[0][1] == "tool.browser.page_read"
+                assert rows[1][1] == "tool.browser.web.search"
+                assert rows[0][2] == "page/read"
+                assert rows[1][2] == "web.search"
+                assert rows[0][3]["network"] == "mcp_sdk"
+                assert rows[0][3]["mcp"]["transport"] == "sse"
+                assert rows[0][3]["mcp"]["url"] == "http://tools.local/sse"
+                assert rows[0][3]["sandbox"]["result_preview"] == "read:https://example.com"
+                assert rows[1][3]["sandbox"]["result_preview"] == "search:polis"
+                approvals = await s.scalar(
+                    text(
+                        "SELECT count(*) FROM approval WHERE org_id = :o AND status = 'pending' "
+                        "AND kind = 'skill_review'"
+                    ).bindparams(o=org_id)
+                )
+                assert approvals == 2
                 await s.rollback()
         finally:
             await engine.dispose()

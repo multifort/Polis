@@ -47,6 +47,19 @@ class McpTool:
     sse_read_timeout_seconds: float | None = None
 
 
+@dataclass
+class McpServerConfig:
+    server: str
+    transport: str
+    url: str | None = None
+    command: str | None = None
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
+    timeout_seconds: float = 5.0
+    sse_read_timeout_seconds: float | None = None
+
+
 class McpRegistry:
     """可用工具注册表：name → McpTool。SkillLoader 的工具型 skill 按 name 引用这里。"""
 
@@ -138,41 +151,9 @@ async def _call_mcp_sdk_tool(tool: McpTool, arguments: dict[str, Any]) -> str:
     except Exception as exc:  # noqa: BLE001 - 依赖缺失时给上层统一错误。
         raise McpToolCallError("MCP Python SDK 未安装，无法调用标准 MCP server") from exc
 
+    config = _server_config_from_tool(tool)
     try:
-        if transport == "stdio":
-            if not tool.mcp_command:
-                raise McpToolCallError(f"工具 {tool.name} 缺少 stdio command")
-            _ensure_stdio_command_allowed(tool.mcp_command)
-            stdio_mod = importlib.import_module("mcp.client.stdio")
-            params_cls = mcp_pkg.StdioServerParameters
-            transport_cm = stdio_mod.stdio_client(
-                params_cls(
-                    command=tool.mcp_command,
-                    args=tool.mcp_args,
-                    env=tool.mcp_env or None,
-                )
-            )
-        elif transport == "sse":
-            if not tool.mcp_url:
-                raise McpToolCallError(f"工具 {tool.name} 缺少 SSE URL")
-            sse_mod = importlib.import_module("mcp.client.sse")
-            transport_cm = sse_mod.sse_client(
-                tool.mcp_url,
-                headers=tool.http_headers or None,
-                timeout=tool.timeout_seconds,
-                sse_read_timeout=tool.sse_read_timeout_seconds or 300,
-            )
-        else:
-            if not tool.mcp_url:
-                raise McpToolCallError(f"工具 {tool.name} 缺少 Streamable HTTP URL")
-            stream_mod = importlib.import_module("mcp.client.streamable_http")
-            transport_cm = stream_mod.streamablehttp_client(
-                tool.mcp_url,
-                headers=tool.http_headers or None,
-                timeout=tool.timeout_seconds,
-                sse_read_timeout=tool.sse_read_timeout_seconds or 300,
-            )
-
+        transport_cm = _mcp_transport_context(config, mcp_pkg)
         async with transport_cm as streams:
             read_stream, write_stream = streams[0], streams[1]
             async with client_session(read_stream, write_stream) as session:
@@ -183,6 +164,116 @@ async def _call_mcp_sdk_tool(tool: McpTool, arguments: dict[str, Any]) -> str:
     except Exception as exc:  # noqa: BLE001 - 对上层统一表现为工具调用失败。
         raise McpToolCallError(f"工具 {tool.name} MCP 调用失败") from exc
     return _stringify_mcp_result(result)
+
+
+async def discover_mcp_tools(config: McpServerConfig) -> list[McpTool]:
+    """通过标准 MCP SDK `list_tools` 发现 server 暴露的工具，并转成 Polis McpTool 元数据。"""
+    if config.transport not in {"stdio", "sse", "streamable_http"}:
+        raise McpToolCallError(f"MCP transport 不支持：{config.transport}")
+    try:
+        mcp_pkg = cast(Any, importlib.import_module("mcp"))
+        client_session = mcp_pkg.ClientSession
+    except Exception as exc:  # noqa: BLE001
+        raise McpToolCallError("MCP Python SDK 未安装，无法发现标准 MCP server 工具") from exc
+
+    try:
+        transport_cm = _mcp_transport_context(config, mcp_pkg)
+        async with transport_cm as streams:
+            read_stream, write_stream = streams[0], streams[1]
+            async with client_session(read_stream, write_stream) as session:
+                await session.initialize()
+                result = await session.list_tools()
+    except McpToolCallError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise McpToolCallError(f"MCP server {config.server} 工具发现失败") from exc
+    tools = getattr(result, "tools", [])
+    return [_tool_from_mcp_schema(config, raw) for raw in tools]
+
+
+def _server_config_from_tool(tool: McpTool) -> McpServerConfig:
+    transport = tool.mcp_transport
+    if transport not in {"stdio", "sse", "streamable_http"}:
+        raise McpToolCallError(f"工具 {tool.name} MCP transport 不支持：{transport}")
+    return McpServerConfig(
+        server=tool.server,
+        transport=transport,
+        url=tool.mcp_url,
+        command=tool.mcp_command,
+        args=tool.mcp_args,
+        env=tool.mcp_env,
+        headers=tool.http_headers,
+        timeout_seconds=tool.timeout_seconds,
+        sse_read_timeout_seconds=tool.sse_read_timeout_seconds,
+    )
+
+
+def _mcp_transport_context(config: McpServerConfig, mcp_pkg: Any) -> Any:
+    if config.transport == "stdio":
+        if not config.command:
+            raise McpToolCallError(f"MCP server {config.server} 缺少 stdio command")
+        _ensure_stdio_command_allowed(config.command)
+        stdio_mod = importlib.import_module("mcp.client.stdio")
+        params_cls = mcp_pkg.StdioServerParameters
+        return stdio_mod.stdio_client(
+            params_cls(
+                command=config.command,
+                args=config.args,
+                env=config.env or None,
+            )
+        )
+    if config.transport == "sse":
+        if not config.url:
+            raise McpToolCallError(f"MCP server {config.server} 缺少 SSE URL")
+        sse_mod = importlib.import_module("mcp.client.sse")
+        return sse_mod.sse_client(
+            config.url,
+            headers=config.headers or None,
+            timeout=config.timeout_seconds,
+            sse_read_timeout=config.sse_read_timeout_seconds or 300,
+        )
+    if not config.url:
+        raise McpToolCallError(f"MCP server {config.server} 缺少 Streamable HTTP URL")
+    stream_mod = importlib.import_module("mcp.client.streamable_http")
+    return stream_mod.streamablehttp_client(
+        config.url,
+        headers=config.headers or None,
+        timeout=config.timeout_seconds,
+        sse_read_timeout=config.sse_read_timeout_seconds or 300,
+    )
+
+
+def _tool_from_mcp_schema(config: McpServerConfig, raw: Any) -> McpTool:
+    name = str(getattr(raw, "name", ""))
+    description = getattr(raw, "description", None)
+    input_schema = getattr(raw, "inputSchema", None)
+    if input_schema is None:
+        input_schema = getattr(raw, "input_schema", None)
+    parameters = _jsonable_schema(input_schema) if input_schema is not None else {"type": "object"}
+    return McpTool(
+        server=config.server,
+        name=name,
+        description=description if isinstance(description, str) else name,
+        parameters=parameters,
+        http_headers=config.headers,
+        timeout_seconds=config.timeout_seconds,
+        mcp_transport=config.transport,
+        mcp_url=config.url,
+        mcp_command=config.command,
+        mcp_args=config.args,
+        mcp_env=config.env,
+        sse_read_timeout_seconds=config.sse_read_timeout_seconds,
+    )
+
+
+def _jsonable_schema(value: Any) -> dict[str, Any]:
+    if hasattr(value, "model_dump"):
+        value = value.model_dump(mode="json")
+    elif hasattr(value, "dict"):
+        value = value.dict()
+    if isinstance(value, dict):
+        return value
+    return {"type": "object"}
 
 
 def _stringify_mcp_result(result: Any) -> str:
