@@ -1906,6 +1906,7 @@ dev = [
     { name = "mypy" },
     { name = "pip-audit" },
     { name = "psycopg2-binary" },
+    { name = "pysocks" },
     { name = "pytest" },
     { name = "ruff" },
     { name = "testcontainers" },
@@ -1942,6 +1943,7 @@ dev = [
     { name = "mypy", specifier = ">=1.13" },
     { name = "pip-audit", specifier = ">=2.7" },
     { name = "psycopg2-binary", specifier = ">=2.9.12" },
+    { name = "pysocks", specifier = ">=1.7.1" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "ruff", specifier = ">=0.7" },
     { name = "testcontainers", specifier = ">=4.0" },
@@ -2282,6 +2284,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f3/91/9c6ee907786a473bf81c5f53cf703ba0957b23ab84c264080fb5a450416f/pyparsing-3.3.2.tar.gz", hash = "sha256:c777f4d763f140633dcb6d8a3eda953bf7a214dc4eff598413c070bcdc117cbc", size = 6851574 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl", hash = "sha256:850ba148bd908d7e2411587e247a1e4f0327839c40e2e5e6d05a007ecc69911d", size = 122781 },
+]
+
+[[package]]
+name = "pysocks"
+version = "1.7.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/bd/11/293dd436aea955d45fc4e8a35b6ae7270f5b8e00b53cf6c024c83b657a11/PySocks-1.7.1.tar.gz", hash = "sha256:3f8804571ebe159c380ac6de37643bb4685970655d3bba243530d6558b799aa0", size = 284429 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8d/59/b4572118e098ac8e46e399a1dd0f2d85403ce8bbaad9ec79373ed6badaf9/PySocks-1.7.1-py3-none-any.whl", hash = "sha256:2725bd0a9925919b9b51739eea5f9e2bae91e83288108a9ad338b2e3a4435ee5", size = 16725 },
 ]
 
 [[package]]

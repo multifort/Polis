@@ -36,6 +36,7 @@ dev = [
     "psycopg2-binary>=2.9.12",
     "bandit>=1.7",
     "pip-audit>=2.7",
+    "PySocks>=1.7.1",
 ]
 
 [build-system]
