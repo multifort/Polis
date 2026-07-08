@@ -5,9 +5,10 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import { api, getAccess, type SkillRow } from "@/lib/api";
+import { api, getAccess, type SkillRow, type ToolSkillCreateBody } from "@/lib/api";
 
 type StatusFilter = "all" | "draft" | "published";
+type FormMode = "manual" | "tool";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "待审核",
@@ -35,9 +36,16 @@ export default function SkillsPage() {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<StatusFilter>("all");
   const [mineOnly, setMineOnly] = useState(true);
+  const [formMode, setFormMode] = useState<FormMode>("manual");
   const [name, setName] = useState("");
   const [capability, setCapability] = useState("");
   const [content, setContent] = useState("");
+  const [toolName, setToolName] = useState("");
+  const [mcpServer, setMcpServer] = useState("remote");
+  const [httpEndpoint, setHttpEndpoint] = useState("");
+  const [effects, setEffects] = useState("read");
+  const [ioSchema, setIoSchema] = useState('{"type":"object","properties":{"q":{"type":"string"}}}');
+  const [sandboxArgs, setSandboxArgs] = useState('{"q":"sandbox"}');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -74,6 +82,19 @@ export default function SkillsPage() {
     };
   }, [skills]);
 
+  function parseJsonObject(raw: string, label: string) {
+    try {
+      const value = raw.trim() ? JSON.parse(raw) : {};
+      if (!value || Array.isArray(value) || typeof value !== "object") {
+        throw new Error(`${label} 必须是 JSON 对象`);
+      }
+      return value as Record<string, unknown>;
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("必须是")) throw err;
+      throw new Error(`${label} 不是合法 JSON`);
+    }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const cleanName = name.trim();
@@ -104,6 +125,63 @@ export default function SkillsPage() {
     }
   }
 
+  async function submitTool(e: React.FormEvent) {
+    e.preventDefault();
+    const cleanName = name.trim();
+    const cleanCapability = capability.trim();
+    const cleanToolName = toolName.trim();
+    const cleanServer = mcpServer.trim();
+    const cleanContent = content.trim();
+    const endpoint = httpEndpoint.trim();
+    if (!cleanName || !cleanCapability || !cleanToolName || !cleanServer || cleanContent.length < 20 || !endpoint) return;
+
+    setBusy(true);
+    setNotice("");
+    setError("");
+    try {
+      const body: ToolSkillCreateBody = {
+        name: cleanName,
+        capability: cleanCapability,
+        mcp_server: cleanServer,
+        tool: cleanToolName,
+        description: cleanContent,
+        io_schema: parseJsonObject(ioSchema, "io_schema"),
+        permissions: { effects },
+        sandbox_args: parseJsonObject(sandboxArgs, "sandbox_args"),
+        http_endpoint: endpoint,
+        timeout_seconds: 5,
+      };
+      await api.createToolSkill(orgId, body);
+      setName("");
+      setCapability("");
+      setContent("");
+      setToolName("");
+      setMcpServer("remote");
+      setHttpEndpoint("");
+      setEffects("read");
+      setIoSchema('{"type":"object","properties":{"q":{"type":"string"}}}');
+      setSandboxArgs('{"q":"sandbox"}');
+      setStatus("draft");
+      setMineOnly(true);
+      setNotice("工具技能草稿已提交");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "提交工具技能失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const manualDisabled = busy || !name.trim() || !capability.trim() || content.trim().length < 20;
+  const toolDisabled =
+    busy ||
+    !name.trim() ||
+    !capability.trim() ||
+    !toolName.trim() ||
+    !mcpServer.trim() ||
+    !httpEndpoint.trim() ||
+    content.trim().length < 20;
+
   return (
     <AppShell orgId={orgId} active="skills" breadcrumb="技能库">
       <div className="page-head skill-head">
@@ -129,7 +207,23 @@ export default function SkillsPage() {
           <div className="panel-head">
             <h2>提交技能</h2>
           </div>
-          <form className="skill-form" onSubmit={submit}>
+          <div className="skill-form-mode seg">
+            <button
+              className={formMode === "manual" ? "on" : ""}
+              type="button"
+              onClick={() => setFormMode("manual")}
+            >
+              Manual
+            </button>
+            <button
+              className={formMode === "tool" ? "on" : ""}
+              type="button"
+              onClick={() => setFormMode("tool")}
+            >
+              Tool
+            </button>
+          </div>
+          <form className="skill-form" onSubmit={formMode === "manual" ? submit : submitTool}>
             <label>
               <span>技能名</span>
               <input
@@ -148,20 +242,77 @@ export default function SkillsPage() {
                 autoComplete="off"
               />
             </label>
+            {formMode === "tool" && (
+              <>
+                <label>
+                  <span>MCP server</span>
+                  <input
+                    value={mcpServer}
+                    onChange={(e) => setMcpServer(e.target.value)}
+                    placeholder="remote"
+                    autoComplete="off"
+                  />
+                </label>
+                <label>
+                  <span>工具名</span>
+                  <input
+                    value={toolName}
+                    onChange={(e) => setToolName(e.target.value)}
+                    placeholder="web_search"
+                    autoComplete="off"
+                  />
+                </label>
+                <label>
+                  <span>HTTP endpoint</span>
+                  <input
+                    value={httpEndpoint}
+                    onChange={(e) => setHttpEndpoint(e.target.value)}
+                    placeholder="http://tools.local/mcp"
+                    autoComplete="off"
+                  />
+                </label>
+                <label>
+                  <span>effects</span>
+                  <select value={effects} onChange={(e) => setEffects(e.target.value)}>
+                    <option value="read">read</option>
+                    <option value="none">none</option>
+                    <option value="compute">compute</option>
+                  </select>
+                </label>
+                <label>
+                  <span>io_schema</span>
+                  <textarea
+                    className="json"
+                    value={ioSchema}
+                    onChange={(e) => setIoSchema(e.target.value)}
+                    spellCheck={false}
+                  />
+                </label>
+                <label>
+                  <span>sandbox_args</span>
+                  <textarea
+                    className="json"
+                    value={sandboxArgs}
+                    onChange={(e) => setSandboxArgs(e.target.value)}
+                    spellCheck={false}
+                  />
+                </label>
+              </>
+            )}
             <label>
-              <span>Playbook</span>
+              <span>{formMode === "manual" ? "Playbook" : "描述"}</span>
               <textarea
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="步骤1：..."
+                placeholder={formMode === "manual" ? "步骤1：..." : "通过 HTTP bridge 调用外部只读工具..."}
               />
             </label>
             <button
               className="btn-primary"
               type="submit"
-              disabled={busy || !name.trim() || !capability.trim() || content.trim().length < 20}
+              disabled={formMode === "manual" ? manualDisabled : toolDisabled}
             >
-              {busy ? "提交中…" : "提交草稿"}
+              {busy ? "提交中…" : formMode === "manual" ? "提交草稿" : "提交工具草稿"}
             </button>
           </form>
         </section>

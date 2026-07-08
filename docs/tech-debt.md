@@ -389,10 +389,11 @@ compose 后只用一次轻量 judge 评「岗位说明+技能名+声明能力」
   覆盖创建、列表、编辑草稿、审批发布、已发布拒绝直接编辑、跨 org 不可见与重复名冲突。
   已补 `POST /api/skills/tool` 主动提交 tool Skill 草稿，复用 `create_tool_skill_draft` 的最小权限 +
   HTTP/MCP 沙箱闸；沙箱通过后仍只创建 pending `skill_review`，不会自动发布。前端 API client 已补
-  `createToolSkill`，页面表单可按需接入。回归覆盖 tool 草稿沙箱持久化与越权权限拒绝。
+  `createToolSkill`，技能库页已支持提交 HTTP bridge tool 草稿。回归覆盖 tool 草稿沙箱持久化与
+  越权权限拒绝。
   前端新增 `/orgs/{id}/skills` 技能库页与左侧导航入口，可列出私有/可见 Skill、筛选状态、提交
   manual 草稿并跳转审批收件箱。
-- **后续增强**：published Skill 的新版/废弃/升级提示策略、tool Skill 前端提交表单按需开放。
+- **后续增强**：published Skill 的新版/废弃/升级提示策略按需开放。
 
 ### M3 后技术债清理批次（2026-06-20）
 - **TD-004 已偿还**：docker-compose 固定 litellm `main-stable→v1.89.2`、langfuse `2→2.95.11`

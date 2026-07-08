@@ -1204,6 +1204,8 @@ a { color: var(--color-accent-text); text-decoration: none; }
   align-items: start;
 }
 .skill-form-panel { position: sticky; top: 18px; }
+.skill-form-mode { margin-bottom: 12px; width: 100%; }
+.skill-form-mode button { flex: 1; }
 .skill-form { display: flex; flex-direction: column; gap: 12px; }
 .skill-form label { display: flex; flex-direction: column; gap: 6px; }
 .skill-form label span {
@@ -1212,6 +1214,7 @@ a { color: var(--color-accent-text); text-decoration: none; }
   color: var(--color-text-secondary);
 }
 .skill-form input,
+.skill-form select,
 .skill-form textarea {
   width: 100%;
   border: 1px solid var(--color-border-strong);
@@ -1223,6 +1226,7 @@ a { color: var(--color-accent-text); text-decoration: none; }
   background: var(--color-surface);
 }
 .skill-form input:focus,
+.skill-form select:focus,
 .skill-form textarea:focus {
   outline: none;
   border-color: var(--color-primary);
@@ -1232,6 +1236,12 @@ a { color: var(--color-accent-text); text-decoration: none; }
   min-height: 180px;
   resize: vertical;
   line-height: 1.7;
+}
+.skill-form textarea.json {
+  min-height: 96px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
 }
 .skill-form .btn-primary { height: 40px; border-radius: 8px; font-size: 13px; }
 .skill-toolbar {
