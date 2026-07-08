@@ -51,6 +51,19 @@ def test_sanitize_filters_injection_in_output() -> None:
     assert "You are now" not in clean
 
 
+def test_sanitize_redacts_common_pii_and_secrets() -> None:
+    dirty = (
+        "联系人 user@example.com，手机 13800138000，身份证 11010519491231002X，"
+        "api_key=sk-test-secret-value-1234567890"
+    )
+    clean = Guardrails().sanitize(dirty)
+    assert clean.count("[敏感信息已脱敏]") >= 4
+    assert "user@example.com" not in clean
+    assert "13800138000" not in clean
+    assert "11010519491231002X" not in clean
+    assert "sk-test-secret-value" not in clean
+
+
 def _ctx() -> ExecCtx:
     echo = BoundTool(
         spec=ToolSpec(name="echo", description="回显", parameters={}),

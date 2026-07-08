@@ -5,7 +5,7 @@
 - 防线2 最小权限：SkillLoader 按 allowed_tools 过滤（见 runtime/skills.py）。
 - 防线3 危险动作 gate：node.dangerous → human 节点（见 planner/schemas.validate）。
 
-M4 为规则版（ADR-0007）；M6 换 Guardrails-AI（注入检测/内容过滤/PII）。
+M4 为规则版（ADR-0007）；M6 逐步补齐 PII 脱敏，完整 Guardrails-AI 留后续。
 """
 
 from __future__ import annotations
@@ -41,6 +41,19 @@ _INJECTION_PATTERNS = [
 ]
 
 _FILTERED = "[内容已过滤]"
+_PII_REDACTED = "[敏感信息已脱敏]"
+
+# 常见 PII/凭证片段：仅用于工具回流内容脱敏，避免外部内容把敏感信息注入后续推理。
+_PII_PATTERNS = [
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+        r"(?<!\d)1[3-9]\d{9}(?!\d)",
+        r"(?<!\d)\d{17}[\dXx](?!\d)",
+        r"\b(?:sk|pk|rk|ak)-[A-Za-z0-9_-]{16,}\b",
+        r"\b[A-Za-z0-9_]*(?:api[_-]?key|token|secret)[A-Za-z0-9_]*\s*[:=]\s*['\"]?[^'\"\s,;]{8,}",
+    )
+]
 
 
 def _find_injection(text: str) -> str | None:
@@ -61,8 +74,10 @@ class Guardrails:
             raise GuardrailViolation(f"工具 {tool_call.name} 输入疑似提示注入：{hit}")
 
     def sanitize(self, output: str) -> str:
-        """工具回流内容过滤：把注入片段替换为占位，阻止外部内容操纵后续推理。"""
+        """工具回流内容过滤：过滤注入片段并脱敏常见 PII/凭证。"""
         out = output
         for pat in _INJECTION_PATTERNS:
             out = pat.sub(_FILTERED, out)
+        for pat in _PII_PATTERNS:
+            out = pat.sub(_PII_REDACTED, out)
         return out

@@ -250,7 +250,9 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
 
 ### TD-026
 **M6 仍有桩/简化项。**
-- Guardrails 为规则版（正则注入检测），非 Guardrails-AI（注入/PII/内容过滤全量）。
+- Guardrails 仍为规则版，非 Guardrails-AI；已覆盖注入检测/内容过滤与常见 PII/凭证脱敏
+  （邮箱、手机号、身份证、API Key/secret/token 片段）。回归覆盖：
+  `tests/test_guardrails.py::test_sanitize_redacts_common_pii_and_secrets`。
 - MCP 已从纯本地工具推进到 HTTP tool bridge：`McpTool.http_endpoint` 可把外部 HTTP 工具服务注册进
   `McpRuntime`，运行时真实 POST `{server, tool, arguments}` 并解析 `content/result/text/output`。
   回归覆盖：`tests/test_mcp_runtime.py::test_runtime_calls_http_tool`。
@@ -265,7 +267,7 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
 - cost-aware 路由已接入执行 fallback：Agent/公司均未指定模型时，运行时按 `cost_aware_pick("text-gen")`
   选择目录价最低的推理模型；无候选时再回退系统默认。回归覆盖：
   `tests/test_integration_execute.py::test_execute_node_uses_cost_aware_model_when_unset`。
-- 剩余：Guardrails-AI 接入；完整 MCP stdio/sse SDK 接入。
+- 剩余：完整 Guardrails-AI 接入；完整 MCP stdio/sse SDK 接入。
 
 ### TD-027
 **TEI embedding 模型须预下载离线挂载。** hf-mirror 反代不返回 `etag` header，TEI rust 下载器在线下载失败；
