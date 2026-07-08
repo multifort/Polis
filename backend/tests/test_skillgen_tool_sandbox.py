@@ -24,6 +24,17 @@ def test_tool_permissions_are_normalized_to_least_privilege() -> None:
     assert perms["allowed_tools"] == ["echo"]
 
 
+def test_tool_permissions_allow_http_bridge_network_only_with_endpoint() -> None:
+    perms = _validate_tool_permissions(
+        "web_search",
+        {"effects": "read", "network": "http_tool_bridge"},
+        http_endpoint="http://tools.local/mcp",
+    )
+
+    assert perms["network"] == "http_tool_bridge"
+    assert perms["allowed_tools"] == ["web_search"]
+
+
 @pytest.mark.parametrize(
     "permissions",
     [

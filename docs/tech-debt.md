@@ -254,8 +254,11 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   （邮箱、手机号、身份证、API Key/secret/token 片段）。回归覆盖：
   `tests/test_guardrails.py::test_sanitize_redacts_common_pii_and_secrets`。
 - MCP 已从纯本地工具推进到 HTTP tool bridge：`McpTool.http_endpoint` 可把外部 HTTP 工具服务注册进
-  `McpRuntime`，运行时真实 POST `{server, tool, arguments}` 并解析 `content/result/text/output`。
-  回归覆盖：`tests/test_mcp_runtime.py::test_runtime_calls_http_tool`。
+  `McpRuntime`，运行时真实 POST `{server, tool, arguments}` 并解析 `content/result/text/output`；
+  tool Skill 草稿可声明 `http_endpoint`，经沙箱后持久化到 `permissions.http`，运行时从 SkillVersion
+  自动注册 HTTP 工具。回归覆盖：`tests/test_mcp_runtime.py::test_runtime_calls_http_tool`、
+  `tests/test_integration_skillgen.py::test_http_tool_skill_draft_sandboxes_and_persists_bridge`、
+  `tests/test_integration_skills.py::test_skill_loader_registers_http_tool_bridge`。
 - 多模型 Agent 选型已部分产品化：`AgentConfig.model` 会在运行时解析为执行模型，并写入
   `result_envelope.facts.provenance.model`；owner 可通过花名册更新 Agent 当前版本模型。
   回归覆盖：`tests/test_integration_execute.py::test_execute_node_uses_agent_config_model` 与

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polis.modules.model.gateway import ToolSpec
 from polis.modules.org.schemas import AgentAuthority
 from polis.modules.runtime import repository as repo
+from polis.modules.runtime.mcp import McpRegistry, McpTool
 
 
 @dataclass
@@ -22,6 +23,9 @@ class BoundTool:
     spec: ToolSpec
     mcp_server: str
     tool: str
+    http_endpoint: str | None = None
+    http_headers: dict[str, str] = field(default_factory=dict)
+    timeout_seconds: float = 5.0
 
 
 @dataclass
@@ -36,6 +40,16 @@ def _parse_ref(ref: str) -> tuple[str, str | None]:
         name, version = ref.split("@", 1)
         return name, version or None
     return ref, None
+
+
+def _http_bridge_config(permissions: dict[str, object] | None) -> tuple[str | None, float]:
+    http = (permissions or {}).get("http")
+    if not isinstance(http, dict):
+        return None, 5.0
+    endpoint = http.get("endpoint")
+    timeout = http.get("timeout_seconds")
+    timeout_seconds = float(timeout) if isinstance(timeout, int | float) else 5.0
+    return (endpoint if isinstance(endpoint, str) and endpoint else None), timeout_seconds
 
 
 async def load_skills(
@@ -58,6 +72,7 @@ async def load_skills(
             # 防线2 最小权限：不在 allowed_tools 的工具不加载（design 04 §5）
             if tool_name not in authority.allowed_tools:
                 continue
+            http_endpoint, timeout_seconds = _http_bridge_config(sv.permissions)
             tools.append(
                 BoundTool(
                     spec=ToolSpec(
@@ -67,6 +82,26 @@ async def load_skills(
                     ),
                     mcp_server=sv.mcp_server or "",
                     tool=tool_name,
+                    http_endpoint=http_endpoint,
+                    timeout_seconds=timeout_seconds,
                 )
             )
     return LoadedSkills(system_append="\n\n".join(manuals), tools=tools)
+
+
+def register_bound_tools(registry: McpRegistry, loaded: LoadedSkills) -> None:
+    """把 SkillVersion 声明的 HTTP 工具注册进运行时 registry。"""
+    for bound in loaded.tools:
+        if bound.http_endpoint is None:
+            continue
+        registry.register(
+            McpTool(
+                server=bound.mcp_server,
+                name=bound.tool,
+                description=bound.spec.description,
+                parameters=bound.spec.parameters,
+                http_endpoint=bound.http_endpoint,
+                http_headers=bound.http_headers,
+                timeout_seconds=bound.timeout_seconds,
+            )
+        )

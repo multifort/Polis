@@ -30,7 +30,7 @@ from polis.modules.model.gateway import (
 from polis.modules.observability import repository as obs_repo
 from polis.modules.observability.evaluator import score
 from polis.modules.observability.models import Approval
-from polis.modules.runtime.mcp import McpRegistry, McpRuntime, default_registry
+from polis.modules.runtime.mcp import McpRegistry, McpRuntime, McpTool, default_registry
 from polis.modules.runtime.models import Skill, SkillVersion
 
 logger = logging.getLogger(__name__)
@@ -149,7 +149,9 @@ async def generate_skill_draft(
     return skill
 
 
-def _validate_tool_permissions(tool: str, permissions: dict[str, Any]) -> dict[str, Any]:
+def _validate_tool_permissions(
+    tool: str, permissions: dict[str, Any], *, http_endpoint: str | None = None
+) -> dict[str, Any]:
     """TD-032 tool-skill 最小权限闸：只允许无副作用/只读/计算类工具草稿进入人审。
 
     tool 类默认高风险，哪怕沙箱通过也不自动发布；这里先把明显越界的权限（写文件、网络、凭证、
@@ -160,8 +162,14 @@ def _validate_tool_permissions(tool: str, permissions: dict[str, Any]) -> dict[s
         raise ToolSkillSandboxError(f"tool skill 权限越界：effects={effects}")
     if permissions.get("requires_credentials") is True:
         raise ToolSkillSandboxError("tool skill 权限越界：requires_credentials=true")
-    if permissions.get("network") not in (None, False):
-        raise ToolSkillSandboxError("tool skill 权限越界：network 必须为 false")
+    if http_endpoint is None:
+        if permissions.get("network") not in (None, False):
+            raise ToolSkillSandboxError("tool skill 权限越界：network 必须为 false")
+        network: bool | str = False
+    else:
+        if permissions.get("network") not in (None, "http_tool_bridge"):
+            raise ToolSkillSandboxError("tool skill 权限越界：network 仅允许 http_tool_bridge")
+        network = "http_tool_bridge"
     if permissions.get("filesystem") not in (None, "none", False):
         raise ToolSkillSandboxError("tool skill 权限越界：filesystem 必须为 none")
     allowed_tools = permissions.get("allowed_tools") or [tool]
@@ -171,7 +179,7 @@ def _validate_tool_permissions(tool: str, permissions: dict[str, Any]) -> dict[s
         **permissions,
         "effects": effects,
         "requires_credentials": False,
-        "network": False,
+        "network": network,
         "filesystem": "none",
         "allowed_tools": [tool],
     }
@@ -209,6 +217,8 @@ async def create_tool_skill_draft(
     io_schema: dict[str, Any],
     permissions: dict[str, Any] | None = None,
     sandbox_args: dict[str, Any] | None = None,
+    http_endpoint: str | None = None,
+    timeout_seconds: float = 5.0,
     registry: McpRegistry | None = None,
 ) -> Skill:
     """创建 tool 类 Skill 草稿：必须过最小权限 + 本地 MCP 沙箱试跑，但仍保留人审墙。
@@ -226,8 +236,21 @@ async def create_tool_skill_draft(
     if existing is not None:
         return existing
 
-    normalized_permissions = _validate_tool_permissions(tool, permissions or {})
+    normalized_permissions = _validate_tool_permissions(
+        tool, permissions or {}, http_endpoint=http_endpoint
+    )
     effective_registry = registry or default_registry()
+    if http_endpoint is not None:
+        effective_registry.register(
+            McpTool(
+                server=mcp_server,
+                name=tool,
+                description=description,
+                parameters=io_schema,
+                http_endpoint=http_endpoint,
+                timeout_seconds=timeout_seconds,
+            )
+        )
     result = await _sandbox_tool_call(
         effective_registry,
         mcp_server=mcp_server,
@@ -242,6 +265,11 @@ async def create_tool_skill_draft(
         "args": sandbox_args or {},
         "result_preview": result[:_PREVIEW_CHARS],
     }
+    http_policy = (
+        {"http": {"endpoint": http_endpoint, "timeout_seconds": timeout_seconds}}
+        if http_endpoint is not None
+        else {}
+    )
     skill = Skill(
         name=name,
         kind="tool",
@@ -261,7 +289,7 @@ async def create_tool_skill_draft(
             mcp_server=mcp_server,
             tool=tool,
             io_schema=io_schema,
-            permissions={**normalized_permissions, "sandbox": sandbox},
+            permissions={**normalized_permissions, **http_policy, "sandbox": sandbox},
         )
     )
     await session.flush()

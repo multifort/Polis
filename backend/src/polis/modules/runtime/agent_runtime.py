@@ -29,6 +29,7 @@ from polis.modules.runtime.agent import run_loop
 from polis.modules.runtime.guardrails import Guardrails
 from polis.modules.runtime.mcp import McpRegistry, McpRuntime, default_registry
 from polis.modules.runtime.models import SkillInvocation
+from polis.modules.runtime.skills import register_bound_tools
 
 
 async def _rough_cost_cents(session: AsyncSession, model_id: str, content: str | None) -> int:
@@ -108,6 +109,7 @@ async def execute(
     owner_task_id = await blackboard.resolve_owner_task_id(session, org_uuid, task_uuid)
     ctx.attachments_brief = await blackboard.attachments_brief(session, org_uuid, owner_task_id)
     blackboard.register_blackboard_tools(registry)
+    register_bound_tools(registry, ctx.skills)
     runtime = McpRuntime(
         registry,
         ctx=blackboard.ToolCtx(session, org_uuid, task_uuid, attachment_task_id=owner_task_id),

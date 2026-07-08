@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 
+import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -22,6 +23,7 @@ from polis.modules.planner.skillgen import (
     generate_skill_draft,
     publish_skill,
 )
+from polis.modules.runtime import mcp
 
 
 def _seed_org_model(pg_url: str, model_id: str) -> uuid.UUID:
@@ -247,6 +249,77 @@ def test_tool_skill_sandbox_hits_human_wall_then_publish(pg_url: str) -> None:
                     )
                 ).first()
                 assert tuple(pub) == ("published", "verified")
+                await s.rollback()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+def test_http_tool_skill_draft_sandboxes_and_persists_bridge(
+    pg_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HTTP tool bridge 可作为 tool Skill 草稿声明，经沙箱后持久化 endpoint。"""
+    org_id = _seed_org_model(pg_url, get_settings().default_chat_model)
+    cap = f"tool.http_{uuid.uuid4().hex[:6]}"
+    name = f"tool_http_{uuid.uuid4().hex[:6]}"
+
+    class Response:
+        text = ""
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"content": "http-sandbox-ok"}
+
+    class Client:
+        def __init__(self, **_kwargs: object) -> None:
+            return None
+
+        async def __aenter__(self) -> Client:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def post(self, *_args: object, **_kwargs: object) -> Response:
+            return Response()
+
+    monkeypatch.setattr(mcp.httpx, "AsyncClient", Client)
+
+    async def _run() -> None:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                skill = await create_tool_skill_draft(
+                    s,
+                    org_id,
+                    cap,
+                    name=name,
+                    mcp_server="remote",
+                    tool=name,
+                    description="通过 HTTP bridge 调用远端只读工具。",
+                    io_schema={"type": "object"},
+                    permissions={"effects": "read"},
+                    sandbox_args={"q": "sandbox"},
+                    http_endpoint="http://tools.local/mcp",
+                    timeout_seconds=2.0,
+                )
+                sv = (
+                    await s.execute(
+                        text(
+                            "SELECT mcp_server, tool, permissions FROM skill_version "
+                            "WHERE skill_id = :i"
+                        ).bindparams(i=skill.id)
+                    )
+                ).first()
+                assert sv[0] == "remote"
+                assert sv[1] == name
+                assert sv[2]["network"] == "http_tool_bridge"
+                assert sv[2]["http"]["endpoint"] == "http://tools.local/mcp"
+                assert sv[2]["http"]["timeout_seconds"] == 2.0
+                assert sv[2]["sandbox"]["result_preview"] == "http-sandbox-ok"
                 await s.rollback()
         finally:
             await engine.dispose()
