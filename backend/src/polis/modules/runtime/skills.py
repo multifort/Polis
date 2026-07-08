@@ -26,12 +26,29 @@ class BoundTool:
     http_endpoint: str | None = None
     http_headers: dict[str, str] = field(default_factory=dict)
     timeout_seconds: float = 5.0
+    mcp_transport: str | None = None
+    mcp_url: str | None = None
+    mcp_command: str | None = None
+    mcp_args: list[str] = field(default_factory=list)
+    mcp_env: dict[str, str] = field(default_factory=dict)
+    sse_read_timeout_seconds: float | None = None
 
 
 @dataclass
 class LoadedSkills:
     system_append: str = ""  # 手册拼接进系统提示词
     tools: list[BoundTool] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class McpSdkConfig:
+    transport: str
+    url: str | None = None
+    command: str | None = None
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
+    timeout_seconds: float = 5.0
+    sse_read_timeout_seconds: float | None = None
 
 
 def _parse_ref(ref: str) -> tuple[str, str | None]:
@@ -50,6 +67,32 @@ def _http_bridge_config(permissions: dict[str, object] | None) -> tuple[str | No
     timeout = http.get("timeout_seconds")
     timeout_seconds = float(timeout) if isinstance(timeout, int | float) else 5.0
     return (endpoint if isinstance(endpoint, str) and endpoint else None), timeout_seconds
+
+
+def _mcp_sdk_config(permissions: dict[str, object] | None) -> McpSdkConfig | None:
+    mcp = (permissions or {}).get("mcp")
+    if not isinstance(mcp, dict):
+        return None
+
+    transport = mcp.get("transport")
+    if transport not in {"stdio", "sse", "streamable_http"}:
+        return None
+
+    args = mcp.get("args")
+    env = mcp.get("env")
+    timeout = mcp.get("timeout_seconds")
+    sse_read_timeout = mcp.get("sse_read_timeout_seconds")
+    return McpSdkConfig(
+        transport=transport,
+        url=mcp.get("url") if isinstance(mcp.get("url"), str) else None,
+        command=mcp.get("command") if isinstance(mcp.get("command"), str) else None,
+        args=[str(arg) for arg in args] if isinstance(args, list) else [],
+        env={str(k): str(v) for k, v in env.items()} if isinstance(env, dict) else {},
+        timeout_seconds=float(timeout) if isinstance(timeout, int | float) else 5.0,
+        sse_read_timeout_seconds=(
+            float(sse_read_timeout) if isinstance(sse_read_timeout, int | float) else None
+        ),
+    )
 
 
 async def load_skills(
@@ -73,6 +116,7 @@ async def load_skills(
             if tool_name not in authority.allowed_tools:
                 continue
             http_endpoint, timeout_seconds = _http_bridge_config(sv.permissions)
+            mcp_config = _mcp_sdk_config(sv.permissions)
             tools.append(
                 BoundTool(
                     spec=ToolSpec(
@@ -83,16 +127,26 @@ async def load_skills(
                     mcp_server=sv.mcp_server or "",
                     tool=tool_name,
                     http_endpoint=http_endpoint,
-                    timeout_seconds=timeout_seconds,
+                    timeout_seconds=mcp_config.timeout_seconds
+                    if mcp_config is not None
+                    else timeout_seconds,
+                    mcp_transport=mcp_config.transport if mcp_config is not None else None,
+                    mcp_url=mcp_config.url if mcp_config is not None else None,
+                    mcp_command=mcp_config.command if mcp_config is not None else None,
+                    mcp_args=mcp_config.args if mcp_config is not None else [],
+                    mcp_env=mcp_config.env if mcp_config is not None else {},
+                    sse_read_timeout_seconds=mcp_config.sse_read_timeout_seconds
+                    if mcp_config is not None
+                    else None,
                 )
             )
     return LoadedSkills(system_append="\n\n".join(manuals), tools=tools)
 
 
 def register_bound_tools(registry: McpRegistry, loaded: LoadedSkills) -> None:
-    """把 SkillVersion 声明的 HTTP 工具注册进运行时 registry。"""
+    """把 SkillVersion 声明的外部工具注册进运行时 registry。"""
     for bound in loaded.tools:
-        if bound.http_endpoint is None:
+        if bound.http_endpoint is None and bound.mcp_transport is None:
             continue
         registry.register(
             McpTool(
@@ -103,5 +157,11 @@ def register_bound_tools(registry: McpRegistry, loaded: LoadedSkills) -> None:
                 http_endpoint=bound.http_endpoint,
                 http_headers=bound.http_headers,
                 timeout_seconds=bound.timeout_seconds,
+                mcp_transport=bound.mcp_transport,
+                mcp_url=bound.mcp_url,
+                mcp_command=bound.mcp_command,
+                mcp_args=bound.mcp_args,
+                mcp_env=bound.mcp_env,
+                sse_read_timeout_seconds=bound.sse_read_timeout_seconds,
             )
         )

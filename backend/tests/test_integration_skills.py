@@ -89,6 +89,39 @@ def _seed_http_tool_skill(pg_url: str) -> str:
     return name
 
 
+def _seed_mcp_sdk_tool_skill(pg_url: str) -> str:
+    name = f"mcp_tool_{uuid.uuid4().hex[:8]}"
+    engine = create_engine(pg_url.replace("+asyncpg", "+psycopg2"))
+    try:
+        with engine.begin() as conn:
+            sid = conn.execute(
+                text(
+                    "INSERT INTO skill (name, kind, status) VALUES (:n, 'tool', 'published') "
+                    "RETURNING id"
+                ),
+                {"n": name},
+            ).scalar()
+            conn.execute(
+                text(
+                    "INSERT INTO skill_version (skill_id, version, content, tool, mcp_server, "
+                    "io_schema, permissions) VALUES (:s, 'v1', '标准 MCP 工具', :t, "
+                    "'browser-pilot', :io, :perms)"
+                ),
+                {
+                    "s": sid,
+                    "t": name,
+                    "io": "{}",
+                    "perms": (
+                        '{"mcp":{"transport":"sse","url":"http://tools.local/sse",'
+                        '"timeout_seconds":4.0,"sse_read_timeout_seconds":12.0}}'
+                    ),
+                },
+            )
+    finally:
+        engine.dispose()
+    return name
+
+
 def test_skill_loader_manual_and_min_privilege(pg_url: str) -> None:
     names = _seed_skills(pg_url)
 
@@ -179,3 +212,30 @@ def test_skill_loader_registers_http_tool_bridge(
     assert captured["url"] == "http://tools.local/mcp"
     assert captured["json"] == {"server": "remote", "tool": name, "arguments": {"q": "hello"}}
     assert captured["client_kwargs"] == {"trust_env": False, "timeout": 2.5}
+
+
+def test_skill_loader_registers_mcp_sdk_tool(pg_url: str) -> None:
+    name = _seed_mcp_sdk_tool_skill(pg_url)
+
+    async def _run() -> None:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                loaded = await load_skills(
+                    s,
+                    [name],
+                    AgentAuthority(allowed_tools=[name]),
+                )
+        finally:
+            await engine.dispose()
+
+        registry = McpRegistry()
+        register_bound_tools(registry, loaded)
+        tool = registry.get(name)
+        assert tool is not None
+        assert tool.mcp_transport == "sse"
+        assert tool.mcp_url == "http://tools.local/sse"
+        assert tool.timeout_seconds == 4.0
+        assert tool.sse_read_timeout_seconds == 12.0
+
+    asyncio.run(_run())

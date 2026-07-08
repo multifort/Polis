@@ -6,10 +6,11 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -36,6 +37,12 @@ class McpTool:
     http_endpoint: str | None = None
     http_headers: dict[str, str] = field(default_factory=dict)
     timeout_seconds: float = 5.0
+    mcp_transport: str | None = None  # stdio / sse / streamable_http
+    mcp_url: str | None = None
+    mcp_command: str | None = None
+    mcp_args: list[str] = field(default_factory=list)
+    mcp_env: dict[str, str] = field(default_factory=dict)
+    sse_read_timeout_seconds: float | None = None
 
 
 class McpRegistry:
@@ -82,6 +89,8 @@ class McpRuntime:
             return tool.handler(tool_call.arguments)
         if tool.http_endpoint is not None:
             return await _call_http_tool(tool, tool_call.arguments)
+        if tool.mcp_transport is not None:
+            return await _call_mcp_sdk_tool(tool, tool_call.arguments)
         raise McpToolNotFound(tool_call.name)
 
 
@@ -113,6 +122,99 @@ async def _call_http_tool(tool: McpTool, arguments: dict[str, Any]) -> str:
             value = data[key]
             return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
     return json.dumps(data, ensure_ascii=False)
+
+
+async def _call_mcp_sdk_tool(tool: McpTool, arguments: dict[str, Any]) -> str:
+    """调用标准 MCP SDK transport（stdio / SSE / Streamable HTTP）。"""
+    transport = tool.mcp_transport
+    if transport not in {"stdio", "sse", "streamable_http"}:
+        raise McpToolCallError(f"工具 {tool.name} MCP transport 不支持：{transport}")
+
+    try:
+        mcp_pkg = cast(Any, importlib.import_module("mcp"))
+        client_session = mcp_pkg.ClientSession
+    except Exception as exc:  # noqa: BLE001 - 依赖缺失时给上层统一错误。
+        raise McpToolCallError("MCP Python SDK 未安装，无法调用标准 MCP server") from exc
+
+    try:
+        if transport == "stdio":
+            if not tool.mcp_command:
+                raise McpToolCallError(f"工具 {tool.name} 缺少 stdio command")
+            stdio_mod = importlib.import_module("mcp.client.stdio")
+            params_cls = mcp_pkg.StdioServerParameters
+            transport_cm = stdio_mod.stdio_client(
+                params_cls(
+                    command=tool.mcp_command,
+                    args=tool.mcp_args,
+                    env=tool.mcp_env or None,
+                )
+            )
+        elif transport == "sse":
+            if not tool.mcp_url:
+                raise McpToolCallError(f"工具 {tool.name} 缺少 SSE URL")
+            sse_mod = importlib.import_module("mcp.client.sse")
+            transport_cm = sse_mod.sse_client(
+                tool.mcp_url,
+                headers=tool.http_headers or None,
+                timeout=tool.timeout_seconds,
+                sse_read_timeout=tool.sse_read_timeout_seconds or 300,
+            )
+        else:
+            if not tool.mcp_url:
+                raise McpToolCallError(f"工具 {tool.name} 缺少 Streamable HTTP URL")
+            stream_mod = importlib.import_module("mcp.client.streamable_http")
+            transport_cm = stream_mod.streamablehttp_client(
+                tool.mcp_url,
+                headers=tool.http_headers or None,
+                timeout=tool.timeout_seconds,
+                sse_read_timeout=tool.sse_read_timeout_seconds or 300,
+            )
+
+        async with transport_cm as streams:
+            read_stream, write_stream = streams[0], streams[1]
+            async with client_session(read_stream, write_stream) as session:
+                await session.initialize()
+                result = await session.call_tool(tool.name, arguments=arguments)
+    except McpToolCallError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - 对上层统一表现为工具调用失败。
+        raise McpToolCallError(f"工具 {tool.name} MCP 调用失败") from exc
+    return _stringify_mcp_result(result)
+
+
+def _stringify_mcp_result(result: Any) -> str:
+    structured = getattr(result, "structuredContent", None)
+    if structured is None:
+        structured = getattr(result, "structured_content", None)
+    if structured is not None:
+        return _dump_mcp_value(structured)
+
+    content = getattr(result, "content", None)
+    if isinstance(content, list) and content:
+        parts: list[str] = []
+        for item in content:
+            text = getattr(item, "text", None)
+            if isinstance(text, str):
+                parts.append(text)
+                continue
+            resource = getattr(item, "resource", None)
+            resource_text = getattr(resource, "text", None)
+            if isinstance(resource_text, str):
+                parts.append(resource_text)
+                continue
+            parts.append(_dump_mcp_value(item))
+        return "\n".join(parts)
+    return _dump_mcp_value(result)
+
+
+def _dump_mcp_value(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if hasattr(value, "model_dump"):
+        value = value.model_dump(mode="json")
+    elif hasattr(value, "dict"):
+        value = value.dict()
+    return json.dumps(value, ensure_ascii=False)
 
 
 # ── 内置本地工具──────────────────────────────────────────────────────────
