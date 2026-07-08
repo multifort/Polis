@@ -169,3 +169,39 @@ def test_loop_blocks_injected_tool_input() -> None:
     assert res.blocked is True
     assert res.blocked_reason and "注入" in res.blocked_reason
     assert res.tool_calls_made == 0  # 工具未执行即被拦
+
+
+def test_loop_reports_tool_output_redactions() -> None:
+    script = [
+        ChatResponse(
+            content=None,
+            tool_calls=[
+                ToolCall(
+                    id="c1",
+                    name="echo",
+                    arguments={
+                        "text": (
+                            "联系人 user@example.com，auth=Bearer abcdefghijklmnopqrstuvwxyz123456"
+                        )
+                    },
+                )
+            ],
+        ),
+        ChatResponse(content="已处理"),
+    ]
+
+    res = asyncio.run(
+        run_loop(
+            StubModelGateway(script),
+            McpRuntime(default_registry()),
+            "p",
+            _ctx(),
+            guard=Guardrails(),
+        )
+    )
+
+    assert res.ok is True
+    assert res.tool_calls_made == 1
+    assert res.guardrail_redactions["pii_or_secret"] >= 2
+    assert "user@example.com" not in res.tool_outputs[0]
+    assert "Bearer abcdef" not in res.tool_outputs[0]

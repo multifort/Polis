@@ -24,6 +24,7 @@ class LoopResult:
     steps: int = 0
     tool_calls_made: int = 0
     tool_outputs: list[str] = field(default_factory=list)
+    guardrail_redactions: dict[str, int] = field(default_factory=dict)
     blocked: bool = False
     blocked_reason: str | None = None
 
@@ -67,6 +68,7 @@ async def run_loop(
     specs = [b.spec for b in ctx.skills.tools] + (extra_specs or [])
     tool_calls_made = 0
     tool_outputs: list[str] = []
+    guardrail_redactions: dict[str, int] = {}
 
     for step in range(1, max_steps + 1):
         rsp = await gateway.chat(
@@ -79,6 +81,7 @@ async def run_loop(
                 steps=step,
                 tool_calls_made=tool_calls_made,
                 tool_outputs=tool_outputs,
+                guardrail_redactions=guardrail_redactions,
             )
         # 先回灌 assistant 的工具调用，再逐个执行并回灌结果
         msgs.append(
@@ -98,11 +101,15 @@ async def run_loop(
                         steps=step,
                         tool_calls_made=tool_calls_made,
                         tool_outputs=tool_outputs,
+                        guardrail_redactions=guardrail_redactions,
                     )
             out = await runtime.call(tc)
             # 防线1：工具回流内容过滤（外部内容操纵防护）
             if guard is not None:
-                out = guard.sanitize(out)
+                report = guard.sanitize_with_report(out)
+                out = report.output
+                for category, count in report.categories.items():
+                    guardrail_redactions[category] = guardrail_redactions.get(category, 0) + count
             tool_calls_made += 1
             tool_outputs.append(out)
             msgs.append(ChatMessage(role="tool", content=out, tool_call_id=tc.id))
@@ -114,4 +121,5 @@ async def run_loop(
         steps=max_steps,
         tool_calls_made=tool_calls_made,
         tool_outputs=tool_outputs,
+        guardrail_redactions=guardrail_redactions,
     )

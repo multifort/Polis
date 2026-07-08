@@ -314,3 +314,60 @@ def test_execute_node_blocked_by_injection(client: TestClient, pg_url: str) -> N
 
     envs = _envelopes(pg_url, org_id)
     assert envs and envs[0]["status"] == "blocked"
+
+
+def test_execute_node_records_guardrail_redactions(client: TestClient, pg_url: str) -> None:
+    asyncio.run(seed())
+    org_id = _provision_procurement(client)
+    node = {
+        "id": "n1",
+        "type": "agent",
+        "required_capabilities": ["procurement.rfq"],
+        "input_hint": "处理工具回流",
+    }
+    script = [
+        ChatResponse(
+            content=None,
+            tool_calls=[
+                ToolCall(
+                    id="c1",
+                    name="echo",
+                    arguments={
+                        "text": (
+                            "联系人 user@example.com，auth=Bearer abcdefghijklmnopqrstuvwxyz123456"
+                        )
+                    },
+                )
+            ],
+        ),
+        ChatResponse(content="已完成敏感信息处理"),
+    ]
+
+    async def _run() -> dict[str, object]:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with async_sessionmaker(engine)() as s:
+                res = await agent_runtime.execute(
+                    s,
+                    node,
+                    org_id,
+                    gateway=StubModelGateway(script),
+                    registry=default_registry(),
+                    guard=Guardrails(),
+                )
+                await s.commit()
+                return res
+        finally:
+            await engine.dispose()
+
+    result = asyncio.run(_run())
+    assert result["ok"] is True
+
+    envs = _envelopes(pg_url, org_id)
+    assert len(envs) == 1
+    facts = envs[0]["facts"]
+    assert isinstance(facts, dict)
+    assert facts["guardrails"]["changed"] is True
+    assert facts["guardrails"]["redactions"]["pii_or_secret"] >= 2
+    assert "user@example.com" not in facts["tool_outputs"][0]
+    assert "Bearer abcdef" not in facts["tool_outputs"][0]

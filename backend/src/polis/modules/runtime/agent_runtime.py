@@ -143,6 +143,10 @@ async def execute(
                 "executor": config.executor,
                 "model": ctx.model.id,
             },
+            "guardrails": {
+                "redactions": loop.guardrail_redactions,
+                "changed": bool(loop.guardrail_redactions),
+            },
         },
         needs_human=loop.blocked,
     )
