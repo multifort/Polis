@@ -449,6 +449,17 @@ export const api = {
     ),
   deprecateSkill: (orgId: string, skillId: string) =>
     request<SkillRow>(`/api/skills/${skillId}/deprecate`, { method: "POST" }, true, orgId),
+  createSkillRevision: (
+    orgId: string,
+    skillId: string,
+    body: { name: string; capability?: string; content: string },
+  ) =>
+    request<SkillRow>(
+      `/api/skills/${skillId}/revisions`,
+      { method: "POST", body: JSON.stringify(body) },
+      true,
+      orgId,
+    ),
   createPlan: (orgId: string, goal: string) =>
     request<PlanResult>("/api/plans", { method: "POST", body: JSON.stringify({ goal }) }, true, orgId),
   createTaskPlan: (orgId: string, taskId: string) =>

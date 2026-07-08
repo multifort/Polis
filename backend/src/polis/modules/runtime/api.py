@@ -45,6 +45,14 @@ class SkillUpdateIn(BaseModel):
     content: str | None = Field(default=None, min_length=20, max_length=12000)
 
 
+class SkillRevisionIn(BaseModel):
+    """从已发布 manual Skill 派生新版草稿。"""
+
+    name: str = Field(min_length=3, max_length=120, pattern=r"^[a-zA-Z0-9_.\-\u4e00-\u9fff]+$")
+    capability: str | None = Field(default=None, min_length=3, max_length=160)
+    content: str = Field(min_length=20, max_length=12000)
+
+
 class ToolSkillCreateIn(BaseModel):
     """公司主动提交 tool Skill 草稿。
 
@@ -313,3 +321,67 @@ async def deprecate_skill(
     )
     version = versions.get(skill.id)
     return _to_out(skill, content=version.content if version is not None else None)
+
+
+@router.post(
+    "/skills/{skill_id}/revisions",
+    response_model=SkillOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_skill_revision(
+    skill_id: uuid.UUID,
+    data: SkillRevisionIn,
+    org: ApproverOrg,
+    user_id: CurrentUserId,
+    session: SessionDep,
+) -> SkillOut:
+    """为本公司已发布 manual Skill 创建新版草稿。
+
+    当前数据模型不在同一 Skill 上挂未审 v2，避免运行时按 latest version 误读未审核内容。
+    新版以新的私有 draft Skill 进入 skill_review；发布后可手动停用旧版。
+    """
+    source = await repo.get_visible_skill(session, org.org_id, skill_id)
+    if source is None or source.owner_org_id != org.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Skill 不存在")
+    if source.kind != "manual" or source.status != "published":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "仅可为本公司已发布 manual Skill 创建新版草稿",
+        )
+    if await repo.get_any_skill_by_name(session, data.name) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "技能名已存在")
+    capability = data.capability or source.capability
+    if not capability:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "缺少能力 key")
+    skill = await repo.create_manual_skill_draft(
+        session,
+        org.org_id,
+        name=data.name,
+        capability=capability,
+        content=data.content,
+        owner=str(user_id),
+    )
+    await obs_repo.create_approval(
+        session,
+        org_id=org.org_id,
+        kind="skill_review",
+        ref_id=str(skill.id),
+        payload={
+            "capability": skill.capability,
+            "skill_name": skill.name,
+            "kind": "manual",
+            "source": "revision",
+            "source_skill_id": str(source.id),
+            "source_skill_name": source.name,
+            "preview": data.content[:240],
+        },
+    )
+    await write_audit(
+        session,
+        action="skill.create_revision",
+        actor=str(user_id),
+        org_id=org.org_id,
+        target=str(skill.id),
+        detail={"source_skill_id": str(source.id), "name": skill.name},
+    )
+    return _to_out(skill, content=data.content, review_status="pending")

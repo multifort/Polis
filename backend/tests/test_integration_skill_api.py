@@ -189,6 +189,77 @@ def test_published_manual_skill_cannot_be_edited_directly(client: TestClient, pg
     )
 
 
+def test_create_revision_from_published_manual_skill(client: TestClient, pg_url: str) -> None:
+    c = cast(Any, client)
+    auth = _register(c, f"skill_revision_{uuid.uuid4().hex[:8]}@polis.dev")
+    org_id = _create_org(c, auth, "技能新版公司")
+    headers = {**auth, "X-Org-Id": org_id}
+    suffix = uuid.uuid4().hex[:6]
+
+    created = c.post(
+        "/api/skills",
+        json={
+            "name": f"manual.revision.{suffix}",
+            "capability": "procurement.revision_review",
+            "content": "旧版技能：收集数据、形成结论、输出建议。这段内容足够长用于创建草稿。",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    source_id = created.json()["id"]
+    approvals = c.get("/api/approvals?status=pending", headers=headers)
+    review = next(row for row in approvals.json() if row["ref_id"] == source_id)
+    decided = c.post(
+        f"/api/approvals/{review['id']}/decide",
+        json={"approve": True},
+        headers=headers,
+    )
+    assert decided.status_code == 200, decided.text
+
+    revision_content = (
+        "新版技能：收集交付数据、结合赔付条款和风险等级，输出保留、降额或暂停合作建议。"
+        "这段内容足够长。"
+    )
+    revision = c.post(
+        f"/api/skills/{source_id}/revisions",
+        json={
+            "name": f"manual.revision.next.{suffix}",
+            "content": revision_content,
+        },
+        headers=headers,
+    )
+    assert revision.status_code == 201, revision.text
+    body = revision.json()
+    assert body["status"] == "draft"
+    assert body["review_status"] == "pending"
+    assert body["capability"] == "procurement.revision_review"
+
+    assert (
+        _scalar(pg_url, "SELECT status FROM skill WHERE id = :skill_id", skill_id=source_id)
+        == "published"
+    )
+    assert (
+        _scalar(
+            pg_url,
+            "SELECT content FROM skill_version WHERE skill_id = :skill_id",
+            skill_id=body["id"],
+        )
+        == revision_content
+    )
+
+    pending = c.get("/api/approvals?status=pending", headers=headers)
+    next_review = next(row for row in pending.json() if row["ref_id"] == body["id"])
+    assert next_review["payload"]["source"] == "revision"
+    assert next_review["payload"]["source_skill_id"] == source_id
+
+    duplicate = c.post(
+        f"/api/skills/{source_id}/revisions",
+        json={"name": f"manual.revision.next.{suffix}", "content": revision_content},
+        headers=headers,
+    )
+    assert duplicate.status_code == 409
+
+
 def test_deprecate_published_skill_removes_from_published_list(
     client: TestClient, pg_url: str
 ) -> None:

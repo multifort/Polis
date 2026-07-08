@@ -393,9 +393,12 @@ compose 后只用一次轻量 judge 评「岗位说明+技能名+声明能力」
   越权权限拒绝。
   已补 `POST /api/skills/{id}/deprecate` 停用本公司 published Skill；停用保留历史版本/运行复现，
   但退出 published 能力集合。前端技能库页可对本公司已发布 Skill 一键停用。
+  已补 `POST /api/skills/{id}/revisions` 从本公司 published manual Skill 派生新版草稿；旧版保持
+  published，新版以独立 draft 进入 `skill_review`，避免运行时误读未审 v2。前端技能库页可从已发布
+  manual Skill 创建新版草稿。
   前端新增 `/orgs/{id}/skills` 技能库页与左侧导航入口，可列出私有/可见 Skill、筛选状态、提交
   manual 草稿并跳转审批收件箱。
-- **后续增强**：published Skill 的新版/升级提示策略按需开放。
+- **后续增强**：published Skill 的升级提示/自动替换策略按需开放。
 
 ### M3 后技术债清理批次（2026-06-20）
 - **TD-004 已偿还**：docker-compose 固定 litellm `main-stable→v1.89.2`、langfuse `2→2.95.11`

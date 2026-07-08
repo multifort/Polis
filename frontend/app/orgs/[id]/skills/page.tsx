@@ -198,6 +198,34 @@ export default function SkillsPage() {
     }
   }
 
+  async function createRevision(skill: SkillRow) {
+    const defaultName = `${skill.name}.next`;
+    const nextName = prompt("新版技能名", defaultName)?.trim();
+    if (!nextName) return;
+    const nextContent = prompt("新版 Playbook 内容（至少 20 个字符）")?.trim();
+    if (!nextContent || nextContent.length < 20) {
+      setError("新版内容至少 20 个字符");
+      return;
+    }
+    setBusy(true);
+    setNotice("");
+    setError("");
+    try {
+      await api.createSkillRevision(orgId, skill.id, {
+        name: nextName,
+        content: nextContent,
+      });
+      setStatus("draft");
+      setMineOnly(true);
+      setNotice("新版草稿已提交");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "创建新版失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <AppShell orgId={orgId} active="skills" breadcrumb="技能库">
       <div className="page-head skill-head">
@@ -387,6 +415,18 @@ export default function SkillsPage() {
                     {skill.review_status === "pending" && (
                       <span className="skill-review">待审批</span>
                     )}
+                    {skill.status === "published" &&
+                      skill.kind === "manual" &&
+                      skill.owner_org_id === orgId && (
+                        <button
+                          className="skill-row-action"
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void createRevision(skill)}
+                        >
+                          新版
+                        </button>
+                      )}
                     {skill.status === "published" && skill.owner_org_id === orgId && (
                       <button
                         className="skill-row-action"
