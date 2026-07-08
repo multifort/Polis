@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import create_engine, text
 
+from polis.modules.runtime import mcp
+
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
 
@@ -185,6 +187,105 @@ def test_published_manual_skill_cannot_be_edited_directly(client: TestClient, pg
         _scalar(pg_url, "SELECT status FROM skill WHERE id = :skill_id", skill_id=skill_id)
         == "published"
     )
+
+
+def test_create_tool_skill_draft_sandboxes_and_reviews(
+    client: TestClient, pg_url: str, monkeypatch: Any
+) -> None:
+    c = cast(Any, client)
+    auth = _register(c, f"skill_tool_{uuid.uuid4().hex[:8]}@polis.dev")
+    org_id = _create_org(c, auth, "工具技能公司")
+    headers = {**auth, "X-Org-Id": org_id}
+    suffix = uuid.uuid4().hex[:6]
+    captured: dict[str, object] = {}
+
+    class Response:
+        text = ""
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"content": "tool-api-sandbox-ok"}
+
+    class Client:
+        def __init__(self, **kwargs: object) -> None:
+            captured["timeout"] = kwargs.get("timeout")
+
+        async def __aenter__(self) -> Client:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def post(self, url: str, json: dict[str, object], **_kwargs: object) -> Response:
+            captured["url"] = url
+            captured["json"] = json
+            return Response()
+
+    monkeypatch.setattr(mcp.httpx, "AsyncClient", Client)
+
+    payload = {
+        "name": f"tool.http.{suffix}",
+        "capability": "market.web_lookup",
+        "mcp_server": "remote",
+        "tool": f"tool_http_{suffix}",
+        "description": "通过 HTTP bridge 调用外部只读查询工具，返回查询结果摘要。",
+        "io_schema": {"type": "object", "properties": {"q": {"type": "string"}}},
+        "permissions": {"effects": "read"},
+        "sandbox_args": {"q": "sandbox"},
+        "http_endpoint": "http://tools.local/mcp",
+        "timeout_seconds": 2,
+    }
+    created = c.post("/api/skills/tool", json=payload, headers=headers)
+    assert created.status_code == 201, created.text
+    skill = created.json()
+    assert skill["kind"] == "tool"
+    assert skill["status"] == "draft"
+    assert skill["trust"] == "private"
+    assert skill["review_status"] == "pending"
+    assert "HTTP bridge" in skill["content_preview"]
+    assert captured["url"] == "http://tools.local/mcp"
+
+    permissions = _scalar(
+        pg_url,
+        "SELECT permissions FROM skill_version WHERE skill_id = :skill_id",
+        skill_id=skill["id"],
+    )
+    assert isinstance(permissions, dict)
+    assert permissions["network"] == "http_tool_bridge"
+    assert permissions["http"]["endpoint"] == "http://tools.local/mcp"
+    assert permissions["sandbox"]["passed"] is True
+    assert permissions["sandbox"]["result_preview"] == "tool-api-sandbox-ok"
+
+    approvals = c.get("/api/approvals?status=pending", headers=headers)
+    review = next(row for row in approvals.json() if row["ref_id"] == skill["id"])
+    assert review["payload"]["kind"] == "tool"
+    assert review["payload"]["sandbox"]["passed"] is True
+
+
+def test_create_tool_skill_rejects_overbroad_permissions(client: TestClient) -> None:
+    c = cast(Any, client)
+    auth = _register(c, f"skill_tool_bad_{uuid.uuid4().hex[:8]}@polis.dev")
+    org_id = _create_org(c, auth, "工具越权公司")
+    headers = {**auth, "X-Org-Id": org_id}
+
+    denied = c.post(
+        "/api/skills/tool",
+        json={
+            "name": f"tool.bad.{uuid.uuid4().hex[:6]}",
+            "capability": "dangerous.write",
+            "mcp_server": "local",
+            "tool": "echo",
+            "description": "试图声明写权限的工具技能，应该在最小权限闸前被拒绝。",
+            "io_schema": {"type": "object"},
+            "permissions": {"effects": "write"},
+            "sandbox_args": {"text": "sandbox"},
+        },
+        headers=headers,
+    )
+
+    assert denied.status_code == 422
 
 
 def test_manual_skill_draft_is_private_to_owner_org(client: TestClient) -> None:

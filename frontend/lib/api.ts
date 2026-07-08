@@ -196,6 +196,19 @@ export interface SkillRow {
   content_preview?: string | null;
   review_status?: string | null;
 }
+export interface ToolSkillCreateBody {
+  name: string;
+  capability: string;
+  mcp_server: string;
+  tool: string;
+  description: string;
+  io_schema?: Record<string, unknown>;
+  permissions?: Record<string, unknown>;
+  sandbox_args?: Record<string, unknown>;
+  http_endpoint?: string | null;
+  mcp_config?: Record<string, unknown> | null;
+  timeout_seconds?: number;
+}
 
 // ── 计划 / 运行（M3） ──────────────────────────────────────────────
 export interface PlanNode {
@@ -427,6 +440,13 @@ export const api = {
   },
   createSkill: (orgId: string, body: { name: string; capability: string; content: string }) =>
     request<SkillRow>("/api/skills", { method: "POST", body: JSON.stringify(body) }, true, orgId),
+  createToolSkill: (orgId: string, body: ToolSkillCreateBody) =>
+    request<SkillRow>(
+      "/api/skills/tool",
+      { method: "POST", body: JSON.stringify(body) },
+      true,
+      orgId,
+    ),
   createPlan: (orgId: string, goal: string) =>
     request<PlanResult>("/api/plans", { method: "POST", body: JSON.stringify({ goal }) }, true, orgId),
   createTaskPlan: (orgId: string, taskId: string) =>

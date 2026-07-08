@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -13,7 +13,9 @@ from polis.db.session import get_session
 from polis.modules.observability import repository as obs_repo
 from polis.modules.observability.audit import write_audit
 from polis.modules.org.deps import CurrentOrg, CurrentUserId
+from polis.modules.planner.skillgen import ToolSkillSandboxError, create_tool_skill_draft
 from polis.modules.runtime import repository as repo
+from polis.modules.runtime.mcp import McpToolCallError
 from polis.modules.runtime.models import Skill
 
 router = APIRouter(prefix="/api", tags=["skills"])
@@ -40,6 +42,25 @@ class SkillUpdateIn(BaseModel):
     )
     capability: str | None = Field(default=None, min_length=3, max_length=160)
     content: str | None = Field(default=None, min_length=20, max_length=12000)
+
+
+class ToolSkillCreateIn(BaseModel):
+    """公司主动提交 tool Skill 草稿。
+
+    tool Skill 有外部调用/副作用风险，必须复用最小权限 + 沙箱闸，且仍需 skill_review 人审发布。
+    """
+
+    name: str = Field(min_length=3, max_length=120, pattern=r"^[a-zA-Z0-9_.\-\u4e00-\u9fff]+$")
+    capability: str = Field(min_length=3, max_length=160)
+    mcp_server: str = Field(min_length=1, max_length=120)
+    tool: str = Field(min_length=1, max_length=120)
+    description: str = Field(min_length=20, max_length=12000)
+    io_schema: dict[str, Any] = Field(default_factory=dict)
+    permissions: dict[str, Any] = Field(default_factory=dict)
+    sandbox_args: dict[str, Any] = Field(default_factory=dict)
+    http_endpoint: str | None = Field(default=None, max_length=2048)
+    mcp_config: dict[str, Any] | None = None
+    timeout_seconds: float = Field(default=5.0, ge=0.1, le=60.0)
 
 
 class SkillOut(BaseModel):
@@ -152,6 +173,53 @@ async def create_manual_skill(
         detail={"name": data.name, "capability": data.capability},
     )
     return _to_out(skill, content=data.content, review_status="pending")
+
+
+@router.post("/skills/tool", response_model=SkillOut, status_code=status.HTTP_201_CREATED)
+async def create_tool_skill(
+    data: ToolSkillCreateIn,
+    org: CurrentOrg,
+    user_id: CurrentUserId,
+    session: SessionDep,
+) -> SkillOut:
+    """提交公司私有 tool Skill 草稿。
+
+    这里不接受自动发布：即便沙箱通过，也只证明工具声明可执行；是否成为 verified 能力仍由审批人决定。
+    """
+    if await repo.get_any_skill_by_name(session, data.name) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "技能名已存在")
+    try:
+        skill = await create_tool_skill_draft(
+            session,
+            org.org_id,
+            data.capability,
+            name=data.name,
+            mcp_server=data.mcp_server,
+            tool=data.tool,
+            description=data.description,
+            io_schema=data.io_schema,
+            permissions=data.permissions,
+            sandbox_args=data.sandbox_args,
+            http_endpoint=data.http_endpoint,
+            mcp_config=data.mcp_config,
+            timeout_seconds=data.timeout_seconds,
+        )
+    except (ToolSkillSandboxError, McpToolCallError) as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    await write_audit(
+        session,
+        action="skill.create_tool_draft",
+        actor=str(user_id),
+        org_id=org.org_id,
+        target=str(skill.id),
+        detail={"name": data.name, "capability": data.capability, "tool": data.tool},
+    )
+    version = (await repo.latest_versions_for_skills(session, [skill.id])).get(skill.id)
+    return _to_out(
+        skill,
+        content=version.content if version is not None else data.description,
+        review_status="pending" if skill.status == "draft" else None,
+    )
 
 
 @router.patch("/skills/{skill_id}", response_model=SkillOut)
