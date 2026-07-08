@@ -146,6 +146,7 @@ async def execute(
             "guardrails": {
                 "redactions": loop.guardrail_redactions,
                 "changed": bool(loop.guardrail_redactions),
+                "provider": guard.provider_name if guard is not None else None,
             },
         },
         needs_human=loop.blocked,
@@ -222,7 +223,7 @@ async def execute_node(
             goal=goal,
             gateway=_default_gateway(),
             registry=default_registry(),
-            guard=Guardrails(),
+            guard=Guardrails.from_settings(),
         )
         await session.commit()
         return result

@@ -259,8 +259,13 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   观测底座；运行时工具回流已累计 redaction 计数并写入
   `result_envelope.facts.guardrails`；观测聚合 API 已暴露任务级 `guardrails` 汇总与节点级
   `nodes[].guardrails`，前端完整运行日志可显示安全脱敏次数，便于后续 Guardrails-AI 替换对照。
+  运行时已补 Guardrails provider 边界：`POLIS_GUARDRAILS_PROVIDER=rules` 为默认；
+  `guardrails_ai` 开关在 adapter 未配置时 fail-closed，避免误以为已接管；`Guardrails`
+  支持 shadow provider 对照，并在 `result_envelope.facts.guardrails.provider` 记录本次运行 provider。
   回归覆盖：
   `tests/test_guardrails.py::test_sanitize_with_report_counts_redactions`、
+  `tests/test_guardrails.py::test_guardrails_shadow_provider_reports_namespaced_counts`、
+  `tests/test_guardrails.py::test_guardrails_from_settings_fails_closed_for_unwired_guardrails_ai`、
   `tests/test_guardrails.py::test_loop_reports_tool_output_redactions`、
   `tests/test_integration_execute.py::test_execute_node_records_guardrail_redactions`、
   `tests/test_integration_observability.py::test_observability_exposes_guardrail_redaction_audit`。

@@ -89,6 +89,10 @@ class Settings(BaseSettings):
     # 可填命令名（如 "uvx"）或绝对路径；裸命令名按 basename 匹配，带路径命令要求精确匹配。
     mcp_stdio_allowed_commands: list[str] = []
 
+    # Guardrails provider：默认 rules。guardrails_ai 为后续 adapter 开关，启用但未接 adapter 时
+    # fail-closed，避免误以为已由外部 Guardrails-AI 接管。
+    guardrails_provider: str = "rules"
+
     # Langfuse 可观测（M6-H）。Polis 自建可观测页面用，Langfuse 只做采集后端。
     langfuse_enabled: bool = False
     langfuse_host: str = "http://localhost:3001"

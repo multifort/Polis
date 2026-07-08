@@ -16,7 +16,11 @@ from polis.modules.model.gateway import (
 )
 from polis.modules.runtime.agent import run_loop
 from polis.modules.runtime.context import ExecCtx
-from polis.modules.runtime.guardrails import Guardrails, GuardrailViolation
+from polis.modules.runtime.guardrails import (
+    Guardrails,
+    GuardrailSanitizeReport,
+    GuardrailViolation,
+)
 from polis.modules.runtime.mcp import McpRuntime, default_registry
 from polis.modules.runtime.skills import BoundTool, LoadedSkills
 
@@ -87,6 +91,43 @@ def test_sanitize_with_report_clean_output_is_unchanged() -> None:
     assert report.injection_matches == 0
     assert report.pii_matches == 0
     assert report.categories == {}
+
+
+def test_guardrails_shadow_provider_reports_namespaced_counts() -> None:
+    class ShadowProvider:
+        name = "guardrails_ai"
+
+        def check_tool_input(self, _tool_call: ToolCall) -> None:
+            return None
+
+        def sanitize_with_report(self, output: str) -> GuardrailSanitizeReport:
+            return GuardrailSanitizeReport(
+                output=output,
+                pii_matches=1,
+                categories={"pii_or_secret": 1},
+            )
+
+    report = Guardrails(shadow_provider=ShadowProvider()).sanitize_with_report(
+        "供应商联系人 user@example.com"
+    )
+
+    assert report.categories["pii_or_secret"] == 1
+    assert report.categories["shadow.guardrails_ai.pii_or_secret"] == 1
+    assert (
+        Guardrails(shadow_provider=ShadowProvider()).provider_name == "rules+shadow:guardrails_ai"
+    )
+
+
+def test_guardrails_from_settings_fails_closed_for_unwired_guardrails_ai(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "polis.modules.runtime.guardrails.get_settings",
+        lambda: type("Settings", (), {"guardrails_provider": "guardrails_ai"})(),
+    )
+
+    with pytest.raises(RuntimeError, match="Guardrails-AI adapter"):
+        Guardrails.from_settings()
 
 
 def test_sanitize_redacts_common_pii_and_secrets() -> None:

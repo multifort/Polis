@@ -13,7 +13,9 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from typing import Protocol
 
+from polis.config import get_settings
 from polis.modules.model.gateway import ToolCall
 
 
@@ -80,6 +82,14 @@ class GuardrailSanitizeReport:
         return self.injection_matches > 0 or self.pii_matches > 0
 
 
+class GuardrailProvider(Protocol):
+    name: str
+
+    def check_tool_input(self, tool_call: ToolCall) -> None: ...
+
+    def sanitize_with_report(self, output: str) -> GuardrailSanitizeReport: ...
+
+
 def _find_injection(text: str) -> str | None:
     for pat in _INJECTION_PATTERNS:
         if pat.search(text):
@@ -87,8 +97,10 @@ def _find_injection(text: str) -> str | None:
     return None
 
 
-class Guardrails:
+class RulesGuardrailProvider:
     """规则版防线1。无状态，可单例复用。"""
+
+    name = "rules"
 
     def check_tool_input(self, tool_call: ToolCall) -> None:
         """工具输入注入检测：命中抛 GuardrailViolation（调用方阻断 + 审计 + 可选人审）。"""
@@ -96,10 +108,6 @@ class Guardrails:
         hit = _find_injection(blob)
         if hit is not None:
             raise GuardrailViolation(f"工具 {tool_call.name} 输入疑似提示注入：{hit}")
-
-    def sanitize(self, output: str) -> str:
-        """工具回流内容过滤：过滤注入片段并脱敏常见 PII/凭证。"""
-        return self.sanitize_with_report(output).output
 
     def sanitize_with_report(self, output: str) -> GuardrailSanitizeReport:
         """工具回流内容过滤，并返回命中计数，供审计/观测使用。"""
@@ -121,5 +129,68 @@ class Guardrails:
             output=out,
             injection_matches=injection_matches,
             pii_matches=pii_matches,
+            categories=categories,
+        )
+
+
+class Guardrails:
+    """Guardrails facade.
+
+    默认走规则 provider；后续 Guardrails-AI adapter 可作为 primary provider 替换，或作为 shadow
+    provider 对照命中率。Facade 保持 agent loop 调用契约稳定。
+    """
+
+    def __init__(
+        self,
+        provider: GuardrailProvider | None = None,
+        *,
+        shadow_provider: GuardrailProvider | None = None,
+    ) -> None:
+        self._provider = provider or RulesGuardrailProvider()
+        self._shadow_provider = shadow_provider
+
+    @classmethod
+    def from_settings(cls) -> Guardrails:
+        """按配置创建 Guardrails；默认 rules，Guardrails-AI 未安装时 fail-closed。"""
+        settings = get_settings()
+        provider = settings.guardrails_provider.lower()
+        if provider == "rules":
+            return cls()
+        if provider == "guardrails_ai":
+            raise RuntimeError(
+                "POLIS_GUARDRAILS_PROVIDER=guardrails_ai 已启用，但 Guardrails-AI adapter "
+                "尚未配置；请保持 rules 或安装/接入 adapter 后再启用。"
+            )
+        raise RuntimeError(f"不支持的 POLIS_GUARDRAILS_PROVIDER：{settings.guardrails_provider}")
+
+    @property
+    def provider_name(self) -> str:
+        if self._shadow_provider is None:
+            return self._provider.name
+        return f"{self._provider.name}+shadow:{self._shadow_provider.name}"
+
+    def check_tool_input(self, tool_call: ToolCall) -> None:
+        """工具输入注入检测：命中抛 GuardrailViolation（调用方阻断 + 审计 + 可选人审）。"""
+        self._provider.check_tool_input(tool_call)
+        if self._shadow_provider is not None:
+            self._shadow_provider.check_tool_input(tool_call)
+
+    def sanitize(self, output: str) -> str:
+        """工具回流内容过滤：过滤注入片段并脱敏常见 PII/凭证。"""
+        return self.sanitize_with_report(output).output
+
+    def sanitize_with_report(self, output: str) -> GuardrailSanitizeReport:
+        """工具回流内容过滤，并返回命中计数，供审计/观测使用。"""
+        report = self._provider.sanitize_with_report(output)
+        if self._shadow_provider is None:
+            return report
+        shadow = self._shadow_provider.sanitize_with_report(output)
+        categories = dict(report.categories)
+        for category, count in shadow.categories.items():
+            categories[f"shadow.{self._shadow_provider.name}.{category}"] = count
+        return GuardrailSanitizeReport(
+            output=report.output,
+            injection_matches=report.injection_matches,
+            pii_matches=report.pii_matches,
             categories=categories,
         )

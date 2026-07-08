@@ -368,6 +368,7 @@ def test_execute_node_records_guardrail_redactions(client: TestClient, pg_url: s
     facts = envs[0]["facts"]
     assert isinstance(facts, dict)
     assert facts["guardrails"]["changed"] is True
+    assert facts["guardrails"]["provider"] == "rules"
     assert facts["guardrails"]["redactions"]["pii_or_secret"] >= 2
     assert "user@example.com" not in facts["tool_outputs"][0]
     assert "Bearer abcdef" not in facts["tool_outputs"][0]
