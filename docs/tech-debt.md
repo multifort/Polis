@@ -299,7 +299,9 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   `tests/test_mcp_runtime.py::test_runtime_discovers_and_calls_real_stdio_mcp_server`。
   外部部署联调入口已补：`backend/scripts/mcp/external_smoke.py` 支持 stdio/SSE/Streamable HTTP
   发现工具，并可选试调一个工具；`--json-out` 可写 credential-safe JSON 证据，成功/失败均不回显
-  headers/env；公共逻辑 `run_external_mcp_smoke` 有单测覆盖：
+  headers/env；证据验收 gate 已补 `backend/scripts/mcp/verify_external_smoke_evidence.py`，
+  会拒绝失败 smoke、空工具列表、server/transport 不匹配、缺少必需工具/调用，以及 headers/env/token
+  等凭证键；公共逻辑 `run_external_mcp_smoke` / `validate_mcp_smoke_evidence` 有单测覆盖：
   `tests/test_mcp_smoke.py`。
 - 多模型 Agent 选型已部分产品化：`AgentConfig.model` 会在运行时解析为执行模型，并写入
   `result_envelope.facts.provenance.model`；owner 可通过花名册更新 Agent 当前版本模型。
@@ -313,7 +315,8 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   选择目录价最低的推理模型；无候选时再回退系统默认。回归覆盖：
   `tests/test_integration_execute.py::test_execute_node_uses_cost_aware_model_when_unset`。
 - 剩余：完整 Guardrails-AI 接入；拿 browser-pilot 等真实外部 MCP server 实例跑
-  `scripts/mcp/external_smoke.py` 并留部署证据。
+  `scripts/mcp/external_smoke.py --json-out ...`，再用
+  `scripts/mcp/verify_external_smoke_evidence.py` 校验证据并归档。
 
 ### TD-027
 **TEI embedding 模型须预下载离线挂载。** hf-mirror 反代不返回 `etag` header，TEI rust 下载器在线下载失败；

@@ -6,6 +6,7 @@ import pytest
 
 from polis.modules.runtime import mcp_smoke
 from polis.modules.runtime.mcp import McpServerConfig, McpTool
+from polis.modules.runtime.mcp_smoke import McpSmokeEvidenceError
 
 
 def test_external_mcp_smoke_discovers_tools(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -99,3 +100,59 @@ def test_external_mcp_smoke_failure_evidence_is_credential_safe() -> None:
     assert evidence["discovered_tools"] == []
     assert "headers" not in evidence
     assert "Bearer" not in str(evidence)
+
+
+def test_validate_mcp_smoke_evidence_accepts_successful_discovery() -> None:
+    evidence = {
+        "ok": True,
+        "server": "browser-pilot",
+        "transport": "sse",
+        "checked_at": "2026-07-09T10:00:00+00:00",
+        "discovered_tools": ["web_search"],
+        "called_tool": "web_search",
+        "call_result_preview": "ok",
+        "error": None,
+    }
+
+    mcp_smoke.validate_mcp_smoke_evidence(
+        evidence,
+        expected_server="browser-pilot",
+        expected_transport="sse",
+        require_tool="web_search",
+        require_called_tool="web_search",
+    )
+
+
+@pytest.mark.parametrize(
+    ("patch", "match"),
+    [
+        ({"ok": False}, "did not pass"),
+        ({"server": "other"}, "server mismatch"),
+        ({"transport": "stdio"}, "transport mismatch"),
+        ({"checked_at": "not-a-date"}, "checked_at"),
+        ({"discovered_tools": []}, "discovered no tools"),
+        ({"headers": {"Authorization": "Bearer handle"}}, "credential-bearing key"),
+    ],
+)
+def test_validate_mcp_smoke_evidence_rejects_bad_evidence(
+    patch: dict[str, object],
+    match: str,
+) -> None:
+    evidence: dict[str, object] = {
+        "ok": True,
+        "server": "browser-pilot",
+        "transport": "sse",
+        "checked_at": "2026-07-09T10:00:00+00:00",
+        "discovered_tools": ["web_search"],
+        "called_tool": None,
+        "call_result_preview": None,
+        "error": None,
+    }
+    evidence.update(patch)
+
+    with pytest.raises(McpSmokeEvidenceError, match=match):
+        mcp_smoke.validate_mcp_smoke_evidence(
+            evidence,
+            expected_server="browser-pilot",
+            expected_transport="sse",
+        )

@@ -20,6 +20,10 @@ from polis.modules.runtime.mcp import (
 )
 
 
+class McpSmokeEvidenceError(ValueError):
+    """External MCP smoke evidence does not satisfy the deployment gate."""
+
+
 @dataclass(frozen=True)
 class McpSmokeResult:
     server: str
@@ -101,6 +105,73 @@ def failed_mcp_smoke_evidence(config: McpServerConfig, error: str) -> McpSmokeRe
         error=error,
         checked_at=_now_iso(),
     )
+
+
+def validate_mcp_smoke_evidence(
+    evidence: dict[str, Any],
+    *,
+    expected_server: str | None = None,
+    expected_transport: str | None = None,
+    require_tool: str | None = None,
+    require_called_tool: str | None = None,
+) -> None:
+    """Validate credential-safe external MCP smoke evidence.
+
+    The gate intentionally requires both a successful smoke result and at least one discovered
+    tool. A failed JSON payload is still useful for diagnosis, but it must not be accepted as
+    deployment evidence.
+    """
+    _reject_secret_bearing_keys(evidence)
+    if evidence.get("ok") is not True:
+        raise McpSmokeEvidenceError("external MCP smoke did not pass")
+
+    server = evidence.get("server")
+    if expected_server is not None and server != expected_server:
+        raise McpSmokeEvidenceError(
+            f"external MCP smoke server mismatch: expected {expected_server}, got {server}"
+        )
+
+    transport = evidence.get("transport")
+    if expected_transport is not None and transport != expected_transport:
+        raise McpSmokeEvidenceError(
+            f"external MCP smoke transport mismatch: expected {expected_transport}, got {transport}"
+        )
+
+    checked_at = evidence.get("checked_at")
+    if not isinstance(checked_at, str) or not checked_at:
+        raise McpSmokeEvidenceError("external MCP smoke evidence missing checked_at")
+    try:
+        datetime.fromisoformat(checked_at)
+    except ValueError as exc:
+        raise McpSmokeEvidenceError("external MCP smoke checked_at is not ISO-8601") from exc
+
+    tools = evidence.get("discovered_tools")
+    if not isinstance(tools, list) or not tools or not all(isinstance(t, str) for t in tools):
+        raise McpSmokeEvidenceError("external MCP smoke discovered no tools")
+
+    if require_tool is not None and require_tool not in tools:
+        raise McpSmokeEvidenceError(f"external MCP smoke did not discover tool: {require_tool}")
+
+    called_tool = evidence.get("called_tool")
+    if require_called_tool is not None and called_tool != require_called_tool:
+        raise McpSmokeEvidenceError(
+            f"external MCP smoke did not call required tool: {require_called_tool}"
+        )
+
+
+def _reject_secret_bearing_keys(value: Any, *, path: str = "$") -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            key_text = str(key).lower()
+            if key_text in {"headers", "env", "authorization", "api_key", "token", "secret"}:
+                raise McpSmokeEvidenceError(
+                    f"external MCP smoke evidence contains credential-bearing key: {path}.{key}"
+                )
+            _reject_secret_bearing_keys(child, path=f"{path}.{key}")
+        return
+    if isinstance(value, list):
+        for idx, child in enumerate(value):
+            _reject_secret_bearing_keys(child, path=f"{path}[{idx}]")
 
 
 def _now_iso() -> str:
