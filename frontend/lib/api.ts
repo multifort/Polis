@@ -195,6 +195,11 @@ export interface SkillRow {
   owner_org_id?: string | null;
   content_preview?: string | null;
   review_status?: string | null;
+  pending_revision?: {
+    draft_skill_id: string;
+    draft_skill_name?: string | null;
+    review_status: string;
+  } | null;
 }
 export interface ToolSkillCreateBody {
   name: string;

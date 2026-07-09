@@ -412,10 +412,12 @@ compose 后只用一次轻量 judge 评「岗位说明+技能名+声明能力」
   但退出 published 能力集合。前端技能库页可对本公司已发布 Skill 一键停用。
   已补 `POST /api/skills/{id}/revisions` 从本公司 published manual Skill 派生新版草稿；旧版保持
   published，新版以独立 draft 进入 `skill_review`，避免运行时误读未审 v2。前端技能库页可从已发布
-  manual Skill 创建新版草稿。
+  manual Skill 创建新版草稿；列表 API 已补 `pending_revision`，前端可提示 published Skill 已有
+  新版待审并禁用重复创建。回归覆盖
+  `tests/test_integration_skill_api.py::test_create_revision_from_published_manual_skill`。
   前端新增 `/orgs/{id}/skills` 技能库页与左侧导航入口，可列出私有/可见 Skill、筛选状态、提交
   manual 草稿并跳转审批收件箱。
-- **后续增强**：published Skill 的升级提示/自动替换策略按需开放。
+- **后续增强**：published Skill 自动替换策略按需开放。
 
 ### M3 后技术债清理批次（2026-06-20）
 - **TD-004 已偿还**：docker-compose 固定 litellm `main-stable→v1.89.2`、langfuse `2→2.95.11`

@@ -252,6 +252,15 @@ def test_create_revision_from_published_manual_skill(client: TestClient, pg_url:
     assert next_review["payload"]["source"] == "revision"
     assert next_review["payload"]["source_skill_id"] == source_id
 
+    published = c.get("/api/skills?status=published&mine_only=true", headers=headers)
+    assert published.status_code == 200, published.text
+    source_row = next(row for row in published.json() if row["id"] == source_id)
+    assert source_row["pending_revision"] == {
+        "draft_skill_id": body["id"],
+        "draft_skill_name": f"manual.revision.next.{suffix}",
+        "review_status": "pending",
+    }
+
     duplicate = c.post(
         f"/api/skills/{source_id}/revisions",
         json={"name": f"manual.revision.next.{suffix}", "content": revision_content},

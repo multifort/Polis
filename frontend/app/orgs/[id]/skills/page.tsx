@@ -415,13 +415,21 @@ export default function SkillsPage() {
                     {skill.review_status === "pending" && (
                       <span className="skill-review">待审批</span>
                     )}
+                    {skill.pending_revision && (
+                      <span
+                        className="skill-review"
+                        title={skill.pending_revision.draft_skill_name || undefined}
+                      >
+                        新版待审
+                      </span>
+                    )}
                     {skill.status === "published" &&
                       skill.kind === "manual" &&
                       skill.owner_org_id === orgId && (
                         <button
                           className="skill-row-action"
                           type="button"
-                          disabled={busy}
+                          disabled={busy || Boolean(skill.pending_revision)}
                           onClick={() => void createRevision(skill)}
                         >
                           新版

@@ -85,10 +85,15 @@ class SkillOut(BaseModel):
     owner_org_id: uuid.UUID | None = None
     content_preview: str | None = None
     review_status: str | None = None
+    pending_revision: dict[str, Any] | None = None
 
 
 def _to_out(
-    skill: Skill, *, content: str | None = None, review_status: str | None = None
+    skill: Skill,
+    *,
+    content: str | None = None,
+    review_status: str | None = None,
+    pending_revision: dict[str, Any] | None = None,
 ) -> SkillOut:
     preview = content[:240] if content else None
     return SkillOut(
@@ -102,6 +107,7 @@ def _to_out(
         owner_org_id=skill.owner_org_id,
         content_preview=preview,
         review_status=review_status,
+        pending_revision=pending_revision,
     )
 
 
@@ -126,6 +132,21 @@ async def list_skills(
     review_by_ref = {
         a.ref_id: a.status for a in approvals if a.kind == "skill_review" and a.ref_id is not None
     }
+    pending_revision_by_source: dict[str, dict[str, Any]] = {}
+    for approval in approvals:
+        if approval.kind != "skill_review" or approval.ref_id is None:
+            continue
+        payload = approval.payload or {}
+        if payload.get("source") != "revision":
+            continue
+        source_skill_id = payload.get("source_skill_id")
+        if not isinstance(source_skill_id, str):
+            continue
+        pending_revision_by_source[source_skill_id] = {
+            "draft_skill_id": approval.ref_id,
+            "draft_skill_name": payload.get("skill_name"),
+            "review_status": approval.status,
+        }
     out: list[SkillOut] = []
     for skill in skills:
         version = versions.get(skill.id)
@@ -134,6 +155,7 @@ async def list_skills(
                 skill,
                 content=version.content if version is not None else None,
                 review_status=review_by_ref.get(str(skill.id)),
+                pending_revision=pending_revision_by_source.get(str(skill.id)),
             )
         )
     return out
