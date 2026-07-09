@@ -309,8 +309,10 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   发现工具，并可选试调一个工具；`--json-out` 可写 credential-safe JSON 证据，成功/失败均不回显
   headers/env；证据验收 gate 已补 `backend/scripts/mcp/verify_external_smoke_evidence.py`，
   会拒绝失败 smoke、空工具列表、server/transport 不匹配、缺少必需工具/调用，以及 headers/env/token
-  等凭证键；公共逻辑 `run_external_mcp_smoke` / `validate_mcp_smoke_evidence` 有单测覆盖：
-  `tests/test_mcp_smoke.py`。
+  等凭证键；`external_smoke.py` 已内联同一 gate，支持 `--require-tool` / `--require-called-tool`，
+  因此外部部署 smoke 不再需要人工判读“发现工具数”。公共逻辑 `run_external_mcp_smoke` /
+  `validate_mcp_smoke_evidence` 与 CLI gate 有单测覆盖：
+  `tests/test_mcp_smoke.py`、`tests/test_mcp_external_smoke_script.py`。
 - 多模型 Agent 选型已部分产品化：`AgentConfig.model` 会在运行时解析为执行模型，并写入
   `result_envelope.facts.provenance.model`；owner 可通过花名册更新 Agent 当前版本模型。
   回归覆盖：`tests/test_integration_execute.py::test_execute_node_uses_agent_config_model` 与

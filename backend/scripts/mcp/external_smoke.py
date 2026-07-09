@@ -7,6 +7,8 @@ Examples:
     --url http://localhost:8765/mcp --call-tool web_search --tool-args '{"q":"polis"}'
   uv run python scripts/mcp/external_smoke.py --server browser-pilot --transport sse \
     --url http://localhost:8765/sse --json-out var/mcp-smoke/browser-pilot.json
+  uv run python scripts/mcp/external_smoke.py --server browser-pilot --transport sse \
+    --url http://localhost:8765/sse --require-tool web_search
   POLIS_MCP_STDIO_ALLOWED_COMMANDS='["uvx"]' uv run python scripts/mcp/external_smoke.py \
     --server browser-pilot --transport stdio --command uvx --arg browser-pilot-mcp
 """
@@ -20,7 +22,12 @@ from pathlib import Path
 from typing import Any
 
 from polis.modules.runtime.mcp import McpServerConfig, McpToolCallError
-from polis.modules.runtime.mcp_smoke import failed_mcp_smoke_evidence, run_external_mcp_smoke
+from polis.modules.runtime.mcp_smoke import (
+    McpSmokeEvidenceError,
+    failed_mcp_smoke_evidence,
+    run_external_mcp_smoke,
+    validate_mcp_smoke_evidence,
+)
 
 
 def _json_object(value: str, *, label: str) -> dict[str, Any]:
@@ -69,6 +76,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sse-read-timeout-seconds", type=float, default=None)
     parser.add_argument("--call-tool", default=None, help="Optional discovered tool name to call")
     parser.add_argument("--tool-args", default="{}", help="JSON object arguments for --call-tool")
+    parser.add_argument("--require-tool", default=None, help="Tool that must be discovered")
+    parser.add_argument(
+        "--require-called-tool",
+        default=None,
+        help="Tool that must have been called during smoke",
+    )
     parser.add_argument("--preview-chars", type=int, default=500)
     parser.add_argument(
         "--json-out",
@@ -107,6 +120,17 @@ async def _run(args: argparse.Namespace) -> int:
         return 1
 
     _write_json_out(args.json_out, result.to_evidence())
+    try:
+        validate_mcp_smoke_evidence(
+            result.to_evidence(),
+            expected_server=args.server,
+            expected_transport=args.transport,
+            require_tool=args.require_tool,
+            require_called_tool=args.require_called_tool,
+        )
+    except McpSmokeEvidenceError as exc:
+        print(f"MCP external smoke: FAIL ({exc})")
+        return 1
     print(f"MCP external smoke: PASS server={result.server} transport={result.transport}")
     print(f"Discovered tools: {len(result.tools)}")
     for tool in result.tools:
