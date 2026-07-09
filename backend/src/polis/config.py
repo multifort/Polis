@@ -97,6 +97,10 @@ class Settings(BaseSettings):
     guardrails_provider_path: str = ""
     # 可选影子对照 provider，格式同上；不改变输出，只把命中计数以 shadow.<name>.* 记录到观测事实。
     guardrails_shadow_provider_path: str = ""
+    # 内置 Guardrails-AI adapter（polis.modules.runtime.guardrails_ai_adapter:build）使用的
+    # rail 配置文件。输出 rail 必填；输入 rail 可选，未配时复用输出 rail 校验工具输入 JSON。
+    guardrails_ai_output_rail_path: str = ""
+    guardrails_ai_input_rail_path: str = ""
 
     # Langfuse 可观测（M6-H）。Polis 自建可观测页面用，Langfuse 只做采集后端。
     langfuse_enabled: bool = False

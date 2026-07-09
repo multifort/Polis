@@ -195,7 +195,8 @@ class Guardrails:
                 )
             raise RuntimeError(
                 "POLIS_GUARDRAILS_PROVIDER=guardrails_ai 已启用，但 Guardrails-AI adapter "
-                "尚未配置；请设置 POLIS_GUARDRAILS_PROVIDER_PATH=module:factory，或保持 rules。"
+                "尚未配置；请设置 POLIS_GUARDRAILS_PROVIDER_PATH="
+                "polis.modules.runtime.guardrails_ai_adapter:build，或保持 rules。"
             )
         raise RuntimeError(f"不支持的 POLIS_GUARDRAILS_PROVIDER：{settings.guardrails_provider}")
 

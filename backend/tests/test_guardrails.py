@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from types import ModuleType
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -24,6 +25,7 @@ from polis.modules.runtime.guardrails import (
     GuardrailViolation,
     load_guardrail_provider,
 )
+from polis.modules.runtime.guardrails_ai_adapter import GuardrailsAIProvider, build
 from polis.modules.runtime.mcp import McpRuntime, default_registry
 from polis.modules.runtime.skills import BoundTool, LoadedSkills
 
@@ -204,6 +206,99 @@ def test_guardrails_from_settings_loads_primary_and_shadow_adapters(
 
     assert guard.provider_name == "guardrails_ai+shadow:shadow_ai"
     assert report.categories == {"primary": 1, "shadow.shadow_ai.shadow": 2}
+
+
+def test_guardrails_ai_provider_repairs_and_blocks() -> None:
+    class OutputGuard:
+        def validate(self, text: str) -> object:
+            if "block" in text:
+                return SimpleNamespace(validation_passed=False, error="policy")
+            if "secret" in text:
+                return SimpleNamespace(validation_passed=True, validated_output="[redacted]")
+            return SimpleNamespace(validation_passed=True, validated_output=text)
+
+    provider = GuardrailsAIProvider(OutputGuard())
+
+    repaired = provider.sanitize_with_report("secret")
+    blocked = provider.sanitize_with_report("block")
+    clean = provider.sanitize_with_report("clean")
+
+    assert repaired.output == "[redacted]"
+    assert repaired.categories == {"guardrails_ai_repaired": 1}
+    assert blocked.output == "[内容已过滤]"
+    assert blocked.categories == {"guardrails_ai_blocked": 1}
+    assert clean.output == "clean"
+    assert clean.categories == {}
+
+
+def test_guardrails_ai_provider_blocks_tool_input() -> None:
+    class InputGuard:
+        def validate(self, _text: str) -> object:
+            return SimpleNamespace(validation_passed=False, error="tool policy")
+
+    provider = GuardrailsAIProvider(InputGuard())
+
+    with pytest.raises(GuardrailViolation, match="Guardrails-AI"):
+        provider.check_tool_input(ToolCall(id="c", name="echo", arguments={"text": "x"}))
+
+
+def test_guardrails_ai_adapter_builds_from_configured_rail(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    rail = tmp_path / "output.rail"
+    rail.write_text("<rail />", encoding="utf-8")
+
+    class FakeGuard:
+        loaded_paths: list[str] = []
+
+        @classmethod
+        def from_rail(cls, path: str) -> FakeGuard:
+            cls.loaded_paths.append(path)
+            return cls()
+
+        def validate(self, text: str) -> object:
+            return SimpleNamespace(validation_passed=True, validated_output=text)
+
+    module = ModuleType("guardrails")
+    module.Guard = FakeGuard  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "guardrails", module)
+    monkeypatch.setattr(
+        "polis.modules.runtime.guardrails_ai_adapter.get_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "guardrails_ai_output_rail_path": str(rail),
+                "guardrails_ai_input_rail_path": "",
+            },
+        )(),
+    )
+
+    provider = build()
+    report = provider.sanitize_with_report("ok")
+
+    assert report.output == "ok"
+    assert FakeGuard.loaded_paths == [str(rail)]
+
+
+def test_guardrails_ai_adapter_requires_output_rail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "polis.modules.runtime.guardrails_ai_adapter.get_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "guardrails_ai_output_rail_path": "",
+                "guardrails_ai_input_rail_path": "",
+            },
+        )(),
+    )
+
+    with pytest.raises(RuntimeError, match="OUTPUT_RAIL_PATH"):
+        build()
 
 
 def test_sanitize_redacts_common_pii_and_secrets() -> None:

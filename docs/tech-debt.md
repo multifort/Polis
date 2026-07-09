@@ -261,7 +261,11 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   `nodes[].guardrails`，前端完整运行日志可显示安全脱敏次数，便于后续 Guardrails-AI 替换对照。
   运行时已补 Guardrails provider 边界：`POLIS_GUARDRAILS_PROVIDER=rules` 为默认；
   `guardrails_ai` 开关支持通过 `POLIS_GUARDRAILS_PROVIDER_PATH=module:factory`
-  加载可选外部 adapter，未配置时 fail-closed，避免误以为已接管；`Guardrails` 支持
+  加载可选外部 adapter，未配置时 fail-closed，避免误以为已接管；内置 adapter 工厂
+  `polis.modules.runtime.guardrails_ai_adapter:build` 已补，读取
+  `POLIS_GUARDRAILS_AI_OUTPUT_RAIL_PATH` / `POLIS_GUARDRAILS_AI_INPUT_RAIL_PATH` 的 rail 文件，
+  并把 Guardrails-AI `validate()` 结果映射为 Polis 的阻断/脱敏报告；缺包或缺 output rail path 均
+  fail-closed。`Guardrails` 支持
   `POLIS_GUARDRAILS_SHADOW_PROVIDER_PATH` 影子对照，并在
   `result_envelope.facts.guardrails.provider` 记录本次运行 provider。
   回归覆盖：
@@ -270,6 +274,10 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   `tests/test_guardrails.py::test_guardrails_from_settings_fails_closed_for_unwired_guardrails_ai`、
   `tests/test_guardrails.py::test_load_guardrail_provider_from_module_factory`、
   `tests/test_guardrails.py::test_guardrails_from_settings_loads_primary_and_shadow_adapters`、
+  `tests/test_guardrails.py::test_guardrails_ai_provider_repairs_and_blocks`、
+  `tests/test_guardrails.py::test_guardrails_ai_provider_blocks_tool_input`、
+  `tests/test_guardrails.py::test_guardrails_ai_adapter_builds_from_configured_rail`、
+  `tests/test_guardrails.py::test_guardrails_ai_adapter_requires_output_rail`、
   `tests/test_guardrails.py::test_loop_reports_tool_output_redactions`、
   `tests/test_integration_execute.py::test_execute_node_records_guardrail_redactions`、
   `tests/test_integration_observability.py::test_observability_exposes_guardrail_redaction_audit`。
@@ -314,7 +322,7 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
 - cost-aware 路由已接入执行 fallback：Agent/公司均未指定模型时，运行时按 `cost_aware_pick("text-gen")`
   选择目录价最低的推理模型；无候选时再回退系统默认。回归覆盖：
   `tests/test_integration_execute.py::test_execute_node_uses_cost_aware_model_when_unset`。
-- 剩余：完整 Guardrails-AI 接入；拿 browser-pilot 等真实外部 MCP server 实例跑
+- 剩余：部署环境安装 Guardrails-AI 包 + rail 文件后的真实联调；拿 browser-pilot 等真实外部 MCP server 实例跑
   `scripts/mcp/external_smoke.py --json-out ...`，再用
   `scripts/mcp/verify_external_smoke_evidence.py` 校验证据并归档。
 
