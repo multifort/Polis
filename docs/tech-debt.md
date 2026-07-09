@@ -36,7 +36,7 @@
 | [TD-028](#td-028) | execute 写 result_envelope 未关联 task_run.id | Med | **closed** | 已贯通 task_run.id |
 | [TD-029](#td-029) | 部署：组件地址 dev 默认 localhost，生产需 env 覆盖 + 容器化用 service name | Low-Med | **closed** | 已补 compose service-name env 与生产模板 |
 | [TD-026](#td-026) | M6 仍有简化项：Guardrails 规则版/MCP stdio-sse SDK 未完整接入 | Low-Med | open | Guardrails-AI/完整 MCP SDK |
-| [TD-027](#td-027) | TEI 模型须预下载离线挂载（hf-mirror 不返回 etag，在线下载失败） | Low | open(运维已知) | 换可返回 etag 的源 / 自建镜像 |
+| [TD-027](#td-027) | TEI 模型须预下载离线挂载（hf-mirror 不返回 etag，在线下载失败） | Low | 部分偿还 | 部署机跑 offline model gate |
 | [TD-030](#td-030) | 模板/预设/记忆语义检索已落；能力语义去重原语已接入 TD-032 goal 提案链 | Med | **closed** | 技能/角色语义检索按后续复用场景再切 |
 | [TD-032](#td-032) | Skill 生成链已落；manual 风险分级自动发布、tool/MCP 草稿最小权限+本地沙箱+人审墙、goal 端可达与语义去重已接线 | Med | **closed** | tool 类 LLM authoring / 外部真实 MCP server 沙箱后置 |
 | [TD-033](#td-033) | compose-eval 升级为「试产出」judge 并硬门控（judge≥τ active / <τ draft） | Med | **closed** | 已接试产出 eval（带技能 playbook），见偿还记录 |
@@ -335,7 +335,10 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
 **TEI embedding 模型须预下载离线挂载。** hf-mirror 反代不返回 `etag` header，TEI rust 下载器在线下载失败；
 改为本机 `huggingface-cli download` 到 `infra/tei-models/` 挂载（`--model-id /data/models/...`）。
 - 影响：换机/新环境需先预下载模型（~1.2G），非「compose up 即用」。
-- 偿还：换可返回 etag 的镜像源 / 自建含模型的镜像 / 或用支持 hf-mirror 的下载方式。
+- 已补：`backend/scripts/tei/offline_model_gate.py` 校验离线模型目录的必需文件、`hidden_size=1024`
+  与 `pytorch_model.bin` 大小，可写 JSON 证据；`infra/README.md` 已记录下载与 gate 命令。本机
+  `infra/tei-models/bge-large-zh-v1.5` 已跑通 gate：`hidden_size=1024`、权重约 1.3GB。
+- 剩余：部署机需按 gate 验证；若要完全免预下载步骤，后续再做自建含模型镜像或制品仓库存储。
 
 ### TD-030
 **A1 检索升级仅落「模板语义选择」第一刀，能力/技能/角色语义检索延后（用户决策切片）。**

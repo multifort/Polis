@@ -38,6 +38,19 @@ docker compose ps
 | web | polis-web:local | 3000 | Next.js 前端 |
 | gateway | nginx | 8080 | 前置反向代理 + 认证入口限流 |
 
+## TEI 离线模型
+`text-embeddings` 默认从 `infra/tei-models/bge-large-zh-v1.5` 离线加载模型，容器内路径为
+`/data/models/bge-large-zh-v1.5`。模型目录不入库；新机器需要先下载到该目录：
+
+```bash
+HF_ENDPOINT=https://hf-mirror.com huggingface-cli download BAAI/bge-large-zh-v1.5 \
+  --local-dir infra/tei-models/bge-large-zh-v1.5
+cd backend
+uv run python scripts/tei/offline_model_gate.py
+```
+
+gate 会校验必需文件、`hidden_size=1024` 和权重文件大小，避免 TEI 启动时再在线下载。
+
 ## 网关限流
 `gateway` 使用 `infra/nginx/polis.conf.template`，默认保护以下认证写接口：
 
