@@ -265,7 +265,9 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   `polis.modules.runtime.guardrails_ai_adapter:build` 已补，读取
   `POLIS_GUARDRAILS_AI_OUTPUT_RAIL_PATH` / `POLIS_GUARDRAILS_AI_INPUT_RAIL_PATH` 的 rail 文件，
   并把 Guardrails-AI `validate()` 结果映射为 Polis 的阻断/脱敏报告；缺包或缺 output rail path 均
-  fail-closed。`Guardrails` 支持
+  fail-closed。部署验证入口 `backend/scripts/guardrails/smoke.py` 已补，可生成 credential-safe JSON
+  证据，并通过 `--expect-provider`、`--require-output-change`、`--require-tool-input-block` 把真实
+  adapter/rail 策略转成机器 gate。`Guardrails` 支持
   `POLIS_GUARDRAILS_SHADOW_PROVIDER_PATH` 影子对照，并在
   `result_envelope.facts.guardrails.provider` 记录本次运行 provider。
   回归覆盖：
@@ -278,6 +280,7 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   `tests/test_guardrails.py::test_guardrails_ai_provider_blocks_tool_input`、
   `tests/test_guardrails.py::test_guardrails_ai_adapter_builds_from_configured_rail`、
   `tests/test_guardrails.py::test_guardrails_ai_adapter_requires_output_rail`、
+  `tests/test_guardrails_smoke.py`、
   `tests/test_guardrails.py::test_loop_reports_tool_output_redactions`、
   `tests/test_integration_execute.py::test_execute_node_records_guardrail_redactions`、
   `tests/test_integration_observability.py::test_observability_exposes_guardrail_redaction_audit`。
