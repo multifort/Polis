@@ -29,6 +29,16 @@ class _Provider:
         return GuardrailSanitizeReport(output=output)
 
 
+class _BrokenProvider:
+    name = "guardrails_ai"
+
+    def check_tool_input(self, _tool_call: object) -> None:
+        raise RuntimeError("credential=do-not-record")
+
+    def sanitize_with_report(self, _output: str) -> GuardrailSanitizeReport:
+        raise RuntimeError("credential=do-not-record")
+
+
 def test_guardrails_smoke_records_only_safe_evidence() -> None:
     result = run_guardrails_smoke(
         Guardrails(_Provider()),
@@ -51,6 +61,20 @@ def test_guardrails_smoke_records_only_safe_evidence() -> None:
         require_output_change=True,
         require_tool_input_block=True,
     )
+
+
+def test_guardrails_smoke_failure_evidence_omits_exception_text() -> None:
+    result = run_guardrails_smoke(
+        Guardrails(_BrokenProvider()),
+        safe_output="clean",
+        unsafe_output="unsafe secret",
+        unsafe_tool_input="unsafe tool",
+    )
+
+    evidence = result.to_evidence()
+    assert evidence["ok"] is False
+    assert evidence["error"] == "RuntimeError"
+    assert "credential=do-not-record" not in str(evidence)
 
 
 @pytest.mark.parametrize(
@@ -108,6 +132,30 @@ def test_guardrails_smoke_cli_fails_provider_mismatch(
 
     assert code == 1
     assert "provider mismatch" in capsys.readouterr().out
+
+
+def test_guardrails_smoke_cli_omits_provider_exception_text(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def raise_secret() -> Guardrails:
+        raise RuntimeError("credential=do-not-record")
+
+    monkeypatch.setattr(smoke.Guardrails, "from_settings", raise_secret)
+    args = argparse.Namespace(
+        expect_provider="guardrails_ai",
+        safe_output="clean",
+        unsafe_output="unsafe",
+        unsafe_tool_input="unsafe",
+        require_output_change=False,
+        require_tool_input_block=False,
+        json_out=None,
+    )
+
+    assert smoke._run(args) == 1
+    output = capsys.readouterr().out
+    assert "RuntimeError" in output
+    assert "credential=do-not-record" not in output
 
 
 def test_guardrails_smoke_cli_passes_required_checks(

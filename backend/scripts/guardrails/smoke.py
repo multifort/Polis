@@ -82,10 +82,10 @@ def _run(args: argparse.Namespace) -> int:
     except Exception as exc:  # noqa: BLE001 - provider construction can fail closed.
         result = failed_guardrails_smoke_evidence(
             provider=args.expect_provider or "unknown",
-            error=str(exc),
+            error=type(exc).__name__,
         )
         _write_json_out(args.json_out, result.to_evidence())
-        print(f"Guardrails smoke: FAIL ({exc})")
+        print(f"Guardrails smoke: FAIL ({type(exc).__name__})")
         return 1
 
     _write_json_out(args.json_out, result.to_evidence())

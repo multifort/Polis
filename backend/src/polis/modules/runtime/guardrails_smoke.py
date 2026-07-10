@@ -62,7 +62,7 @@ def run_guardrails_smoke(
     except Exception as exc:  # noqa: BLE001 - deployment smoke should return safe diagnostics.
         return failed_guardrails_smoke_evidence(
             provider=guard.provider_name,
-            error=str(exc),
+            error=type(exc).__name__,
         )
 
 
