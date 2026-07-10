@@ -143,6 +143,7 @@ make check          # lint + type + test
 
 # 真实模型专项门：固定 judge 回归集（需配置 DeepSeek Key）
 uv run python scripts/eval/judge_regression_gate.py --json-out var/eval/judge.json
+# 本机代理导致模型连接失败时，追加 --disable-proxy 直连
 ```
 
 前端：

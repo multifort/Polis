@@ -14,6 +14,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,6 +29,14 @@ from polis.modules.observability import evaluator
 
 CASES_PATH = Path(__file__).with_name("judge_cases.json")
 _DEFAULT_ACCURACY_THRESHOLD = 0.8
+_PROXY_ENV_KEYS = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+)
 
 
 @dataclass(frozen=True)
@@ -73,6 +84,7 @@ class GateSummary:
     double_judge: bool
     double_judge_margin: float
     max_attempts: int
+    proxy_disabled: bool
     checks: tuple[CaseCheck, ...]
 
     @property
@@ -98,6 +110,7 @@ class GateSummary:
             "double_judge": self.double_judge,
             "double_judge_margin": self.double_judge_margin,
             "max_attempts": self.max_attempts,
+            "proxy_disabled": self.proxy_disabled,
             "case_count": len(self.checks),
             "correct_count": self.correct_count,
             "accuracy": self.accuracy,
@@ -158,6 +171,7 @@ def summarize(
     double_judge: bool,
     double_judge_margin: float,
     max_attempts: int,
+    proxy_disabled: bool,
 ) -> GateSummary:
     if len(cases) != len(results):
         raise ValueError("judge result count does not match case count")
@@ -181,6 +195,7 @@ def summarize(
         double_judge=double_judge,
         double_judge_margin=double_judge_margin,
         max_attempts=max_attempts,
+        proxy_disabled=proxy_disabled,
         checks=checks,
     )
 
@@ -191,6 +206,20 @@ def _write_json(path: str | None, payload: dict[str, Any]) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+@contextmanager
+def _without_proxy_env(enabled: bool) -> Iterator[None]:
+    """Temporarily remove standard proxy variables for direct model calls."""
+    if not enabled:
+        yield
+        return
+
+    original = {key: os.environ.pop(key) for key in _PROXY_ENV_KEYS if key in os.environ}
+    try:
+        yield
+    finally:
+        os.environ.update(original)
 
 
 async def _evaluate_cases(
@@ -239,6 +268,7 @@ async def run(
     double_judge: bool,
     double_judge_margin: float,
     max_attempts: int,
+    disable_proxy: bool,
     json_out: str | None,
 ) -> int:
     settings = get_settings()
@@ -247,6 +277,7 @@ async def run(
             "ok": False,
             "status": "no_data",
             "reason": "POLIS_DEEPSEEK_API_KEY is not configured",
+            "proxy_disabled": disable_proxy,
         }
         _write_json(json_out, payload)
         print("Judge regression gate: NO DATA (real model key is not configured)")
@@ -257,21 +288,23 @@ async def run(
         init_engine()
         async with get_sessionmaker()() as session:
             model = await resolve_model(session, settings.default_chat_model)
-        results = await _evaluate_cases(
-            LiteLLMGateway(),
-            model,
-            cases,
-            pass_threshold=pass_threshold,
-            double_judge=double_judge,
-            double_judge_margin=double_judge_margin,
-            max_attempts=max_attempts,
-        )
+        with _without_proxy_env(disable_proxy):
+            results = await _evaluate_cases(
+                LiteLLMGateway(),
+                model,
+                cases,
+                pass_threshold=pass_threshold,
+                double_judge=double_judge,
+                double_judge_margin=double_judge_margin,
+                max_attempts=max_attempts,
+            )
     except Exception as exc:  # noqa: BLE001 - gate must emit concise credential-safe evidence
         payload = {
             "ok": False,
             "status": "fail",
             "reason": "model_or_dataset_error",
             "error_type": type(exc).__name__,
+            "proxy_disabled": disable_proxy,
         }
         _write_json(json_out, payload)
         print(f"Judge regression gate: FAIL ({type(exc).__name__})")
@@ -286,12 +319,13 @@ async def run(
         double_judge=double_judge,
         double_judge_margin=double_judge_margin,
         max_attempts=max_attempts,
+        proxy_disabled=disable_proxy,
     )
     _write_json(json_out, summary.to_json())
 
     print(
         f"Judge regression gate: dataset={dataset_version} model={model.id} "
-        f"double_judge={double_judge}"
+        f"double_judge={double_judge} proxy_disabled={disable_proxy}"
     )
     for check in summary.checks:
         state = "PASS" if check.correct else "FAIL"
@@ -328,6 +362,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=settings.quality_gate_double_judge_margin,
     )
     parser.add_argument("--attempts", type=int, default=2, help="provider attempts per case")
+    parser.add_argument(
+        "--disable-proxy",
+        action="store_true",
+        help="temporarily remove standard proxy environment variables for model calls",
+    )
     parser.add_argument("--json-out", default=None)
     return parser
 
@@ -352,6 +391,7 @@ def main() -> None:
                 double_judge=args.double_judge,
                 double_judge_margin=args.double_judge_margin,
                 max_attempts=args.attempts,
+                disable_proxy=args.disable_proxy,
                 json_out=args.json_out,
             )
         )

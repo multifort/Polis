@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 from scripts.eval.judge_regression_gate import (
     CASES_PATH,
     _evaluate_cases,
+    _without_proxy_env,
     load_cases,
     summarize,
 )
@@ -63,6 +65,7 @@ def test_judge_summary_applies_accuracy_gate_without_leaking_case_text() -> None
         double_judge=True,
         double_judge_margin=0.08,
         max_attempts=2,
+        proxy_disabled=False,
     )
 
     assert summary.correct_count == 5
@@ -71,6 +74,24 @@ def test_judge_summary_applies_accuracy_gate_without_leaking_case_text() -> None
     payload = summary.to_json()
     assert "output" not in str(payload)
     assert "acceptance_criteria" not in str(payload)
+    assert payload["proxy_disabled"] is False
+
+
+def test_disable_proxy_context_removes_and_restores_standard_variables(
+    monkeypatch: Any,
+) -> None:
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.example")
+    monkeypatch.setenv("https_proxy", "http://proxy.example")
+
+    with _without_proxy_env(True):
+        assert "HTTP_PROXY" not in os.environ
+        assert "https_proxy" not in os.environ
+
+    assert os.environ["HTTP_PROXY"] == "http://proxy.example"
+    assert os.environ["https_proxy"] == "http://proxy.example"
+
+    with _without_proxy_env(False):
+        assert os.environ["HTTP_PROXY"] == "http://proxy.example"
 
 
 def test_judge_gate_retries_transient_provider_failure() -> None:
