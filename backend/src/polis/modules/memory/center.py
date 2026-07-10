@@ -11,6 +11,7 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,7 @@ from polis.db.org_scoped import select_org_scoped
 from polis.modules.memory import repository as repo
 from polis.modules.memory.models import Memory, ResultEnvelope
 from polis.modules.model.gateway import ChatMessage, ModelGateway, ResolvedModel
+from polis.modules.org.models import Agent
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +136,7 @@ async def upsert_shared_fact(
 
     近邻不存在→insert；新事实置信更高→覆盖；否则→标记 conflict（不静默硬合并，交人裁决）。
     有 embedding 时用语义近邻裁决；无 embedding 时回退内容精确匹配。
-    返回 (action, memory)，action ∈ inserted|overridden|conflict。
+    返回 (action, memory)，action ∈ inserted|overridden|duplicate|conflict。
     """
     content = _normalize(fact.content)
     old = await repo.find_by_content(session, org_id, "org", namespace, content)
@@ -176,6 +178,16 @@ async def upsert_shared_fact(
         old.provenance = fact.provenance
         await session.flush()
         return ("overridden", old)
+
+    if old.content == content and fact.confidence == old.confidence:
+        old.provenance = {
+            **(old.provenance or {}),
+            **(fact.provenance or {}),
+        }
+        old.importance = max(old.importance, _score(fact))
+        old.last_promoted_at = datetime.now(UTC)
+        await session.flush()
+        return ("duplicate", old)
 
     # 冲突：标记而非静默合并
     old.provenance = {
@@ -253,10 +265,11 @@ async def retrieve(
     )
 
 
-# ── 自动晋升（task → org 蒸馏，V2-B3）─────────────────────────────────────────────
+# ── 自动晋升（task → role → org 蒸馏，V2-B3）─────────────────────────────────────
 
 _ORG_NS = "company"  # org 级"公司知识"统一命名空间（供 B2 规划/编配接地检索）
 _THETA_ORG_CONF = 0.7  # org 置信门（更高 + 必带出处，防把幻觉沉淀成"公司知识"，§5.2/§5.4）
+_ROLE_FREQUENCY_MIN = 2  # role fact 至少被不同任务复现 N 次，才晋升为 org 共享事实
 _DISTILL_MAX = 5  # 单任务最多蒸馏出的事实数（控成本/防噪声）
 _DISTILL_INPUT_CAP = 4000  # 喂给蒸馏的产出文本上限（字符）
 
@@ -312,6 +325,128 @@ async def distill_facts(gateway: ModelGateway, model: ResolvedModel, text_blob: 
     return _parse_facts(rsp.content or "")
 
 
+def _task_ids_from_provenance(mem: Memory) -> set[str]:
+    """从 role fact provenance 中取参与频次门的 task id 集合。"""
+    out: set[str] = set()
+    if mem.promoted_from is not None:
+        out.add(str(mem.promoted_from))
+    prov = mem.provenance or {}
+    task_ids = prov.get("task_ids")
+    if isinstance(task_ids, list):
+        out.update(str(v) for v in task_ids if v)
+    return out
+
+
+async def _role_namespaces_for_task(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    task_id: uuid.UUID,
+    envs: list[ResultEnvelope],
+) -> list[str]:
+    """根据产出 Agent 归属确定 role 记忆命名空间。
+
+    常设 Agent 使用 role:<role_id>；临时生成 Agent 没有 role_id 时使用 agent:<agent_id>；
+    旧数据/测试没有 agent_id 时落到 unknown，使频次门仍有可审计的中间层。
+    """
+    agent_ids = sorted({e.agent_id for e in envs if e.agent_id is not None}, key=str)
+    if not agent_ids:
+        return ["unknown"]
+
+    agents = list(
+        (
+            await session.scalars(select_org_scoped(Agent, org_id).where(Agent.id.in_(agent_ids)))
+        ).all()
+    )
+    by_id = {a.id: a for a in agents}
+    namespaces: list[str] = []
+    for agent_id in agent_ids:
+        agent = by_id.get(agent_id)
+        if agent is not None and agent.role_id is not None:
+            ns = f"role:{agent.role_id}"
+        else:
+            ns = f"agent:{agent_id}"
+        if ns not in namespaces:
+            namespaces.append(ns)
+    return namespaces or [f"task:{task_id}"]
+
+
+async def _upsert_role_fact(
+    session: AsyncSession,
+    gateway: ModelGateway,
+    org_id: uuid.UUID,
+    namespace: str,
+    fact: Fact,
+    *,
+    task_id: uuid.UUID,
+) -> tuple[str, Memory | None]:
+    """写入/更新 role 中间层 fact，并把不同 task 的复现证据保存在 provenance.task_ids。"""
+    content = _normalize(fact.content)
+    if _is_noise(content):
+        return ("skipped", None)
+
+    old = await repo.find_by_content(session, org_id, "role", namespace, content)
+    if old is None:
+        provenance = {
+            **(fact.provenance or {}),
+            "kind": "task_distill_role",
+            "task_ids": [str(task_id)],
+            "occurrence_count": 1,
+        }
+        mem = await repo.insert_memory(
+            session,
+            org_id=org_id,
+            scope="role",
+            namespace=namespace,
+            mem_type="factual",
+            content=content,
+            embedding=(await gateway.embed([content]))[0],
+            provenance=provenance,
+            importance=_score(fact),
+            confidence=fact.confidence,
+            promoted_from=task_id,
+        )
+        return ("inserted", mem)
+
+    task_ids = _task_ids_from_provenance(old)
+    before = len(task_ids)
+    task_ids.add(str(task_id))
+    old.provenance = {
+        **(old.provenance or {}),
+        "kind": "task_distill_role",
+        "task_ids": sorted(task_ids),
+        "occurrence_count": len(task_ids),
+    }
+    old.confidence = max(old.confidence, fact.confidence)
+    old.importance = max(old.importance, _score(fact))
+    old.last_promoted_at = datetime.now(UTC)
+    await session.flush()
+    return ("updated" if len(task_ids) > before else "duplicate", old)
+
+
+async def _role_fact_frequency(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    content: str,
+) -> tuple[int, list[str]]:
+    rows = list(
+        (
+            await session.scalars(
+                select_org_scoped(Memory, org_id).where(
+                    Memory.scope == "role",
+                    Memory.content == _normalize(content),
+                )
+            )
+        ).all()
+    )
+    task_ids: set[str] = set()
+    namespaces: list[str] = []
+    for row in rows:
+        task_ids.update(_task_ids_from_provenance(row))
+        if row.namespace not in namespaces:
+            namespaces.append(row.namespace)
+    return len(task_ids), namespaces
+
+
 async def promote_facts_from_task(
     session: AsyncSession,
     gateway: ModelGateway,
@@ -319,19 +454,19 @@ async def promote_facts_from_task(
     org_id: uuid.UUID,
     task_id: uuid.UUID,
 ) -> dict[str, int]:
-    """任务完成自动晋升（§5.2）：读本任务节点产出 → 蒸馏事实 → 高置信(≥θ)的 upsert 到 org 记忆。
+    """任务完成自动晋升（§5.2）：读本任务产出 → role 中间层 → 达频次门后进 org 记忆。
 
-    无人 curate（晋升是数据操作、风险低）；org 门更高 + 必带出处(promoted_from)，防幻觉沉淀。
-    幂等：同 task 已晋升过（org 记忆有 promoted_from=task_id）则跳过。best-effort，不抛错。
+    无人 curate（晋升是数据操作、风险低）；org 门更高 + role 复现频次，防单次任务噪声沉淀。
+    幂等：同 task 已写过 role/org 记忆则跳过。best-effort，不抛错。
     """
     # 幂等：本任务已晋升过 → 跳过
     seen = await session.scalar(
         select_org_scoped(Memory, org_id).where(
-            Memory.scope == "org", Memory.promoted_from == task_id
+            Memory.scope.in_(("role", "org")), Memory.promoted_from == task_id
         )
     )
     if seen is not None:
-        return {"distilled": 0, "promoted": 0, "skipped": 1}
+        return {"distilled": 0, "role_written": 0, "promoted": 0, "skipped": 1}
 
     envs = list(
         (
@@ -344,24 +479,47 @@ async def promote_facts_from_task(
     )
     blob = "\n\n".join((e.content or e.summary or "") for e in envs).strip()
     if not blob:
-        return {"distilled": 0, "promoted": 0, "skipped": 0}
+        return {"distilled": 0, "role_written": 0, "promoted": 0, "skipped": 0}
 
     facts = await distill_facts(gateway, model, blob)
+    role_namespaces = await _role_namespaces_for_task(session, org_id, task_id, envs)
+    role_written = 0
     promoted = 0
     for fact in facts:
         if fact.confidence < _THETA_ORG_CONF:
             continue
         fact.provenance = {"promoted_from": str(task_id), "kind": "task_distill"}
-        action, _ = await upsert_shared_fact(
-            session, gateway, org_id, _ORG_NS, fact, promoted_from=task_id
-        )
-        if action in ("inserted", "overridden"):
-            promoted += 1
+        for namespace in role_namespaces:
+            action, _ = await _upsert_role_fact(
+                session, gateway, org_id, namespace, fact, task_id=task_id
+            )
+            if action in ("inserted", "updated"):
+                role_written += 1
+
+        frequency, namespaces = await _role_fact_frequency(session, org_id, fact.content)
+        if frequency >= _ROLE_FREQUENCY_MIN:
+            fact.provenance = {
+                "promoted_from": str(task_id),
+                "kind": "role_frequency",
+                "role_frequency": frequency,
+                "role_namespaces": namespaces,
+            }
+            action, _ = await upsert_shared_fact(
+                session, gateway, org_id, _ORG_NS, fact, promoted_from=task_id
+            )
+            if action in ("inserted", "overridden"):
+                promoted += 1
     logger.info(
-        "promote_facts_from_task org=%s task=%s 蒸馏 %d 条、晋升 %d 条",
+        "promote_facts_from_task org=%s task=%s 蒸馏 %d 条、role 写入 %d 条、org 晋升 %d 条",
         org_id,
         task_id,
         len(facts),
+        role_written,
         promoted,
     )
-    return {"distilled": len(facts), "promoted": promoted, "skipped": 0}
+    return {
+        "distilled": len(facts),
+        "role_written": role_written,
+        "promoted": promoted,
+        "skipped": 0,
+    }
