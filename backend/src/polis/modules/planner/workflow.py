@@ -394,6 +394,7 @@ class TaskWorkflow:
         self._acceptance = ""  # 验收标准（V2-S1 质量门）
         self._quality: dict[str, float] = {}  # 关键节点 judge 分数（观测用）
         self._quality_detail: dict[str, dict[str, Any]] = {}  # 双评明细；保留 quality 兼容旧消费者
+        self._quality_detail_enabled = False  # Temporal patch quality-detail-v1 控制新结果字段
         self._rework_count: dict[str, int] = {}  # S2：每节点反馈重跑次数
 
     @workflow.run
@@ -403,6 +404,7 @@ class TaskWorkflow:
         dag = PlanDag.model_validate(plan)
         self._goal = str(plan.get("goal") or dag.goal or "")
         self._acceptance = str(dag.acceptance_criteria or "")
+        self._quality_detail_enabled = workflow.patched("quality-detail-v1")
         # 保留原始 node dict（Pydantic model_dump 会丢掉 extra 字段）
         self._raw_nodes = {n["id"]: n for n in plan.get("nodes", [])}
         # 出图时已过 validate；此处从 DAG 自身推导可用能力集供重规划校验用
@@ -491,12 +493,14 @@ class TaskWorkflow:
                 start_to_close_timeout=_QUALITY_TIMEOUT,
                 retry_policy=RetryPolicy(maximum_attempts=5),
             )
-        return {
+        workflow_result: dict[str, Any] = {
             "status": overall,
             "nodes": [{"id": k, "status": v} for k, v in self._node_status.items()],
             "quality": self._quality,
-            "quality_detail": self._quality_detail,
         }
+        if self._quality_detail_enabled:
+            workflow_result["quality_detail"] = self._quality_detail
+        return workflow_result
 
     @workflow.signal
     async def approve(self, node_id: str) -> None:
@@ -528,7 +532,8 @@ class TaskWorkflow:
         # ── V2-S1 质量门 + S2 分级纠错（② rework → ④ escalate）──
         failed, judge, quality_detail = await self._assess(raw_node, result, reworked=False)
         self._quality[node.id] = judge
-        self._quality_detail[node.id] = quality_detail
+        if self._quality_detail_enabled:
+            self._quality_detail[node.id] = quality_detail
         if failed and self._rework_count.get(node.id, 0) < REWORK_MAX:
             # ② rework：把不达标原因喂回上下文，重跑【同节点】（上限 REWORK_MAX，§4.2）
             self._rework_count[node.id] = self._rework_count.get(node.id, 0) + 1
@@ -540,7 +545,8 @@ class TaskWorkflow:
             result = await self._run_node({**raw_node, "input_hint": fb}, org_id)
             failed, judge, quality_detail = await self._assess(raw_node, result, reworked=True)
             self._quality[node.id] = judge
-            self._quality_detail[node.id] = quality_detail
+            if self._quality_detail_enabled:
+                self._quality_detail[node.id] = quality_detail
         if failed:
             # ④ escalate：返工仍不达标 → needs_rework + 升级人审（超界交人，§4.3）。
             # stub 为纯编排测试节点（无 DB），不建审批。

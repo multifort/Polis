@@ -15,9 +15,39 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from temporalio import activity
+from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
 
-from polis.modules.planner.workflow import MAX_REPLANS, TASK_QUEUE, TaskWorkflow, run_node
+from polis.modules.planner.workflow import (
+    _ACTIVITY_TIMEOUT,
+    _HEARTBEAT_TIMEOUT,
+    MAX_REPLANS,
+    TASK_QUEUE,
+    TaskWorkflow,
+    run_node,
+)
+
+
+@workflow.defn(name="TaskWorkflow")
+class _TaskWorkflowBeforeQualityDetail:
+    """Minimal pre-patch history producer with the same single-node command sequence."""
+
+    @workflow.run
+    async def run(self, plan: dict[str, Any], org_id: str, task_id: str = "") -> dict[str, Any]:
+        node = plan["nodes"][0]
+        await workflow.execute_activity(
+            run_node,
+            args=[node, org_id, task_id, str(plan.get("goal") or "")],
+            start_to_close_timeout=_ACTIVITY_TIMEOUT,
+            heartbeat_timeout=_HEARTBEAT_TIMEOUT,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        return {
+            "status": "done",
+            "nodes": [{"id": str(node["id"]), "status": "done"}],
+            "quality": {str(node["id"]): 1.0},
+        }
+
 
 # ── 辅助 ────────────────────────────────────────────────────────────────────
 
@@ -487,6 +517,42 @@ def test_quality_gate_needs_review() -> None:
             "judge_scores": [0.0],
             "judge_policy": "test_hook",
         }
+
+    asyncio.run(_run())
+
+
+def test_quality_detail_patch_replays_pre_patch_history() -> None:
+    """Temporal patching: no-marker old history replays on current workflow
+    deterministically.
+    """
+    _skip_if_unavailable()
+
+    async def _run() -> None:
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Replayer, Worker
+
+        plan = _plan([_node("n1")])
+        async with (
+            await WorkflowEnvironment.start_time_skipping() as env,
+            Worker(
+                env.client,
+                task_queue=TASK_QUEUE,
+                workflows=[_TaskWorkflowBeforeQualityDetail],
+                activities=[run_node],
+            ),
+        ):
+            handle = await env.client.start_workflow(
+                _TaskWorkflowBeforeQualityDetail.run,
+                args=[plan, str(uuid.uuid4())],
+                id=f"test-pre-quality-detail-{uuid.uuid4().hex}",
+                task_queue=TASK_QUEUE,
+            )
+            old_result: dict[str, Any] = await handle.result()
+            history = await handle.fetch_history()
+
+        assert "quality_detail" not in old_result
+        replay = await Replayer(workflows=[TaskWorkflow]).replay_workflow(history)
+        assert replay.replay_failure is None
 
     asyncio.run(_run())
 
