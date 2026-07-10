@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import importlib
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -235,12 +236,38 @@ def _mcp_transport_context(config: McpServerConfig, mcp_pkg: Any) -> Any:
     if not config.url:
         raise McpToolCallError(f"MCP server {config.server} 缺少 Streamable HTTP URL")
     stream_mod = importlib.import_module("mcp.client.streamable_http")
-    return stream_mod.streamablehttp_client(
+    return _streamable_http_context(config, stream_mod)
+
+
+@asynccontextmanager
+async def _streamable_http_context(config: McpServerConfig, stream_mod: Any) -> AsyncIterator[Any]:
+    """Prefer the current SDK client while retaining compatibility with older MCP 1.x."""
+    client_factory = getattr(stream_mod, "streamable_http_client", None)
+    if callable(client_factory):
+        timeout = httpx.Timeout(
+            config.timeout_seconds,
+            read=config.sse_read_timeout_seconds or 300,
+        )
+        async with (
+            httpx.AsyncClient(
+                headers=config.headers or None,
+                timeout=timeout,
+            ) as http_client,
+            client_factory(config.url, http_client=http_client) as streams,
+        ):
+            yield streams
+        return
+
+    legacy_factory = getattr(stream_mod, "streamablehttp_client", None)
+    if not callable(legacy_factory):
+        raise McpToolCallError("MCP SDK 缺少 Streamable HTTP client")
+    async with legacy_factory(
         config.url,
         headers=config.headers or None,
         timeout=config.timeout_seconds,
         sse_read_timeout=config.sse_read_timeout_seconds or 300,
-    )
+    ) as streams:
+        yield streams
 
 
 def _tool_from_mcp_schema(config: McpServerConfig, raw: Any) -> McpTool:

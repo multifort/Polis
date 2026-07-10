@@ -308,6 +308,12 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
   真实 stdio MCP server smoke 已补：测试用 FastMCP 子进程通过标准协议完成 `list_tools` + `call_tool`
   端到端调用；回归覆盖：
   `tests/test_mcp_runtime.py::test_runtime_discovers_and_calls_real_stdio_mcp_server`。
+  真实 Streamable HTTP smoke 也已补：测试启动独立 FastMCP HTTP 子进程，通过与部署脚本相同的
+  `run_external_mcp_smoke` 路径完成 `list_tools` + `call_tool`，并过 credential-safe 证据 gate；回归覆盖
+  `tests/test_mcp_streamable_http.py`。同时 runtime 已优先使用 MCP SDK 新版 `streamable_http_client`
+  （显式托管 `httpx.AsyncClient` 的 headers/连接与 SSE read timeout），仅对旧 MCP 1.x 回退已弃用别名，
+  消除当前 SDK deprecation warning。2026-07-10 CLI 实测发现 `echo_http/multiply`、调用 `echo_http`
+  返回 `http-echo:cli-ok`，证据校验 PASS；该证据证明本地真实 HTTP 协议闭环，不替代外部 vendor 部署证据。
   外部部署联调入口已补：`backend/scripts/mcp/external_smoke.py` 支持 stdio/SSE/Streamable HTTP
   发现工具，并可选试调一个工具；`--json-out` 可写 credential-safe JSON 证据，成功/失败均不回显
   headers/env；证据验收 gate 已补 `backend/scripts/mcp/verify_external_smoke_evidence.py`，
@@ -327,7 +333,7 @@ M5 写入/检索/衰减/共享并发/治理均真实落地；M6 已把 embedding
 - cost-aware 路由已接入执行 fallback：Agent/公司均未指定模型时，运行时按 `cost_aware_pick("text-gen")`
   选择目录价最低的推理模型；无候选时再回退系统默认。回归覆盖：
   `tests/test_integration_execute.py::test_execute_node_uses_cost_aware_model_when_unset`。
-- 剩余：部署环境安装 Guardrails-AI 包 + rail 文件后的真实联调；拿 browser-pilot 等真实外部 MCP server 实例跑
+- 剩余：部署环境安装 Guardrails-AI 包 + rail 文件后的真实联调；拿 browser-pilot 等第三方外部 MCP server 实例跑
   `scripts/mcp/external_smoke.py --json-out ...`，再用
   `scripts/mcp/verify_external_smoke_evidence.py` 校验证据并归档。
 
