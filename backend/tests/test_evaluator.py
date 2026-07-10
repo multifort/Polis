@@ -45,6 +45,68 @@ def test_judge_pass_and_fail() -> None:
     assert r2.passed is False
 
 
+def test_double_judge_only_rechecks_borderline_score_and_takes_lower() -> None:
+    gw = StubModelGateway(script=[ChatResponse(content="0.65"), ChatResponse(content="0.55")])
+
+    result = asyncio.run(
+        evaluator.score(
+            gw,
+            _MODEL,
+            "一份处于达标边缘的报告",
+            acceptance_criteria="是否完整且有据",
+            pass_threshold=0.6,
+            double_judge=True,
+            double_judge_margin=0.08,
+        )
+    )
+
+    assert result.judge_score == 0.55
+    assert result.passed is False
+    assert result.detail["judge_scores"] == [0.65, 0.55]
+    assert result.detail["judge_policy"] == "min_of_two"
+
+
+def test_double_judge_keeps_clear_score_single() -> None:
+    gw = StubModelGateway(script=[ChatResponse(content="0.9"), ChatResponse(content="0.1")])
+
+    result = asyncio.run(
+        evaluator.score(
+            gw,
+            _MODEL,
+            "一份清晰达标的报告",
+            acceptance_criteria="是否完整且有据",
+            pass_threshold=0.6,
+            double_judge=True,
+            double_judge_margin=0.08,
+        )
+    )
+
+    assert result.judge_score == 0.9
+    assert result.passed is True
+    assert result.detail["judge_scores"] == [0.9]
+    assert result.detail["judge_policy"] == "single"
+
+
+def test_double_judge_does_not_recheck_already_failing_score() -> None:
+    gw = StubModelGateway(script=[ChatResponse(content="0.55"), ChatResponse(content="0.9")])
+
+    result = asyncio.run(
+        evaluator.score(
+            gw,
+            _MODEL,
+            "一份未达标的报告",
+            acceptance_criteria="是否完整且有据",
+            pass_threshold=0.6,
+            double_judge=True,
+            double_judge_margin=0.08,
+        )
+    )
+
+    assert result.judge_score == 0.55
+    assert result.passed is False
+    assert result.detail["judge_scores"] == [0.55]
+
+
 def test_regression_set() -> None:
     gw = StubModelGateway(script=[ChatResponse(content="0.8"), ChatResponse(content="0.5")])
     cases = [

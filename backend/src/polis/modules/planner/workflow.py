@@ -118,11 +118,21 @@ async def evaluate_node(output: str, acceptance_criteria: str) -> dict[str, Any]
     async with get_sessionmaker()() as session:
         model = await resolve_model(session, settings.default_chat_model)
     gateway = LiteLLMGateway() if settings.deepseek_api_key else StubModelGateway()
-    r = await evaluator.score(gateway, model, output, acceptance_criteria=acceptance_criteria)
-    # 质量门用设计的 τ_pass（§4.3/§6/ADR-0012，缺省 0.6），而非 evaluator 通用默认 0.7——
-    # 后者偏严，会把"本来够好、judge 有方差跌破 0.7"的产出误判（回炉：对齐设计阈值，降假阴性）。
-    passed = r.assertions_ok and r.judge_score >= settings.quality_gate_tau
-    return {"passed": passed, "judge": r.judge_score}
+    r = await evaluator.score(
+        gateway,
+        model,
+        output,
+        acceptance_criteria=acceptance_criteria,
+        pass_threshold=settings.quality_gate_tau,
+        double_judge=settings.quality_gate_double_judge,
+        double_judge_margin=settings.quality_gate_double_judge_margin,
+    )
+    return {
+        "passed": r.passed,
+        "judge": r.judge_score,
+        "judge_scores": r.detail["judge_scores"],
+        "judge_policy": r.detail["judge_policy"],
+    }
 
 
 @activity.defn
@@ -383,6 +393,7 @@ class TaskWorkflow:
         self._goal = ""  # 用户意图（F3：贯通到 Agent 上下文，让产出锚定目标）
         self._acceptance = ""  # 验收标准（V2-S1 质量门）
         self._quality: dict[str, float] = {}  # 关键节点 judge 分数（观测用）
+        self._quality_detail: dict[str, dict[str, Any]] = {}  # 双评明细；保留 quality 兼容旧消费者
         self._rework_count: dict[str, int] = {}  # S2：每节点反馈重跑次数
 
     @workflow.run
@@ -484,6 +495,7 @@ class TaskWorkflow:
             "status": overall,
             "nodes": [{"id": k, "status": v} for k, v in self._node_status.items()],
             "quality": self._quality,
+            "quality_detail": self._quality_detail,
         }
 
     @workflow.signal
@@ -514,8 +526,9 @@ class TaskWorkflow:
         result = await self._run_node(raw_node, org_id)
 
         # ── V2-S1 质量门 + S2 分级纠错（② rework → ④ escalate）──
-        failed, judge = await self._assess(raw_node, result, reworked=False)
+        failed, judge, quality_detail = await self._assess(raw_node, result, reworked=False)
         self._quality[node.id] = judge
+        self._quality_detail[node.id] = quality_detail
         if failed and self._rework_count.get(node.id, 0) < REWORK_MAX:
             # ② rework：把不达标原因喂回上下文，重跑【同节点】（上限 REWORK_MAX，§4.2）
             self._rework_count[node.id] = self._rework_count.get(node.id, 0) + 1
@@ -525,8 +538,9 @@ class TaskWorkflow:
                 f"{self._acceptance}"
             )
             result = await self._run_node({**raw_node, "input_hint": fb}, org_id)
-            failed, judge = await self._assess(raw_node, result, reworked=True)
+            failed, judge, quality_detail = await self._assess(raw_node, result, reworked=True)
             self._quality[node.id] = judge
+            self._quality_detail[node.id] = quality_detail
         if failed:
             # ④ escalate：返工仍不达标 → needs_rework + 升级人审（超界交人，§4.3）。
             # stub 为纯编排测试节点（无 DB），不建审批。
@@ -558,12 +572,14 @@ class TaskWorkflow:
 
     async def _assess(
         self, raw_node: dict[str, Any], result: dict[str, Any], *, reworked: bool
-    ) -> tuple[bool, float]:
-        """质量评估，返回 (是否不达标, judge)。含测试钩子 + 真实关键节点 Evaluator。"""
+    ) -> tuple[bool, float, dict[str, Any]]:
+        """质量评估，返回失败标志、最终分和可观测双评明细。"""
         if raw_node.get("rework_recover"):  # 测试钩子：首次不达标、返工即恢复
-            return (not reworked, 1.0 if reworked else 0.0)
+            judge = 1.0 if reworked else 0.0
+            return (not reworked, judge, {"judge_scores": [judge], "judge_policy": "test_hook"})
         if raw_node.get("force_rework"):
-            return (True, 0.0)  # 测试钩子：强制不达标（返工仍失败 → 测 escalate 路径）
+            detail = {"judge_scores": [0.0], "judge_policy": "test_hook"}
+            return (True, 0.0, detail)  # 强制不达标（返工仍失败 → 测 escalate 路径）
         if not raw_node.get("stub") and _is_key_node(raw_node) and self._acceptance:
             ev: dict[str, Any] = await workflow.execute_activity(
                 evaluate_node,
@@ -571,5 +587,10 @@ class TaskWorkflow:
                 start_to_close_timeout=_QUALITY_TIMEOUT,
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
-            return (not ev.get("passed"), float(ev.get("judge") or 0.0))
-        return (False, 1.0)  # 非关键/桩节点 → 视为达标
+            judge = float(ev.get("judge") or 0.0)
+            detail = {
+                "judge_scores": ev.get("judge_scores") or [judge],
+                "judge_policy": ev.get("judge_policy") or "single",
+            }
+            return (not ev.get("passed"), judge, detail)
+        return (False, 1.0, {"judge_scores": [1.0], "judge_policy": "skipped"})

@@ -1,0 +1,47 @@
+{
+  "version": "2026-07-10",
+  "cases": [
+    {
+      "id": "procurement.complete",
+      "output": "建议选择供应商A。其含税总价98万元，交付期5天，满足6天硬约束；供应商B总价94万元但交付期8天，不满足时限。主要风险是A的单一货源依赖，建议合同加入延期赔付并保留第二供应商。",
+      "acceptance_criteria": "比较供应商的成本和交付约束，给出明确推荐、依据与风险缓解措施。",
+      "expected_fields": ["建议", "交付期", "风险"],
+      "expected_pass": true
+    },
+    {
+      "id": "procurement.vague",
+      "output": "两家供应商各有优势，建议结合实际情况综合考虑，后续保持沟通。",
+      "acceptance_criteria": "比较供应商的成本和交付约束，给出明确推荐、依据与风险缓解措施。",
+      "expected_fields": null,
+      "expected_pass": false
+    },
+    {
+      "id": "marketing.complete",
+      "output": "首月投放预算30万元：搜索广告12万元、行业媒体8万元、客户案例内容6万元、再营销4万元。目标为获得600条有效线索，单条成本不高于500元；每周按渠道复盘转化率，连续两周低于2%的渠道暂停并转投搜索广告。",
+      "acceptance_criteria": "给出有预算分配、量化目标和复盘调整机制的首月获客计划。",
+      "expected_fields": ["预算", "目标", "每周"],
+      "expected_pass": true
+    },
+    {
+      "id": "marketing.empty",
+      "output": "应积极利用多种渠道扩大品牌影响力，持续优化内容并关注用户反馈。",
+      "acceptance_criteria": "给出有预算分配、量化目标和复盘调整机制的首月获客计划。",
+      "expected_fields": null,
+      "expected_pass": false
+    },
+    {
+      "id": "incident.complete",
+      "output": "先冻结受影响的发布版本并在15分钟内切回上一稳定版本；保留错误日志和请求样本，按租户核对数据写入范围。30分钟内向受影响客户发送状态通知。恢复后补充根因、影响面、时间线和防复发措施，并由值班负责人验收。",
+      "acceptance_criteria": "事故处置方案必须包含止损、证据保留、客户沟通、恢复验证和复盘责任。",
+      "expected_fields": ["日志", "客户", "复盘"],
+      "expected_pass": true
+    },
+    {
+      "id": "incident.unsafe",
+      "output": "立即删除所有错误日志并重启全部服务，暂时不要通知客户，等问题自行恢复后再看。",
+      "acceptance_criteria": "事故处置方案必须包含止损、证据保留、客户沟通、恢复验证和复盘责任。",
+      "expected_fields": null,
+      "expected_pass": false
+    }
+  ]
+}

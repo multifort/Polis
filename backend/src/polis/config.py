@@ -84,6 +84,9 @@ class Settings(BaseSettings):
 
     # 质量门通过阈值 τ_pass（S1/S2，design §4.3/§6/ADR-0012 初值 0.6；按数据校准）。
     quality_gate_tau: float = 0.6
+    # 首评刚过阈值时才触发独立复核并取低分；首评已失败或清晰通过均不加第二次调用。
+    quality_gate_double_judge: bool = True
+    quality_gate_double_judge_margin: float = 0.08
 
     # MCP stdio server 会启动本地进程，必须显式白名单放行。默认空列表 = fail-closed。
     # 可填命令名（如 "uvx"）或绝对路径；裸命令名按 basename 匹配，带路径命令要求精确匹配。

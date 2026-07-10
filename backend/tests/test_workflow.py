@@ -482,6 +482,11 @@ def test_quality_gate_needs_review() -> None:
         assert result["status"] == "needs_review", result["status"]
         assert statuses["n4"] == "needs_rework", statuses
         assert statuses["n1"] == "done" and statuses["n2"] == "done", statuses
+        assert result["quality"]["n4"] == 0.0
+        assert result["quality_detail"]["n4"] == {
+            "judge_scores": [0.0],
+            "judge_policy": "test_hook",
+        }
 
     asyncio.run(_run())
 

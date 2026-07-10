@@ -121,6 +121,8 @@ class EvalRunOut(BaseModel):
     passed: bool
     assertions_ok: bool
     judge_score: float
+    judge_scores: list[float]
+    judge_policy: str
 
 
 @router.post("/eval/run", response_model=EvalRunOut)
@@ -135,11 +137,16 @@ async def eval_run(data: EvalRunIn, org: CurrentOrg, session: SessionDep) -> Eva
         data.output,
         expected_fields=data.expected_fields,
         acceptance_criteria=data.acceptance_criteria,
+        pass_threshold=settings.quality_gate_tau,
+        double_judge=settings.quality_gate_double_judge,
+        double_judge_margin=settings.quality_gate_double_judge_margin,
     )
     return EvalRunOut(
         passed=result.passed,
         assertions_ok=result.assertions_ok,
         judge_score=result.judge_score,
+        judge_scores=result.detail["judge_scores"],
+        judge_policy=result.detail["judge_policy"],
     )
 
 
