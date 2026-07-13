@@ -41,6 +41,29 @@ def test_r4_reuse_summary_counts_follow_up_manifest_occurrences() -> None:
     assert summary.reused == 1
     assert summary.rate == 0.5
     assert summary.passed is False
+    evidence = summary.to_json(
+        org_id=None,
+        include_samples=False,
+        include_benchmark=False,
+    )
+    assert evidence["status"] == "fail"
+    assert evidence["occurrence_counts"] == [1, 2]
+    assert "market.sentiment" not in str(evidence)
+
+
+def test_r4_reuse_summary_emits_no_data_evidence() -> None:
+    summary = compute_reuse_summary([], [], threshold=0.6, min_occurrences=2)
+
+    evidence = summary.to_json(
+        org_id=None,
+        include_samples=False,
+        include_benchmark=False,
+    )
+
+    assert evidence["ok"] is False
+    assert evidence["status"] == "no_data"
+    assert evidence["template_count"] == 0
+    assert evidence["occurrence_counts"] == []
 
 
 def test_r4_reuse_summary_ignores_legacy_capability_lists_and_cross_org() -> None:

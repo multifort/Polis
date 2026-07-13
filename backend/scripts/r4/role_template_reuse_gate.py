@@ -13,14 +13,17 @@
   uv run python scripts/r4/role_template_reuse_gate.py --include-benchmark
   uv run python scripts/r4/role_template_reuse_gate.py --include-samples
   uv run python scripts/r4/role_template_reuse_gate.py --org-id <org_uuid> --threshold 0.6
+  uv run python scripts/r4/role_template_reuse_gate.py --json-out var/r4/reuse.json
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -58,6 +61,29 @@ class ReuseSummary:
     @property
     def passed(self) -> bool:
         return self.has_data and self.rate >= self.threshold
+
+    def to_json(
+        self,
+        *,
+        org_id: uuid.UUID | None,
+        include_samples: bool,
+        include_benchmark: bool,
+    ) -> dict[str, Any]:
+        """Return evidence without agent names, org names, or manifest content."""
+        status = "no_data" if not self.has_data else "pass" if self.passed else "fail"
+        return {
+            "ok": self.passed,
+            "status": status,
+            "org_id": str(org_id) if org_id is not None else None,
+            "include_samples": include_samples,
+            "include_benchmark": include_benchmark,
+            "threshold": self.threshold,
+            "min_occurrences": self.min_occurrences,
+            "template_count": self.total,
+            "reused_count": self.reused,
+            "reuse_rate": self.rate,
+            "occurrence_counts": sorted(self.occurrences.values()),
+        }
 
 
 def _agent_names_from_manifest(agents_used: dict[str, Any] | None) -> set[str]:
@@ -150,6 +176,7 @@ async def run(
     *,
     include_samples: bool = False,
     include_benchmark: bool = False,
+    json_out: str | None = None,
 ) -> int:
     templates, manifests = await _load_inputs(
         org_id,
@@ -161,6 +188,14 @@ async def run(
         manifests,
         threshold=threshold,
         min_occurrences=min_occurrences,
+    )
+    _write_json(
+        json_out,
+        summary.to_json(
+            org_id=org_id,
+            include_samples=include_samples,
+            include_benchmark=include_benchmark,
+        ),
     )
 
     scope = f"org={org_id}" if org_id else "all orgs"
@@ -186,6 +221,14 @@ async def run(
     return 0 if summary.passed else 1
 
 
+def _write_json(path: str | None, payload: dict[str, Any]) -> None:
+    if path is None:
+        return
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--org-id", type=uuid.UUID, default=None, help="只统计指定 org")
@@ -206,6 +249,7 @@ def main() -> None:
         action="store_true",
         help="包含 M7 验收门 / R4 smoke 等 benchmark org；默认排除以代表真实业务口径",
     )
+    parser.add_argument("--json-out", default=None, help="credential-safe JSON evidence path")
     args = parser.parse_args()
     raise SystemExit(
         asyncio.run(
@@ -215,6 +259,7 @@ def main() -> None:
                 args.min_occurrences,
                 include_samples=args.include_samples,
                 include_benchmark=args.include_benchmark,
+                json_out=args.json_out,
             )
         )
     )
