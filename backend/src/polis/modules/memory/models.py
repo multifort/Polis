@@ -11,12 +11,9 @@ from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
-    Boolean,
     CheckConstraint,
     Float,
-    ForeignKey,
     Index,
-    Integer,
     Text,
     text,
 )
@@ -25,6 +22,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from polis.db.base import Base
 from polis.db.mixins import OrgScopedMixin, UUIDPkMixin
+from polis.modules.kernel.models import ArtifactDescriptor as ArtifactDescriptor
+from polis.modules.kernel.models import ResultEnvelope as ResultEnvelope
 
 
 class Memory(UUIDPkMixin, OrgScopedMixin, Base):
@@ -57,33 +56,3 @@ class Memory(UUIDPkMixin, OrgScopedMixin, Base):
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
     )
-
-
-class ResultEnvelope(UUIDPkMixin, OrgScopedMixin, Base):
-    __tablename__ = "result_envelope"
-
-    task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("task_run.id"))
-    node_id: Mapped[str | None] = mapped_column(Text)
-    agent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("agent.id"))
-    status: Mapped[str | None] = mapped_column(Text)
-    artifacts: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    facts: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    summary: Mapped[str | None] = mapped_column(Text)
-    content: Mapped[str | None] = mapped_column(Text)  # 全文（V2-B1 黑板，懒加载）
-    tokens: Mapped[int | None] = mapped_column(Integer)  # 产出 token 估算（预算）
-    needs_human: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
-    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
-
-
-class ArtifactDescriptor(UUIDPkMixin, OrgScopedMixin, Base):
-    __tablename__ = "artifact_descriptor"
-
-    task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("task_run.id"))
-    node_id: Mapped[str | None] = mapped_column(Text)
-    modality: Mapped[str | None] = mapped_column(Text)
-    uri: Mapped[str | None] = mapped_column(Text)
-    mime: Mapped[str | None] = mapped_column(Text)
-    caption: Mapped[str | None] = mapped_column(Text)
-    provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))

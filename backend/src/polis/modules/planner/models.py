@@ -11,8 +11,6 @@ from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
-    BigInteger,
-    CheckConstraint,
     ForeignKey,
     Index,
     Integer,
@@ -25,6 +23,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from polis.db.base import Base
 from polis.db.mixins import OrgScopedMixin, TimestampMixin, UUIDPkMixin
+from polis.modules.kernel.models import Plan as Plan
+from polis.modules.kernel.models import TaskRun as TaskRun
 
 # ---- 全局共享 ----
 
@@ -81,24 +81,6 @@ class PlanTemplate(UUIDPkMixin, Base):
 # ---- 组织级 ----
 
 
-class Plan(UUIDPkMixin, OrgScopedMixin, Base):
-    __tablename__ = "plan"
-
-    goal: Mapped[str | None] = mapped_column(Text)
-    dag: Mapped[dict[str, Any]] = mapped_column(JSONB)
-    version: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(Text, server_default="draft")
-    estimated_cost_cents: Mapped[int | None] = mapped_column(BigInteger)
-    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
-
-    __table_args__ = (
-        CheckConstraint(
-            "status IN ('draft','approved','running','done','failed','needs_review')",
-            name="status",
-        ),
-    )
-
-
 class Task(UUIDPkMixin, OrgScopedMixin, Base):
     """可复用工作项（V2-P1）：name/goal + 场景引用 + 输入；一个 task 多次运行(task_run)。"""
 
@@ -131,26 +113,5 @@ class SceneCategory(UUIDPkMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint(
             "org_id", "domain", "subcategory", name="uq_scene_category_org_domain_sub"
-        ),
-    )
-
-
-class TaskRun(UUIDPkMixin, OrgScopedMixin, TimestampMixin, Base):
-    """任务运行锚点：承载 task_id，关联 plan 与 Temporal 工作流（0b §2 修订 C）。"""
-
-    __tablename__ = "task_run"
-
-    task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("task.id"))  # V2-P1：1 任务:N 运行
-    plan_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("plan.id"))
-    temporal_workflow_id: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(Text, server_default="pending")
-    priority: Mapped[int] = mapped_column(Integer, server_default="0")
-    started_at: Mapped[datetime | None]
-    finished_at: Mapped[datetime | None]
-
-    __table_args__ = (
-        CheckConstraint(
-            "status IN ('pending','running','paused','done','failed','needs_review')",
-            name="status",
         ),
     )

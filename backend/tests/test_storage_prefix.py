@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 import uuid
 from collections.abc import Iterator
+from contextlib import suppress
 
 import pytest
 
@@ -44,14 +46,32 @@ def test_object_key_rejects_bad_org_or_task(bad: str) -> None:
 def store() -> Iterator[ObjectStore]:
     """启动临时 MinIO 容器，配置 backend 指向它，返回已建桶的 ObjectStore。"""
     try:
+        from testcontainers.core.wait_strategies import HttpWaitStrategy
         from testcontainers.minio import MinioContainer
     except ImportError as exc:  # pragma: no cover
         pytest.skip(f"testcontainers[minio] 不可用：{exc}")
 
+    class _PortMappingAwareHttpWaitStrategy(HttpWaitStrategy):
+        """Retry the short Docker Desktop port-publication race before HTTP polling."""
+
+        def wait_until_ready(self, container: object) -> None:
+            deadline = time.monotonic() + 10
+            while True:
+                try:
+                    return super().wait_until_ready(container)  # type: ignore[arg-type]
+                except ConnectionError:
+                    if time.monotonic() >= deadline:
+                        raise
+                    time.sleep(0.1)
+
+    container = MinioContainer().waiting_for(
+        _PortMappingAwareHttpWaitStrategy(9000, "/minio/health/live")
+    )
     try:
-        container = MinioContainer()
         container.start()
     except Exception as exc:  # noqa: BLE001 - Docker 不可用即跳过
+        with suppress(Exception):
+            container.stop()
         pytest.skip(f"Docker 不可用，跳过对象存储集成测试：{exc}")
 
     from polis.config import get_settings

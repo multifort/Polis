@@ -41,6 +41,7 @@
 | [TD-032](#td-032) | Skill 生成链已落；manual 风险分级自动发布、tool/MCP 草稿最小权限+本地沙箱+人审墙、goal 端可达与语义去重已接线 | Med | **closed** | tool 类 LLM authoring / 外部真实 MCP server 沙箱后置 |
 | [TD-033](#td-033) | compose-eval 升级为「试产出」judge 并硬门控（judge≥τ active / <τ draft） | Med | **closed** | 已接试产出 eval（带技能 playbook），见偿还记录 |
 | [TD-034](#td-034) | 公司无法主动上传/编写自己的 Skill——manual 主动入口已补 | Med | **closed** | tool 类主动提交按需扩展 |
+| [TD-035](#td-035) | FastAPI/Starlette 测试栈与 HTTP 422 弃用警告 | Low | open | K1 API 合同落地 / 下次 Web 依赖升级前 |
 
 ---
 
@@ -443,6 +444,16 @@ compose 后只用一次轻量 judge 评「岗位说明+技能名+声明能力」
   前端新增 `/orgs/{id}/skills` 技能库页与左侧导航入口，可列出私有/可见 Skill、筛选状态、提交
   manual 草稿并跳转审批收件箱。
 - **后续增强**：published Skill 自动替换策略按需开放。
+
+### TD-035
+
+**FastAPI/Starlette 测试栈与 HTTP 422 弃用警告。** K0 全量回归通过 323 项，但产生 4 条弃用警告：
+Starlette 1.3.1 提示当前 `httpx` TestClient 兼容入口将迁移到 `httpx2`；业务 API 仍有多处使用
+`HTTP_422_UNPROCESSABLE_ENTITY`，新版本建议改用同值的 `HTTP_422_UNPROCESSABLE_CONTENT`。
+
+- 影响：当前响应状态码和测试结果不变；未来升级 FastAPI/Starlette/httpx 时可能由 warning 变为不兼容；
+- 偿还：K1 实现新 Kernel API 时统一替换 422 常量，并在单独依赖升级任务验证 TestClient/httpx2 迁移；
+- 约束：不得为消除 warning 直接放宽版本范围或关闭 warning；升级后必须跑当前 API 合同与全量集成测试。
 
 ### M3 后技术债清理批次（2026-06-20）
 - **TD-004 已偿还**：docker-compose 固定 litellm `main-stable→v1.89.2`、langfuse `2→2.95.11`
