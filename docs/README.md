@@ -5,6 +5,9 @@
 ## design/ — 系统设计
 | 文档 | 内容 |
 |---|---|
+| [第三轮稳定内核开发规格](design/v3/kernel/README.md) | **implementation-ready v1.3**：内核边界、治理 Scope、核心模型所有权、确定性声明协议、渐进迁移与自主开发验收 |
+| [下一阶段整体设计·用户故事版](design/v3/00-Polis下一阶段整体设计（用户故事版）.md) | **讨论稿**：三类用户、首个付费用户假设与端到端经营故事 |
+| [下一阶段整体设计·产品版](design/v3/01-Polis下一阶段整体设计（产品版）.md) | **讨论稿**：三种产品模式、五主体模型、产品结构与实施路线 |
 | [0a Polis 理念与隐喻](design/0a-Polis理念与隐喻.md) | **产品身份**：城邦隐喻→概念映射、术语表（先读） |
 | [00 总览与设计原则](design/00-总览与设计原则.md) | 平台总览、原则、关键决策 |
 | [01 设计原则与技术选型](design/01-设计原则与技术选型.md) | Python 栈、复用优先选型 |
@@ -43,6 +46,10 @@
 | [0003](decisions/0003-project-name-polis.md) | 项目命名 Polis |
 | [0004](decisions/0004-reuse-first-stack.md) | 复用优先技术栈 |
 | [0005](decisions/0005-multi-tenancy-strategy.md) | 多租户：逻辑隔离 + RLS 兜底 |
+| [0015](decisions/0015-stable-kernel-and-definition-bundle.md) | 第三轮：稳定工作内核 + 不可变 DefinitionBundle |
+| [0016](decisions/0016-explicit-command-families-and-runtime-protocol-closure.md) | 第三轮：显式 Command 家族与运行协议闭合 |
+| [0017](decisions/0017-v3-deterministic-metadata-and-runtime-safety.md) | 第三轮：确定性元数据、外部副作用与运行安全闭合 |
+| [0018](decisions/0018-v3-governance-scope-and-kernel-model-ownership.md) | 第三轮：唯一治理 Scope 与核心 ORM 模型所有权 |
 
 ## 台账
 | 文档 | 内容 |

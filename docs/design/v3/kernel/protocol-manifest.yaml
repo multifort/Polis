@@ -1,0 +1,161 @@
+manifest_version: 1
+kernel_contract_version: "3.3"
+canonical_json: RFC8785_JCS
+checksum: SHA256_LOWER_HEX
+path_language: RFC6901_JSON_POINTER
+definition_roots:
+  - domain_package_version
+  - work_definition_version
+  - role_definition_version
+governance_policy:
+  seed_domain: {key: kernel.governance, version: 1.0.0}
+  seed_owner_role: {key: kernel.governance_owner, version: 1.0.0}
+  source: scope.attributes.kernel_policy
+  scope_type: org_governance
+  org_pointer: org_kernel_setting.governance_scope_id
+  revision: scope.version
+  checksum: RFC8785_JCS_SHA256_OF_KERNEL_POLICY
+  schema: OrgPolicyV1
+  fields:
+    schema_version: {type: integer, const: 1}
+    max_concurrent_runs: {type: integer, minimum: 1, maximum: 10000}
+    budget_limit_cents: {type: integer, minimum: 0, maximum: 1000000000000000}
+    budget_enforcement: {type: enum, values: [observe, deny, require_approval]}
+    default_approval_ttl_seconds: {type: integer, minimum: 60, maximum: 604800}
+  additional_properties: false
+orm_model_owners:
+  Plan: polis.modules.kernel.models
+  TaskRun: polis.modules.kernel.models
+  RunManifest: polis.modules.kernel.models
+  Approval: polis.modules.kernel.models
+  ResultEnvelope: polis.modules.kernel.models
+  ArtifactDescriptor: polis.modules.kernel.models
+legacy_model_reexports:
+  polis.modules.planner.models: [Plan, TaskRun]
+  polis.modules.observability.models: [RunManifest, Approval]
+  polis.modules.memory.models: [ResultEnvelope, ArtifactDescriptor]
+command_families:
+  definition:
+    target_columns: [domain_package_version_id, work_definition_version_id, role_definition_version_id]
+    definition_context: explicit_definition_version
+    commands:
+      - create_domain_package_definition
+      - update_domain_package_definition_draft
+      - publish_domain_package_definition
+      - deprecate_domain_package_definition
+      - create_work_definition
+      - update_work_definition_draft
+      - publish_work_definition
+      - deprecate_work_definition
+      - create_role_definition
+      - update_role_definition_draft
+      - publish_role_definition
+      - deprecate_role_definition
+      - compile_definition_bundle
+      - decide_definition_approval
+      - expire_definition_approval
+      - revoke_definition_approval
+  scope:
+    target_columns: [scope_id]
+    definition_context: domain_package_version_id
+    commands:
+      - create_scope
+      - update_scope
+      - archive_scope
+      - relate_scopes
+      - unrelate_scopes
+      - assign_scope_role
+      - activate_scope_role
+      - suspend_scope_role
+      - end_scope_role
+      - cancel_scope_schedule
+      - decide_scope_approval
+      - expire_scope_approval
+      - revoke_scope_approval
+  work:
+    target_columns: [work_item_id]
+    definition_context: definition_bundle_id
+    commands:
+      - create_work
+      - provide_input
+      - bind_work_role
+      - unbind_work_role
+      - delegate_execution
+      - revoke_delegation
+      - request_plan
+      - record_plan_ready
+      - accept_plan
+      - start_work
+      - pause_work
+      - resume_work
+      - cancel_work
+      - record_run_started
+      - record_run_outcome
+      - record_evaluation
+      - request_rework
+      - request_human_review
+      - complete_work
+      - fail_work
+      - create_child_work
+      - reconcile_work
+      - cancel_work_schedule
+      - decide_work_approval
+      - expire_work_approval
+      - revoke_work_approval
+bundle_scoped_work_commands: compiled_from_work_definition_transitions_and_must_not_collide_with_builtin_commands
+execution_statuses: [idle, queued, running, waiting, evaluating, succeeded, failed, cancelled]
+execution_transitions:
+  - {command: start_work, from: idle, to: queued}
+  - {command: record_run_started, from: queued, to: running}
+  - {command: pause_work, from: running, to: waiting}
+  - {command: resume_work, from: waiting, to: running}
+  - {command: record_run_outcome, outcome: succeeded, from: [running, waiting], to: evaluating}
+  - {command: record_run_outcome, outcome: partial, from: [running, waiting], to: evaluating}
+  - {command: record_run_outcome, outcome: failed, from: [running, waiting], to: evaluating}
+  - {command: record_run_outcome, outcome: timed_out, from: [running, waiting], to: evaluating}
+  - {command: record_run_outcome, outcome: cancelled, failure_class: unexpected_cancel, from: [running, waiting], to: evaluating}
+  - {command: record_evaluation, from: evaluating, to: evaluating}
+  - {command: complete_work, from: evaluating, to: succeeded}
+  - {command: request_rework, from: evaluating, to: idle}
+  - {command: request_human_review, from: evaluating, to: waiting}
+  - {command: fail_work, from: evaluating, to: failed}
+  - {command: cancel_work, from: [queued, running, waiting, evaluating], to: cancelled}
+run_statuses: [queued, starting, running, waiting, succeeded, partial, failed, timed_out, cancelled]
+run_outcomes: [succeeded, partial, failed, timed_out, cancelled]
+run_failure_classes: [business_error, dependency_error, timeout, platform_safety, unexpected_cancel, infrastructure_error, unknown]
+evaluation_outcomes: [pass, rework, human_review, fail]
+approval_statuses: [pending, approved, rejected, expired, revoked, consumed]
+approval_purposes: [command_policy, execution_gate, quality_review]
+schedule_statuses: [pending, dispatched, cancelled, failed]
+artifact_statuses: [staging, ready, quarantined, deleted]
+external_effect_statuses: [prepared, in_flight, succeeded, failed, uncertain]
+reservation_statuses: [held, released, expired]
+state_owners:
+  definition_version: DefinitionCommandService
+  scope_and_relations: ScopeCommandService
+  work_and_execution_projection: WorkCommandService
+  approval: owning_family_command_service
+  scheduled_command: owning_family_command_service_or_atomic_dispatcher
+  external_effect_receipt: work_activity_protocol_or_reconcile_work
+  artifact_descriptor: artifact_commit_protocol
+  execution_reservation: WorkCommandService
+explicit_no_state_change:
+  - update_scope_empty_changes
+  - provide_input_same_checksum
+  - reconcile_work_already_converged
+  - record_run_outcome_same_checksum
+lock_order:
+  original_command_resume: [family_target, approval]
+  approval_decision: [approval]
+  scope_relation: [scope_uuid_ascending]
+  schedule_cancel: [family_target, scheduled_command]
+  schedule_dispatch: [scheduled_command]
+  start_work: [work_item, org_budget_advisory_key, actor_capacity_advisory_keys_ascending]
+run_outcome_to_work:
+  succeeded: evaluating
+  partial: evaluating
+  failed: evaluating
+  timed_out: evaluating
+  cancelled_after_work_cancel: cancelled_no_mutation
+  unexpected_cancel: evaluating
+machine_source_role: design_conformance_manifest_until_generated_code_exists
