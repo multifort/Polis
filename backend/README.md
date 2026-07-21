@@ -32,6 +32,9 @@ POLIS_TEMPORAL_TEST_SERVER_PATH=/absolute/path/to/temporal-test-server uv run py
 
 该变量只传入 SDK 的 `test_server_existing_path`，不跳过 Temporal 测试，也不连接生产或开发 Temporal 数据。
 
+真实对象存储集成测试复用 `backend/.env` 配置的常驻 MinIO：S3 API 使用 `localhost:9000`，`9001` 仅是
+Web 控制台。测试使用稳定的 `polis-test` 桶和唯一对象前缀，不会为每轮测试创建新的 MinIO 容器。
+
 ## 目录结构
 ```text
 src/polis/
