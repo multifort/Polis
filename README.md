@@ -30,18 +30,7 @@ Polis 不是：
 从用户视角，企业、业务线、项目、任务和角色始终以行业熟悉的语言出现；内部由稳定运行协议连接
 Agent 能力，产品不要求普通用户理解底层元数据。
 
-```mermaid
-flowchart TB
-    P["行业产品与业务系统<br/>企业 / 业务线 / 项目 / 任务 / 角色"]
-    K["Polis 企业运行内核<br/>定义 / 范围 / 责任 / 治理 / 工作闭环"]
-    C["智能协作能力<br/>规划 / Agent / Skill / Memory / Evaluation"]
-    I["基础设施<br/>PostgreSQL / Temporal / MinIO / LiteLLM / Langfuse"]
-
-    P --> K
-    K --> C
-    C --> I
-    K --> I
-```
+![Polis 项目整体架构](docs/assets/polis-project-architecture.png)
 
 这四层的职责不同：
 
