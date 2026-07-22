@@ -29,6 +29,8 @@ definition_schema_v1:
     assignment_mode: [fixed, elastic]
     human_review_reject_action: [rework, fail]
     misfire_policy: [fire_once, skip]
+    approval_purpose: [command_policy, execution_gate, quality_review]
+    retryable_failure_class: [dependency_error, timeout, infrastructure_error, unknown]
   effect_types:
     - request_plan
     - start_run
