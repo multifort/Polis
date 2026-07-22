@@ -1,7 +1,7 @@
 # Polis 第三轮：稳定内核开发规格
 
-> 状态：**implementation-ready v1.3**
-> 日期：2026-07-21
+> 状态：**implementation-ready v1.4**
+> 日期：2026-07-22
 > 适用范围：Polis 后端内核、领域包适配层及其测试；**不定义用户界面和具体行业产品**。
 > 决策依据：[ADR-0015](../../../decisions/0015-stable-kernel-and-definition-bundle.md)、
 > [ADR-0016](../../../decisions/0016-explicit-command-families-and-runtime-protocol-closure.md)、
@@ -40,7 +40,7 @@ Temporal 编排能力，但这些能力主要围绕“通用任务拆解与 Agen
 5. 更早的 V1/V2 设计。
 
 本目录中，`00` 定义不可突破的边界，`01` 至 `09` 是它的展开，`10` 定义能否自主开发的 Gate，`11` 关闭
-声明式语言与运行安全协议。任何实现若需要改变 `00` 的
+声明式语言与运行安全协议，`12` 固定三个 Definition V1 的完整 JSON 合同。任何实现若需要改变 `00` 的
 不变量，必须先新增或修订 ADR，不能只在代码中变更。
 
 ## 3. 阅读与开发顺序
@@ -59,7 +59,8 @@ Temporal 编排能力，但这些能力主要围绕“通用任务拆解与 Agen
 | 10 | [09 渐进演化与产品连续性](09-渐进演化与产品连续性.md) | 保证旧系统与页面持续可用，并登记内核完成后的产品交互重构 |
 | 11 | [10 无歧义自主开发验收](10-无歧义自主开发验收.md) | 用追踪矩阵与机器 Gate 判定设计是否可直接实现 |
 | 12 | [11 声明式协议与运行安全闭合](11-声明式协议与运行安全闭合.md) | 固定 Schema、条件、映射、审批、调度、副作用、制品与容量协议 |
-| 13 | [protocol-manifest.yaml](protocol-manifest.yaml) | CI 可读取的命令、枚举、锁顺序和显式 no-op 清单 |
+| 13 | [12 Definition V1 声明合同](12-DefinitionV1声明合同.md) | 固定三个定义、Profile、Effect、Trigger 与资源上限 |
+| 14 | [protocol-manifest.yaml](protocol-manifest.yaml) | CI 可读取的命令、枚举、锁顺序和显式 no-op 清单 |
 
 ## 4. 实施基线与非目标
 
