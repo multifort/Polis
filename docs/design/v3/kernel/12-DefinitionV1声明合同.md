@@ -147,6 +147,13 @@ WorkTransitionV1 全部字段必填：`key`、`command_type:KeyV1`、`from:Local
 初始状态存在、至少一个 terminal、terminal 的 category 只能是 success/failure/cancelled，非 terminal 只能是
 open/active。可达性与固定 execution matrix 在 compiler 校验。
 
+Definition publish 与 compiler 都必须拒绝不可达状态，并且拒绝：从 terminal state 转出；Work guard 使用
+11 §4 白名单外路径或 Trigger-only
+operator；`start_work` 不以 active state 为目标或不含且仅含一个 `start_run`；以及 terminal category
+不是分别由 `complete_work/fail_work/cancel_work` 进入。固定执行矩阵允许
+`cancel_work: idle/queued/running/waiting/evaluating → cancelled`，从而与完整 fixture 的“运行前取消”
+路径一致；具体 lifecycle state 是否可取消仍由 Definition 的 `from` 声明决定。
+
 EffectV1 是以 `type` 为 discriminator 的闭集，所有未列字段拒绝：
 
 | type | 额外必填字段 |
@@ -278,6 +285,7 @@ DEFINITION_LIMIT_EXCEEDED
 STATE_UNKNOWN
 STATE_CATEGORY_INVALID
 TRANSITION_COMMAND_DUPLICATE
+CONDITION_PATH_FORBIDDEN
 EFFECT_TYPE_UNSUPPORTED
 EFFECT_PAYLOAD_INVALID
 PLANNING_PROFILE_INVALID

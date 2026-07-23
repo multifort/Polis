@@ -345,6 +345,7 @@ class ExecutionPort(Protocol):
 | `BUNDLE_DEPENDENCY_LIMIT_EXCEEDED` | 422 | 缩短依赖深度或拆分定义，不能放宽平台上限 |
 | `SCHEMA_KEYWORD_UNSUPPORTED` | 422 | 只使用 SchemaProfileV1 keyword |
 | `CONDITION_TYPE_MISMATCH` | 422/内部 | 修复 condition 两侧类型；不得隐式转换 |
+| `CONDITION_PATH_FORBIDDEN` | 422 | condition 只能读取其 rule 类型公开的安全投影 |
 | `MAPPING_SOURCE_MISSING` | 422/内部 | 补齐 required mapping 来源或修订定义 |
 | `KERNEL_VERSION_INCOMPATIBLE` | 503 | 升级内核/解释器后重试 |
 | `SCOPE_NOT_FOUND` | 404 | 检查组织与 scope |

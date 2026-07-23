@@ -181,7 +181,7 @@ execution_transitions:
   - {command: request_rework, from: evaluating, to: idle}
   - {command: request_human_review, from: evaluating, to: waiting}
   - {command: fail_work, from: evaluating, to: failed}
-  - {command: cancel_work, from: [queued, running, waiting, evaluating], to: cancelled}
+  - {command: cancel_work, from: [idle, queued, running, waiting, evaluating], to: cancelled}
 run_statuses: [queued, starting, running, waiting, succeeded, partial, failed, timed_out, cancelled]
 run_outcomes: [succeeded, partial, failed, timed_out, cancelled]
 run_failure_classes: [business_error, dependency_error, timeout, platform_safety, unexpected_cancel, infrastructure_error, unknown]
