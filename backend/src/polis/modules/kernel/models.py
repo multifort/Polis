@@ -169,7 +169,7 @@ class DefinitionBundleDependency(Base):
     org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("org.id", ondelete="CASCADE"))
     parent_bundle_id: Mapped[uuid.UUID]
     dependency_key: Mapped[str] = mapped_column(Text)
-    trigger_key: Mapped[str] = mapped_column(Text)
+    trigger_key: Mapped[str | None] = mapped_column(Text)
     child_bundle_id: Mapped[uuid.UUID]
     child_bundle_checksum: Mapped[str] = mapped_column(Text)
 

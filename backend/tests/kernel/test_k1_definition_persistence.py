@@ -29,13 +29,23 @@ from polis.modules.kernel.models import (
 )
 from polis.modules.kernel.repository import (
     DefinitionKind,
-    add_bundle_snapshot,
-    create_definition_draft,
-    deprecate_definition,
     get_bundle,
     get_visible_definition,
-    publish_definition,
-    update_definition_draft,
+)
+from polis.modules.kernel.repository import (
+    _add_bundle_snapshot as add_bundle_snapshot,
+)
+from polis.modules.kernel.repository import (
+    _create_definition_draft as create_definition_draft,
+)
+from polis.modules.kernel.repository import (
+    _deprecate_definition as deprecate_definition,
+)
+from polis.modules.kernel.repository import (
+    _publish_definition as publish_definition,
+)
+from polis.modules.kernel.repository import (
+    _update_definition_draft as update_definition_draft,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -357,7 +367,7 @@ def test_bundle_rls_org_filters_and_db_immutability(pg_url: str) -> None:
                     dependency = DefinitionBundleDependency(
                         org_id=org_id,
                         dependency_key="remediation_v1",
-                        trigger_key="create_remediation",
+                        trigger_key="create_remediation" if index == 0 else None,
                         child_bundle_id=child.id,
                         child_bundle_checksum=child.checksum,
                     )
