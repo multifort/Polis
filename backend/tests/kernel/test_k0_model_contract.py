@@ -1,7 +1,8 @@
 """K0 characterization contract for the six legacy runtime ORM models.
 
 The contract intentionally describes database-facing metadata and public import/API
-surfaces.  K0 may move Python declarations, but none of these values may change.
+surfaces. K0 may move Python declarations, while later kernel revisions may only
+extend a legacy table through an explicitly tested backward-compatible schema.
 """
 
 from __future__ import annotations
@@ -224,8 +225,36 @@ def test_legacy_model_imports_register_expected_tables_once() -> None:
 
 
 def test_legacy_table_contract_fingerprint() -> None:
-    actual = {name: _table_contract(name) for name in EXPECTED_TABLE_CONTRACTS}
-    assert actual == EXPECTED_TABLE_CONTRACTS
+    for name, expected in EXPECTED_TABLE_CONTRACTS.items():
+        if name != "approval":
+            assert _table_contract(name) == expected
+
+
+def test_legacy_approval_contract_survives_v2_extension() -> None:
+    """Approval V2 may extend the table without dropping the V1 physical contract."""
+
+    actual = _table_contract("approval")
+    expected = EXPECTED_TABLE_CONTRACTS["approval"]
+    actual_columns = {column[0]: column for column in actual["columns"]}
+
+    for legacy_column in expected["columns"]:
+        name = legacy_column[0]
+        if name == "kind":
+            # V2 rows use NULL kind; the V1 check constraint still requires a
+            # legacy kind whenever approval_schema_version=1.
+            assert actual_columns[name] == ("kind", "TEXT", True, False, None)
+        else:
+            assert actual_columns[name] == legacy_column
+
+    assert set(expected["foreign_keys"]) <= set(actual["foreign_keys"])
+    assert set(expected["indexes"]) <= set(actual["indexes"])
+
+    checks = dict(actual["checks"])
+    assert "approval_schema_version = 1" in checks["ck_approval_kind"]
+    for legacy_kind in ("plan", "dangerous_action", "provision_review", "skill_review", "rework"):
+        assert legacy_kind in checks["ck_approval_kind"]
+    for legacy_status in ("pending", "approved", "rejected"):
+        assert legacy_status in checks["ck_approval_status"]
 
 
 def test_legacy_paths_reexport_kernel_class_objects() -> None:
