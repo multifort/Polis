@@ -584,20 +584,186 @@ class RunManifest(OrgScopedMixin, Base):
 class Approval(UUIDPkMixin, OrgScopedMixin, Base):
     __tablename__ = "approval"
 
-    kind: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str | None] = mapped_column(Text)
     ref_id: Mapped[str | None] = mapped_column(Text)
     payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(Text, server_default="pending")
     assignee: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("app_user.id"))
     decided_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("app_user.id"))
     decided_at: Mapped[datetime | None]
+    approval_schema_version: Mapped[int] = mapped_column(Integer, server_default="1")
+    command_family: Mapped[str | None] = mapped_column(Text)
+    domain_package_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("domain_package_version.id", ondelete="RESTRICT")
+    )
+    work_definition_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("work_definition_version.id", ondelete="RESTRICT")
+    )
+    role_definition_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("role_definition_version.id", ondelete="RESTRICT")
+    )
+    scope_id: Mapped[uuid.UUID | None]
+    work_item_id: Mapped[uuid.UUID | None]
+    command_type: Mapped[str | None] = mapped_column(Text)
+    command_fingerprint: Mapped[str | None] = mapped_column(Text)
+    approval_purpose: Mapped[str | None] = mapped_column(Text)
+    version: Mapped[int | None]
+    requested_by_kind: Mapped[str | None] = mapped_column(Text)
+    requested_by_ref: Mapped[uuid.UUID | None]
+    required_role_slots: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_reason: Mapped[str | None] = mapped_column(Text)
+    decided_by_kind: Mapped[str | None] = mapped_column(Text)
+    decided_by_ref: Mapped[uuid.UUID | None]
+    consumed_by_command_id: Mapped[uuid.UUID | None]
+    command_receipt_id: Mapped[uuid.UUID | None]
+    resume_mode: Mapped[str | None] = mapped_column(Text)
+    payload_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     __table_args__ = (
+        UniqueConstraint("org_id", "id", name="uq_approval_org_id_id"),
         CheckConstraint(
-            "kind IN ('plan','dangerous_action','provision_review','skill_review','rework')",
+            "(approval_schema_version = 1 AND kind IN "
+            "('plan','dangerous_action','provision_review','skill_review','rework')) OR "
+            "(approval_schema_version = 2 AND kind IS NULL)",
             name="kind",
         ),
-        CheckConstraint("status IN ('pending','approved','rejected')", name="status"),
+        CheckConstraint(
+            "(approval_schema_version = 1 AND status IN "
+            "('pending','approved','rejected')) OR "
+            "(approval_schema_version = 2 AND status IN "
+            "('pending','approved','rejected','expired','revoked','consumed'))",
+            name="status",
+        ),
+        CheckConstraint("approval_schema_version IN (1,2)", name="schema_version"),
+        CheckConstraint(
+            "approval_schema_version = 1 OR ("
+            "command_family IS NOT NULL AND "
+            "command_family IN ('definition','scope','work') AND "
+            "command_type IS NOT NULL AND "
+            "command_fingerprint IS NOT NULL AND "
+            "command_fingerprint ~ '^[0-9a-f]{64}$' AND "
+            "approval_purpose IS NOT NULL AND "
+            "approval_purpose IN ('command_policy','execution_gate','quality_review') AND "
+            "version IS NOT NULL AND version >= 1 AND "
+            "requested_by_kind IS NOT NULL AND "
+            "requested_by_kind IN ('human','agent','service') AND "
+            "requested_by_ref IS NOT NULL AND required_role_slots IS NOT NULL AND "
+            "cardinality(required_role_slots) >= 1 AND "
+            "expires_at IS NOT NULL AND command_receipt_id IS NOT NULL AND "
+            "resume_mode IS NOT NULL AND resume_mode IN ('manual','automatic') AND "
+            "payload_snapshot IS NOT NULL AND "
+            "((command_family = 'definition' AND scope_id IS NULL AND work_item_id IS NULL "
+            "AND num_nonnulls(domain_package_version_id,work_definition_version_id,"
+            "role_definition_version_id) = 1) OR "
+            "(command_family = 'scope' AND scope_id IS NOT NULL AND work_item_id IS NULL "
+            "AND num_nonnulls(domain_package_version_id,work_definition_version_id,"
+            "role_definition_version_id) = 0) OR "
+            "(command_family = 'work' AND work_item_id IS NOT NULL AND scope_id IS NULL "
+            "AND num_nonnulls(domain_package_version_id,work_definition_version_id,"
+            "role_definition_version_id) = 0)))",
+            name="v2_contract",
+        ),
+        CheckConstraint(
+            "approval_schema_version = 1 OR ("
+            "(status = 'pending' AND decided_by_kind IS NULL AND decided_by_ref IS NULL "
+            "AND decided_at IS NULL AND consumed_by_command_id IS NULL) OR "
+            "(status IN ('approved','rejected','expired','revoked') "
+            "AND decided_by_kind IS NOT NULL AND decided_by_ref IS NOT NULL "
+            "AND decided_at IS NOT NULL AND consumed_by_command_id IS NULL) OR "
+            "(status = 'consumed' AND decided_by_kind IS NOT NULL "
+            "AND decided_by_ref IS NOT NULL AND decided_at IS NOT NULL "
+            "AND consumed_by_command_id IS NOT NULL))",
+            name="v2_state",
+        ),
+        CheckConstraint(
+            "(decided_by_kind IS NULL) = (decided_by_ref IS NULL)",
+            name="decided_actor_pair",
+        ),
+        ForeignKeyConstraint(
+            ("org_id", "scope_id"),
+            ("scope.org_id", "scope.id"),
+            ondelete="RESTRICT",
+            name="fk_approval_org_scope",
+        ),
+        ForeignKeyConstraint(
+            ("org_id", "work_item_id"),
+            ("work_item.org_id", "work_item.id"),
+            ondelete="RESTRICT",
+            name="fk_approval_org_work",
+        ),
+        Index(
+            "ix_approval_org_family_status_expires",
+            "org_id",
+            "command_family",
+            "status",
+            "expires_at",
+        ),
+        Index(
+            "uq_approval_v2_org_receipt",
+            "org_id",
+            "command_receipt_id",
+            unique=True,
+            postgresql_where=text("approval_schema_version = 2"),
+        ),
+        Index(
+            "uq_approval_v2_org_consumed_command",
+            "org_id",
+            "consumed_by_command_id",
+            unique=True,
+            postgresql_where=text("consumed_by_command_id IS NOT NULL"),
+        ),
+    )
+
+
+class ApprovalDecision(UUIDPkMixin, OrgScopedMixin, Base):
+    __tablename__ = "approval_decision"
+
+    approval_id: Mapped[uuid.UUID]
+    approval_version: Mapped[int]
+    family_command_id: Mapped[uuid.UUID]
+    requested_action: Mapped[str] = mapped_column(Text)
+    outcome_status: Mapped[str] = mapped_column(Text)
+    decided_by_kind: Mapped[str] = mapped_column(Text)
+    decided_by_ref: Mapped[uuid.UUID]
+    reason_code: Mapped[str | None] = mapped_column(Text)
+    reason_note: Mapped[str | None] = mapped_column(Text)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("org_id", "approval_id"),
+            ("approval.org_id", "approval.id"),
+            ondelete="CASCADE",
+            name="fk_approval_decision_org_approval",
+        ),
+        UniqueConstraint(
+            "org_id",
+            "approval_id",
+            "approval_version",
+            name="uq_approval_decision_org_approval_version",
+        ),
+        UniqueConstraint(
+            "org_id",
+            "family_command_id",
+            name="uq_approval_decision_org_family_command",
+        ),
+        CheckConstraint("approval_version >= 2", name="approval_version"),
+        CheckConstraint(
+            "requested_action IN ('approve','reject','expire','revoke','consume')",
+            name="requested_action",
+        ),
+        CheckConstraint(
+            "outcome_status IN ('approved','rejected','expired','revoked','consumed')",
+            name="outcome_status",
+        ),
+        CheckConstraint(
+            "decided_by_kind IN ('human','agent','service')",
+            name="decided_by_kind",
+        ),
+        Index("ix_approval_decision_org_approval", "org_id", "approval_id"),
     )
 
 
@@ -633,6 +799,7 @@ class ArtifactDescriptor(UUIDPkMixin, OrgScopedMixin, Base):
 
 __all__ = [
     "Approval",
+    "ApprovalDecision",
     "ArtifactDescriptor",
     "DefinitionBundle",
     "DefinitionBundleDependency",

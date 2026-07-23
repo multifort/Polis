@@ -188,6 +188,37 @@ run_failure_classes: [business_error, dependency_error, timeout, platform_safety
 evaluation_outcomes: [pass, rework, human_review, fail]
 approval_statuses: [pending, approved, rejected, expired, revoked, consumed]
 approval_purposes: [command_policy, execution_gate, quality_review]
+command_fingerprint_v1:
+  canonical_json: RFC8785_JCS
+  hash: SHA256_LOWER_HEX
+  fields:
+    - org_id
+    - command_family
+    - target_id
+    - definition_id
+    - command_type
+    - command_payload
+    - expected_target_state
+    - expected_target_version
+  payload_semantics: complete_typed_command_payload
+  excluded_header_fields: [requested_at, correlation_id, causation_id]
+approval_v2:
+  target_columns:
+    definition:
+      exactly_one:
+        - domain_package_version_id
+        - work_definition_version_id
+        - role_definition_version_id
+    scope: [scope_id]
+    work: [work_item_id]
+  receipt_column: command_receipt_id
+  receipt_fk_added_by: K2-T3
+  decision_columns: [requested_action, outcome_status]
+  decision_unique:
+    - [org_id, approval_id, approval_version]
+    - [org_id, family_command_id]
+  decision_update: forbidden
+  decision_delete: only_parent_cascade_or_retention_cleanup
 schedule_statuses: [pending, dispatched, cancelled, failed]
 artifact_statuses: [staging, ready, quarantined, deleted]
 external_effect_statuses: [prepared, in_flight, succeeded, failed, uncertain]
