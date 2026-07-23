@@ -23,6 +23,18 @@ curl localhost:8000/health     # {"status":"ok",...}
 | `make test` | pytest |
 | `make check` | lint + type + test（合并门禁本地预演） |
 
+Temporal SDK 自动下载测试服务器受网络或代理限制时，可预先取得官方 `temporal-test-server` 二进制，并用
+绝对路径运行同一测试集：
+
+```bash
+POLIS_TEMPORAL_TEST_SERVER_PATH=/absolute/path/to/temporal-test-server uv run pytest
+```
+
+该变量只传入 SDK 的 `test_server_existing_path`，不跳过 Temporal 测试，也不连接生产或开发 Temporal 数据。
+
+真实对象存储集成测试复用 `backend/.env` 配置的常驻 MinIO：S3 API 使用 `localhost:9000`，`9001` 仅是
+Web 控制台。测试使用稳定的 `polis-test` 桶和唯一对象前缀，不会为每轮测试创建新的 MinIO 容器。
+
 ## 目录结构
 ```text
 src/polis/

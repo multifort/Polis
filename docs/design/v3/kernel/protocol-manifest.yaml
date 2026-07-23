@@ -1,5 +1,5 @@
 manifest_version: 1
-kernel_contract_version: "3.3"
+kernel_contract_version: "3.4"
 canonical_json: RFC8785_JCS
 checksum: SHA256_LOWER_HEX
 path_language: RFC6901_JSON_POINTER
@@ -7,6 +7,55 @@ definition_roots:
   - domain_package_version
   - work_definition_version
   - role_definition_version
+definition_schema_v1:
+  discriminator_field: definition_kind
+  discriminator_in_checksum: true
+  kinds: [domain_package, role, work]
+  key_pattern: '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$'
+  local_key_pattern: '^[a-z][a-z0-9_]*$'
+  reason_code_pattern: '^[A-Z][A-Z0-9_]*$'
+  semver_pattern: '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+  enums:
+    visibility: [public, private]
+    risk_level: [low, medium, high, critical]
+    actor_kind: [human, agent, service]
+    policy_decision: [allow, deny, require_approval]
+    cardinality: [one_to_one, one_to_many, many_to_one, many_to_many]
+    responsibility_kind: [accountable, contributor, reviewer, observer]
+    execution_policy: [responsible_actor_only, delegation_allowed, autonomous]
+    inheritance_mode: [none, nearest, merge]
+    state_category: [open, active, success, failure, cancelled]
+    evaluation_outcome: [pass, rework, human_review, fail]
+    assignment_mode: [fixed, elastic]
+    human_review_reject_action: [rework, fail]
+    misfire_policy: [fire_once, skip]
+    approval_purpose: [command_policy, execution_gate, quality_review]
+    retryable_failure_class: [dependency_error, timeout, infrastructure_error, unknown]
+  effect_types:
+    - request_plan
+    - start_run
+    - cancel_run
+    - request_evaluation
+    - request_approval
+    - emit_event
+    - create_child_work
+    - schedule_command
+  limits:
+    condition_depth: 16
+    condition_nodes: 256
+    condition_bytes: 65536
+    mapping_depth: 16
+    mapping_nodes: 256
+    mapping_bytes: 65536
+    planning_max_nodes: 256
+    planning_max_parallel_nodes: 64
+    planning_max_replans: 3
+    run_timeout_seconds: [60, 604800]
+    node_timeout_seconds: [1, 86400]
+    execution_max_rework_attempts: 10
+    retry_max_attempts: 10
+    schedule_delay_seconds: [1, 604800]
+    trigger_max_fires_per_correlation: 32
 governance_policy:
   seed_domain: {key: kernel.governance, version: 1.0.0}
   seed_owner_role: {key: kernel.governance_owner, version: 1.0.0}

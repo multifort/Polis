@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -20,6 +22,39 @@ if not os.environ.get("DOCKER_HOST"):
         os.environ["DOCKER_HOST"] = f"unix://{_sock}"
 
 PG_IMAGE = "pgvector/pgvector:pg18"
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Use an explicitly provisioned Temporal test server when configured.
+
+    The SDK still owns process startup, time skipping and shutdown.  This only
+    supplies its public ``test_server_existing_path`` argument so environments
+    with a blocked SDK downloader can run the same tests without skipping them.
+    """
+    del config
+    configured_path = os.environ.get("POLIS_TEMPORAL_TEST_SERVER_PATH")
+    if not configured_path:
+        return
+
+    server_path = Path(configured_path).expanduser().resolve()
+    if not server_path.is_file() or not os.access(server_path, os.X_OK):
+        raise RuntimeError(
+            f"POLIS_TEMPORAL_TEST_SERVER_PATH must point to an executable file: {server_path}"
+        )
+
+    from temporalio.testing import WorkflowEnvironment
+
+    original = WorkflowEnvironment.start_time_skipping.__func__
+
+    async def start_time_skipping_with_existing_server(
+        cls: type[WorkflowEnvironment], **kwargs: Any
+    ) -> WorkflowEnvironment:
+        kwargs.setdefault("test_server_existing_path", str(server_path))
+        return await original(cls, **kwargs)
+
+    WorkflowEnvironment.start_time_skipping = classmethod(  # type: ignore[method-assign]
+        start_time_skipping_with_existing_server
+    )
 
 
 @pytest.fixture(scope="session")

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from polis.db.base import Base
+from polis.modules.kernel import models as kernel_models
 from polis.modules.memory import models as memory_models
 from polis.modules.model import models as model_models
 from polis.modules.observability import models as observability_models
@@ -15,6 +16,7 @@ from polis.modules.runtime import models as runtime_models
 
 __all__ = [
     "Base",
+    "kernel_models",
     "memory_models",
     "model_models",
     "observability_models",

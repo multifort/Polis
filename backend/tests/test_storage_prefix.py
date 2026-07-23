@@ -42,47 +42,29 @@ def test_object_key_rejects_bad_org_or_task(bad: str) -> None:
 
 @pytest.fixture(scope="module")
 def store() -> Iterator[ObjectStore]:
-    """启动临时 MinIO 容器，配置 backend 指向它，返回已建桶的 ObjectStore。"""
-    try:
-        from testcontainers.minio import MinioContainer
-    except ImportError as exc:  # pragma: no cover
-        pytest.skip(f"testcontainers[minio] 不可用：{exc}")
-
-    try:
-        container = MinioContainer()
-        container.start()
-    except Exception as exc:  # noqa: BLE001 - Docker 不可用即跳过
-        pytest.skip(f"Docker 不可用，跳过对象存储集成测试：{exc}")
-
+    """复用本地 MinIO S3 API，不为每轮测试创建新容器。"""
     from polis.config import get_settings
 
-    keys = (
-        "POLIS_MINIO_ENDPOINT",
-        "POLIS_MINIO_ACCESS_KEY",
-        "POLIS_MINIO_SECRET_KEY",
-        "POLIS_MINIO_SECURE",
-        "POLIS_MINIO_BUCKET",
-    )
-    saved = {k: os.environ.get(k) for k in keys}
+    settings = get_settings()
+    if settings.minio_endpoint.rsplit(":", 1)[-1] != "9000":
+        pytest.fail("MinIO 集成测试必须连接 S3 API 9000 端口；9001 仅用于 Web 控制台")
+    if not (settings.minio_access_key and settings.minio_secret_key):
+        pytest.fail("请在 backend/.env 配置现有 MinIO 的 access/secret key")
+
+    bucket_key = "POLIS_MINIO_BUCKET"
+    saved_bucket = os.environ.get(bucket_key)
     try:
-        cfg = container.get_config()  # {'endpoint','access_key','secret_key'}
-        os.environ["POLIS_MINIO_ENDPOINT"] = cfg["endpoint"]
-        os.environ["POLIS_MINIO_ACCESS_KEY"] = cfg["access_key"]
-        os.environ["POLIS_MINIO_SECRET_KEY"] = cfg["secret_key"]
-        os.environ["POLIS_MINIO_SECURE"] = "false"
-        os.environ["POLIS_MINIO_BUCKET"] = "polis-test"
+        os.environ[bucket_key] = "polis-test"
         get_settings.cache_clear()
 
-        s = ObjectStore()
-        asyncio.run(s.ensure_bucket())
-        yield s
+        object_store = ObjectStore()
+        asyncio.run(object_store.ensure_bucket())
+        yield object_store
     finally:
-        container.stop()
-        for k, v in saved.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
+        if saved_bucket is None:
+            os.environ.pop(bucket_key, None)
+        else:
+            os.environ[bucket_key] = saved_bucket
         get_settings.cache_clear()
 
 
@@ -93,14 +75,17 @@ def test_put_get_roundtrip(store: ObjectStore) -> None:
     async def _run() -> bytes:
         uri = await store.put(org, task, "quote.txt", payload, content_type="text/plain")
         assert uri == f"s3://polis-test/{org}/{task}/quote.txt"
-        return await store.get(org, task, "quote.txt")
+        result = await store.get(org, task, "quote.txt")
+        await store.delete(org, task, "quote.txt")
+        return result
 
     assert asyncio.run(_run()) == payload
 
 
 def test_prefix_isolation(store: ObjectStore) -> None:
     """org A 写入的对象，用 org B 前缀读不到（key 前缀天然隔离）。"""
-    org_a, org_b, task = "org-aaaa", "org-bbbb", "t1"
+    suffix = uuid.uuid4().hex[:8]
+    org_a, org_b, task = f"org-a-{suffix}", f"org-b-{suffix}", "t1"
 
     async def _run() -> None:
         await store.put(org_a, task, "secret.txt", b"A-only")
@@ -109,12 +94,13 @@ def test_prefix_isolation(store: ObjectStore) -> None:
             await store.get(org_b, task, "secret.txt")
         # org A 自己能读回
         assert await store.get(org_a, task, "secret.txt") == b"A-only"
+        await store.delete(org_a, task, "secret.txt")
 
     asyncio.run(_run())
 
 
 def test_presigned_and_delete(store: ObjectStore) -> None:
-    org, task = "org-cccc", "t9"
+    org, task = f"org-c-{uuid.uuid4().hex[:8]}", "t9"
 
     async def _run() -> None:
         await store.put(org, task, "r.md", "# 报告".encode())

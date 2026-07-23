@@ -19,6 +19,7 @@ backend/var/
 
 # ---- Node / frontend ----
 node_modules/
+.pnpm-store/
 .next/
 out/
 coverage/

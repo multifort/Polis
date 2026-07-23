@@ -1,0 +1,630 @@
+{
+  "fixture_version": 1,
+  "domain_package": {
+    "schema_version": 1,
+    "definition_kind": "domain_package",
+    "key": "core.generic",
+    "display_name": "通用领域包",
+    "scope_types": [
+      {
+        "key": "workspace",
+        "parent_types": [],
+        "attributes_schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      {
+        "key": "work_group",
+        "parent_types": ["workspace"],
+        "attributes_schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    ],
+    "relationship_types": [
+      {
+        "key": "depends_on",
+        "from_scope_types": ["work_group"],
+        "to_scope_types": ["work_group"],
+        "cardinality": "many_to_many",
+        "directed": true,
+        "attributes_schema": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      }
+    ],
+    "policy_defaults": {
+      "unknown_action": "deny",
+      "dangerous_action": "require_approval"
+    },
+    "compatible_work_definition_keys": ["core.assessment", "core.remediation"],
+    "compatible_role_definition_keys": ["core.owner", "core.worker"]
+  },
+  "roles": [
+    {
+      "schema_version": 1,
+      "definition_kind": "role",
+      "key": "core.owner",
+      "display_name": "工作负责人",
+      "mission": "对工作目标、授权和最终结果负责",
+      "accountabilities": ["确认输入完整", "决定高风险动作", "承担最终结果责任"],
+      "required_capabilities": [],
+      "authority": {
+        "commands": ["submit_work", "start_work", "cancel_work", "decide_work_approval"],
+        "tools": [],
+        "data_scopes": ["work.inputs", "work.results"],
+        "max_risk_level": "high",
+        "budget_cents": 1000000
+      },
+      "collaboration": {
+        "receives_from": ["worker"],
+        "hands_off_to": ["worker"],
+        "escalates_to": []
+      },
+      "quality_bar": {
+        "evaluation_rule_keys": []
+      },
+      "capacity": {
+        "max_active_work_items": 20
+      }
+    },
+    {
+      "schema_version": 1,
+      "definition_kind": "role",
+      "key": "core.worker",
+      "display_name": "工作执行者",
+      "mission": "按固定计划执行工作并提交可验证结果",
+      "accountabilities": ["按计划执行", "提供结果与证据"],
+      "required_capabilities": ["work.execute"],
+      "authority": {
+        "commands": ["record_run_started", "record_run_outcome"],
+        "tools": ["artifact.read", "artifact.write"],
+        "data_scopes": ["work.inputs", "work.results"],
+        "max_risk_level": "medium",
+        "budget_cents": 500000
+      },
+      "collaboration": {
+        "receives_from": ["owner"],
+        "hands_off_to": ["owner"],
+        "escalates_to": ["owner"]
+      },
+      "quality_bar": {
+        "evaluation_rule_keys": []
+      },
+      "capacity": {
+        "max_active_work_items": 10
+      }
+    }
+  ],
+  "works": [
+    {
+      "schema_version": 1,
+      "definition_kind": "work",
+      "key": "core.remediation",
+      "display_name": "整改工作",
+      "supported_scope_types": ["work_group"],
+      "input_schema": {
+        "type": "object",
+        "required": ["source_result_id", "risk_level"],
+        "properties": {
+          "source_result_id": {"type": "string", "format": "uuid"},
+          "risk_level": {"enum": ["low", "medium", "high", "critical"]}
+        },
+        "additionalProperties": false
+      },
+      "result_schema": {
+        "type": "object",
+        "required": ["outcome_hint", "evidence_artifact_id"],
+        "properties": {
+          "outcome_hint": {"enum": ["pass", "rework", "human_review", "fail"]},
+          "evidence_artifact_id": {"type": "string", "format": "uuid"}
+        },
+        "additionalProperties": false
+      },
+      "assignment_mode": "fixed",
+      "role_slots": [
+        {
+          "key": "owner",
+          "role_definition_key": "core.owner",
+          "required": true,
+          "min_assignments": 1,
+          "max_assignments": 1,
+          "responsibility_kind": "accountable",
+          "execution_policy": "delegation_allowed",
+          "inheritance_mode": "nearest",
+          "allowed_actor_kinds": ["human"],
+          "separation_of_duties_from": [],
+          "required_for_commands": ["submit_work", "start_work", "cancel_work"],
+          "assignment_policy_keys": []
+        },
+        {
+          "key": "worker",
+          "role_definition_key": "core.worker",
+          "required": true,
+          "min_assignments": 1,
+          "max_assignments": 2,
+          "responsibility_kind": "contributor",
+          "execution_policy": "autonomous",
+          "inheritance_mode": "nearest",
+          "allowed_actor_kinds": ["human", "agent"],
+          "separation_of_duties_from": [],
+          "required_for_commands": ["record_run_started", "record_run_outcome"],
+          "assignment_policy_keys": []
+        }
+      ],
+      "state_machine": {
+        "initial_state": "draft",
+        "states": [
+          {"key": "draft", "terminal": false, "category": "open"},
+          {"key": "ready", "terminal": false, "category": "active"},
+          {"key": "working", "terminal": false, "category": "active"},
+          {"key": "completed", "terminal": true, "category": "success"},
+          {"key": "failed", "terminal": true, "category": "failure"},
+          {"key": "cancelled", "terminal": true, "category": "cancelled"}
+        ],
+        "transitions": [
+          {
+            "key": "submit",
+            "command_type": "submit_work",
+            "from": ["draft"],
+            "to": "ready",
+            "required_role_slots": ["owner"],
+            "guards": [{"op": "input_exists", "path": "/work/inputs/source_result_id"}],
+            "policy_keys": [],
+            "effects": [{"type": "request_plan"}]
+          },
+          {
+            "key": "start",
+            "command_type": "start_work",
+            "from": ["ready"],
+            "to": "working",
+            "required_role_slots": ["owner", "worker"],
+            "guards": [{"op": "role_slot_filled", "role_slot_key": "worker"}],
+            "policy_keys": ["high_risk_start"],
+            "effects": [{"type": "start_run"}]
+          },
+          {
+            "key": "complete",
+            "command_type": "complete_work",
+            "from": ["working"],
+            "to": "completed",
+            "required_role_slots": [],
+            "guards": [{"op": "evaluation_outcome_is", "value": "pass"}],
+            "policy_keys": [],
+            "effects": [
+              {
+                "type": "emit_event",
+                "event_type": "work.remediation_completed",
+                "payload_mapping": {"op": "object", "fields": {}}
+              }
+            ]
+          },
+          {
+            "key": "fail",
+            "command_type": "fail_work",
+            "from": ["working"],
+            "to": "failed",
+            "required_role_slots": [],
+            "guards": [{"op": "evaluation_outcome_is", "value": "fail"}],
+            "policy_keys": [],
+            "effects": [
+              {
+                "type": "emit_event",
+                "event_type": "work.remediation_failed",
+                "payload_mapping": {"op": "object", "fields": {}}
+              }
+            ]
+          },
+          {
+            "key": "cancel",
+            "command_type": "cancel_work",
+            "from": ["ready", "working"],
+            "to": "cancelled",
+            "required_role_slots": ["owner"],
+            "guards": [],
+            "policy_keys": [],
+            "effects": [{"type": "cancel_run", "reason_code": "WORK_CANCELLED"}]
+          }
+        ]
+      },
+      "policy_bindings": [
+        {
+          "key": "high_risk_start",
+          "applies_to_commands": ["start_work"],
+          "when": [
+            {"op": "in", "path": "/work/inputs/risk_level", "value": ["high", "critical"]}
+          ],
+          "decision": "require_approval",
+          "required_role_slots": ["owner"],
+          "approval_ttl_seconds": 86400,
+          "reason_code": "HIGH_RISK_START"
+        }
+      ],
+      "planning_profile": {
+        "mode": "required",
+        "max_nodes": 32,
+        "max_parallel_nodes": 4,
+        "max_replans": 1,
+        "acceptance": "required"
+      },
+      "execution_profile": {
+        "run_timeout_seconds": 86400,
+        "node_timeout_seconds": 3600,
+        "heartbeat_timeout_seconds": 60,
+        "max_parallel_nodes": 4,
+        "max_rework_attempts": 2,
+        "retry_policy": {
+          "max_attempts": 3,
+          "initial_interval_seconds": 1,
+          "max_interval_seconds": 60,
+          "backoff_multiplier_milli": 2000,
+          "retryable_failure_classes": ["dependency_error", "timeout", "infrastructure_error"]
+        }
+      },
+      "evaluation_rules": [
+        {
+          "key": "outcome_pass",
+          "when": [{"op": "eq", "path": "/work/latest_result/facts/outcome_hint", "value": "pass"}],
+          "outcome": "pass",
+          "reason_code": "RESULT_ACCEPTED",
+          "required_evidence_paths": ["/work/latest_result/artifacts/evidence_artifact_id"]
+        },
+        {
+          "key": "outcome_rework",
+          "when": [{"op": "eq", "path": "/work/latest_result/facts/outcome_hint", "value": "rework"}],
+          "outcome": "rework",
+          "reason_code": "RESULT_REWORK_REQUIRED",
+          "required_evidence_paths": []
+        },
+        {
+          "key": "outcome_human_review",
+          "when": [{"op": "eq", "path": "/work/latest_result/facts/outcome_hint", "value": "human_review"}],
+          "outcome": "human_review",
+          "reason_code": "RESULT_REVIEW_REQUIRED",
+          "required_evidence_paths": []
+        },
+        {
+          "key": "outcome_fail",
+          "when": [{"op": "eq", "path": "/work/latest_result/facts/outcome_hint", "value": "fail"}],
+          "outcome": "fail",
+          "reason_code": "RESULT_FAILED",
+          "required_evidence_paths": []
+        }
+      ],
+      "evaluation_default_outcome": "human_review",
+      "human_review_reject_action": "rework",
+      "child_dependencies": [],
+      "triggers": [
+        {
+          "key": "complete_after_pass",
+          "on_event": "work.evaluation_completed",
+          "conditions": [{"op": "event_field_matches", "path": "/event/payload/outcome", "value": "pass"}],
+          "emit_command": {
+            "command_type": "complete_work",
+            "payload_mapping": {"op": "object", "fields": {}},
+            "child_bundle_dependency_key": null
+          },
+          "max_fires_per_correlation": 1
+        },
+        {
+          "key": "rework_after_rejection",
+          "on_event": "work.evaluation_completed",
+          "conditions": [{"op": "event_field_matches", "path": "/event/payload/outcome", "value": "rework"}],
+          "emit_command": {
+            "command_type": "request_rework",
+            "payload_mapping": {"op": "object", "fields": {}},
+            "child_bundle_dependency_key": null
+          },
+          "max_fires_per_correlation": 1
+        },
+        {
+          "key": "review_after_uncertain",
+          "on_event": "work.evaluation_completed",
+          "conditions": [{"op": "event_field_matches", "path": "/event/payload/outcome", "value": "human_review"}],
+          "emit_command": {
+            "command_type": "request_human_review",
+            "payload_mapping": {"op": "object", "fields": {}},
+            "child_bundle_dependency_key": null
+          },
+          "max_fires_per_correlation": 1
+        },
+        {
+          "key": "fail_after_failure",
+          "on_event": "work.evaluation_completed",
+          "conditions": [{"op": "event_field_matches", "path": "/event/payload/outcome", "value": "fail"}],
+          "emit_command": {
+            "command_type": "fail_work",
+            "payload_mapping": {"op": "object", "fields": {}},
+            "child_bundle_dependency_key": null
+          },
+          "max_fires_per_correlation": 1
+        }
+      ]
+    },
+    {
+      "schema_version": 1,
+      "definition_kind": "work",
+      "key": "core.assessment",
+      "display_name": "通用评估工作",
+      "supported_scope_types": ["workspace", "work_group"],
+      "input_schema": {
+        "type": "object",
+        "required": ["subject_artifact_id", "risk_level"],
+        "properties": {
+          "subject_artifact_id": {"type": "string", "format": "uuid"},
+          "risk_level": {"enum": ["low", "medium", "high", "critical"]}
+        },
+        "additionalProperties": false
+      },
+      "result_schema": {
+        "type": "object",
+        "required": ["outcome_hint", "score", "evidence_artifact_id"],
+        "properties": {
+          "outcome_hint": {"enum": ["pass", "rework", "human_review", "fail"]},
+          "score": {"type": "number", "minimum": 0, "maximum": 1},
+          "evidence_artifact_id": {"type": "string", "format": "uuid"}
+        },
+        "additionalProperties": false
+      },
+      "assignment_mode": "elastic",
+      "role_slots": [
+        {
+          "key": "owner",
+          "role_definition_key": "core.owner",
+          "required": true,
+          "min_assignments": 1,
+          "max_assignments": 1,
+          "responsibility_kind": "accountable",
+          "execution_policy": "delegation_allowed",
+          "inheritance_mode": "nearest",
+          "allowed_actor_kinds": ["human"],
+          "separation_of_duties_from": [],
+          "required_for_commands": ["submit_work", "start_work", "cancel_work"],
+          "assignment_policy_keys": []
+        },
+        {
+          "key": "worker",
+          "role_definition_key": "core.worker",
+          "required": true,
+          "min_assignments": 1,
+          "max_assignments": 3,
+          "responsibility_kind": "contributor",
+          "execution_policy": "autonomous",
+          "inheritance_mode": "nearest",
+          "allowed_actor_kinds": ["human", "agent"],
+          "separation_of_duties_from": [],
+          "required_for_commands": ["record_run_started", "record_run_outcome"],
+          "assignment_policy_keys": []
+        }
+      ],
+      "state_machine": {
+        "initial_state": "draft",
+        "states": [
+          {"key": "draft", "terminal": false, "category": "open"},
+          {"key": "ready", "terminal": false, "category": "active"},
+          {"key": "working", "terminal": false, "category": "active"},
+          {"key": "completed", "terminal": true, "category": "success"},
+          {"key": "failed", "terminal": true, "category": "failure"},
+          {"key": "cancelled", "terminal": true, "category": "cancelled"}
+        ],
+        "transitions": [
+          {
+            "key": "submit",
+            "command_type": "submit_work",
+            "from": ["draft"],
+            "to": "ready",
+            "required_role_slots": ["owner"],
+            "guards": [{"op": "input_exists", "path": "/work/inputs/subject_artifact_id"}],
+            "policy_keys": [],
+            "effects": [{"type": "request_plan"}]
+          },
+          {
+            "key": "start",
+            "command_type": "start_work",
+            "from": ["ready"],
+            "to": "working",
+            "required_role_slots": ["owner", "worker"],
+            "guards": [{"op": "role_slot_filled", "role_slot_key": "worker"}],
+            "policy_keys": ["high_risk_start"],
+            "effects": [{"type": "start_run"}]
+          },
+          {
+            "key": "complete",
+            "command_type": "complete_work",
+            "from": ["working"],
+            "to": "completed",
+            "required_role_slots": [],
+            "guards": [{"op": "evaluation_outcome_is", "value": "pass"}],
+            "policy_keys": [],
+            "effects": [
+              {
+                "type": "emit_event",
+                "event_type": "work.assessment_completed",
+                "payload_mapping": {
+                  "op": "object",
+                  "fields": {
+                    "score": {"op": "from", "path": "/work/latest_result/facts/score", "required": true},
+                    "result_id": {"op": "from", "path": "/work/latest_result/id", "required": true}
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "key": "fail",
+            "command_type": "fail_work",
+            "from": ["working"],
+            "to": "failed",
+            "required_role_slots": [],
+            "guards": [{"op": "evaluation_outcome_is", "value": "fail"}],
+            "policy_keys": [],
+            "effects": [
+              {
+                "type": "emit_event",
+                "event_type": "work.assessment_failed",
+                "payload_mapping": {"op": "object", "fields": {}}
+              }
+            ]
+          },
+          {
+            "key": "cancel",
+            "command_type": "cancel_work",
+            "from": ["ready", "working"],
+            "to": "cancelled",
+            "required_role_slots": ["owner"],
+            "guards": [],
+            "policy_keys": [],
+            "effects": [{"type": "cancel_run", "reason_code": "WORK_CANCELLED"}]
+          }
+        ]
+      },
+      "policy_bindings": [
+        {
+          "key": "high_risk_start",
+          "applies_to_commands": ["start_work"],
+          "when": [
+            {"op": "in", "path": "/work/inputs/risk_level", "value": ["high", "critical"]}
+          ],
+          "decision": "require_approval",
+          "required_role_slots": ["owner"],
+          "approval_ttl_seconds": 86400,
+          "reason_code": "HIGH_RISK_START"
+        }
+      ],
+      "planning_profile": {
+        "mode": "required",
+        "max_nodes": 64,
+        "max_parallel_nodes": 8,
+        "max_replans": 1,
+        "acceptance": "required"
+      },
+      "execution_profile": {
+        "run_timeout_seconds": 86400,
+        "node_timeout_seconds": 3600,
+        "heartbeat_timeout_seconds": 60,
+        "max_parallel_nodes": 8,
+        "max_rework_attempts": 2,
+        "retry_policy": {
+          "max_attempts": 3,
+          "initial_interval_seconds": 1,
+          "max_interval_seconds": 60,
+          "backoff_multiplier_milli": 2000,
+          "retryable_failure_classes": ["dependency_error", "timeout", "infrastructure_error"]
+        }
+      },
+      "evaluation_rules": [
+        {
+          "key": "outcome_pass",
+          "when": [{"op": "eq", "path": "/work/latest_result/facts/outcome_hint", "value": "pass"}],
+          "outcome": "pass",
+          "reason_code": "ASSESSMENT_ACCEPTED",
+          "required_evidence_paths": ["/work/latest_result/artifacts/evidence_artifact_id"]
+        },
+        {
+          "key": "outcome_rework",
+          "when": [{"op": "eq", "path": "/work/latest_result/facts/outcome_hint", "value": "rework"}],
+          "outcome": "rework",
+          "reason_code": "ASSESSMENT_REWORK_REQUIRED",
+          "required_evidence_paths": []
+        },
+        {
+          "key": "outcome_human_review",
+          "when": [{"op": "eq", "path": "/work/latest_result/facts/outcome_hint", "value": "human_review"}],
+          "outcome": "human_review",
+          "reason_code": "ASSESSMENT_REVIEW_REQUIRED",
+          "required_evidence_paths": []
+        },
+        {
+          "key": "outcome_fail",
+          "when": [{"op": "eq", "path": "/work/latest_result/facts/outcome_hint", "value": "fail"}],
+          "outcome": "fail",
+          "reason_code": "ASSESSMENT_FAILED",
+          "required_evidence_paths": []
+        }
+      ],
+      "evaluation_default_outcome": "human_review",
+      "human_review_reject_action": "rework",
+      "child_dependencies": [
+        {
+          "dependency_key": "remediation_v1",
+          "work_definition_key": "core.remediation",
+          "allowed_scope_types": ["work_group"]
+        }
+      ],
+      "triggers": [
+        {
+          "key": "complete_after_pass",
+          "on_event": "work.evaluation_completed",
+          "conditions": [{"op": "event_field_matches", "path": "/event/payload/outcome", "value": "pass"}],
+          "emit_command": {
+            "command_type": "complete_work",
+            "payload_mapping": {"op": "object", "fields": {}},
+            "child_bundle_dependency_key": null
+          },
+          "max_fires_per_correlation": 1
+        },
+        {
+          "key": "rework_after_rejection",
+          "on_event": "work.evaluation_completed",
+          "conditions": [{"op": "event_field_matches", "path": "/event/payload/outcome", "value": "rework"}],
+          "emit_command": {
+            "command_type": "request_rework",
+            "payload_mapping": {"op": "object", "fields": {}},
+            "child_bundle_dependency_key": null
+          },
+          "max_fires_per_correlation": 1
+        },
+        {
+          "key": "review_after_uncertain",
+          "on_event": "work.evaluation_completed",
+          "conditions": [{"op": "event_field_matches", "path": "/event/payload/outcome", "value": "human_review"}],
+          "emit_command": {
+            "command_type": "request_human_review",
+            "payload_mapping": {"op": "object", "fields": {}},
+            "child_bundle_dependency_key": null
+          },
+          "max_fires_per_correlation": 1
+        },
+        {
+          "key": "fail_after_failure",
+          "on_event": "work.evaluation_completed",
+          "conditions": [{"op": "event_field_matches", "path": "/event/payload/outcome", "value": "fail"}],
+          "emit_command": {
+            "command_type": "fail_work",
+            "payload_mapping": {"op": "object", "fields": {}},
+            "child_bundle_dependency_key": null
+          },
+          "max_fires_per_correlation": 1
+        },
+        {
+          "key": "create_remediation_for_medium_score",
+          "on_event": "work.assessment_completed",
+          "conditions": [
+            {
+              "op": "all",
+              "conditions": [
+                {"op": "gte", "path": "/event/payload/score", "value": 0.5},
+                {"op": "lt", "path": "/event/payload/score", "value": 0.8}
+              ]
+            }
+          ],
+          "emit_command": {
+            "command_type": "create_child_work",
+            "payload_mapping": {
+              "op": "object",
+              "fields": {
+                "source_result_id": {"op": "from", "path": "/event/payload/result_id", "required": true},
+                "risk_level": {"op": "const", "value": "medium"}
+              }
+            },
+            "child_bundle_dependency_key": "remediation_v1"
+          },
+          "max_fires_per_correlation": 1
+        }
+      ]
+    }
+  ]
+}
