@@ -59,6 +59,8 @@ definition_schema_v1:
 governance_policy:
   seed_domain: {key: kernel.governance, version: 1.0.0}
   seed_owner_role: {key: kernel.governance_owner, version: 1.0.0}
+  seed_owner: {kind: alembic_migration, created_by: null}
+  bootstrap_membership_roles: [owner]
   source: scope.attributes.kernel_policy
   scope_type: org_governance
   org_pointer: org_kernel_setting.governance_scope_id
@@ -71,6 +73,17 @@ governance_policy:
     budget_limit_cents: {type: integer, minimum: 0, maximum: 1000000000000000}
     budget_enforcement: {type: enum, values: [observe, deny, require_approval]}
     default_approval_ttl_seconds: {type: integer, minimum: 60, maximum: 604800}
+  additional_properties: false
+assignment_authority_constraints_v1:
+  optional_fields: [commands, tools, data_scopes, max_risk_level, budget_cents]
+  arrays:
+    commands: {item: definition_key, semantics: subset_of_role_authority}
+    tools: {item: definition_key, semantics: subset_of_role_authority}
+    data_scopes: {item: definition_key, semantics: subset_of_role_authority}
+  max_risk_level: {semantics: not_greater_than_role, order: [low, medium, high, critical]}
+  budget_cents: {type: integer, minimum: 0, maximum: 1000000000000000, semantics: not_greater_than_role}
+  omitted_field: no_further_restriction
+  explicit_empty_array: deny_all_for_dimension
   additional_properties: false
 orm_model_owners:
   Plan: polis.modules.kernel.models

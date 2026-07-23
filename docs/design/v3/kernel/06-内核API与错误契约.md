@@ -137,6 +137,11 @@ attributes，不允许改 scope_type/domain version；需要变化时创建新 S
 `org_kernel_setting.governance_scope_id` 并 CAS active。后续 `PUT` 只允许 active 治理 owner 修改
 `attributes.kernel_policy`；相同 checksum 返回 `no_state_change`，不增长 ETag/version。
 
+当前 org membership 合同只有 `owner/approver/member`，没有 `admin`；因此 K1 bootstrap 的
+“owner/admin”在本仓库中的无歧义映射固定为 `Org.owner_user_id` 且 active `OrgMember.role=owner`。
+`approver` 不等同 admin。未来若 org 模块正式增加 admin，必须通过新的协议版本显式扩展，不得在本实现中
+预留字符串旁路。
+
 所有写接口构造 `ScopeCommandEnvelope`，使用 Scope ETag。relation body 固定
 `to_scope_id/relationship_type/attributes`；调用方不得决定无向关系存储方向。Scope 任职不携带
 role_slot_key，因为它绑定 RoleDefinition，不绑定某个工作定义。

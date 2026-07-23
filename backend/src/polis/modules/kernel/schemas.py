@@ -399,6 +399,80 @@ class RoleAuthorityV1(StrictModel):
         return value
 
 
+class AuthorityConstraintsV1(StrictModel):
+    """Optional assignment-level restrictions over a role's declared authority."""
+
+    commands: list[KeyV1] | None = None
+    tools: list[KeyV1] | None = None
+    data_scopes: list[KeyV1] | None = None
+    max_risk_level: RiskLevel | None = None
+    budget_cents: int | None = Field(default=None, ge=0, le=1_000_000_000_000_000)
+
+    @field_validator("commands", "tools", "data_scopes")
+    @classmethod
+    def unique_constraint_keys(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None:
+            _require_unique(value, "authority constraint keys")
+        return value
+
+    def validate_subset_of(self, authority: RoleAuthorityV1) -> None:
+        """Reject every assignment constraint that would enlarge role authority."""
+
+        for field_name in ("commands", "tools", "data_scopes"):
+            constrained = getattr(self, field_name)
+            if constrained is None:
+                continue
+            declared = set(getattr(authority, field_name))
+            excess = sorted(set(constrained) - declared)
+            if excess:
+                raise KernelProtocolError(
+                    "ASSIGNMENT_AUTHORITY_ESCALATION",
+                    f"/authority_constraints/{field_name}",
+                    f"values {excess} are not declared by the role",
+                )
+        risk_order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+        if (
+            self.max_risk_level is not None
+            and risk_order[self.max_risk_level] > risk_order[authority.max_risk_level]
+        ):
+            raise KernelProtocolError(
+                "ASSIGNMENT_AUTHORITY_ESCALATION",
+                "/authority_constraints/max_risk_level",
+                "assignment risk level exceeds role authority",
+            )
+        if self.budget_cents is not None and self.budget_cents > authority.budget_cents:
+            raise KernelProtocolError(
+                "ASSIGNMENT_AUTHORITY_ESCALATION",
+                "/authority_constraints/budget_cents",
+                "assignment budget exceeds role authority",
+            )
+
+    def canonical_value(self) -> dict[str, object]:
+        value = self.model_dump(mode="json", exclude_none=True)
+        for field_name in ("commands", "tools", "data_scopes"):
+            if field_name in value:
+                value[field_name] = sorted(value[field_name])
+        return value
+
+
+class KernelPolicyV1(StrictModel):
+    schema_version: Literal[1]
+    max_concurrent_runs: int = Field(ge=1, le=10_000)
+    budget_limit_cents: int = Field(ge=0, le=1_000_000_000_000_000)
+    budget_enforcement: Literal["observe", "deny", "require_approval"]
+    default_approval_ttl_seconds: int = Field(ge=60, le=604_800)
+
+
+class OrgPolicyV1(StrictModel):
+    kernel_policy: KernelPolicyV1
+
+    @property
+    def checksum(self) -> str:
+        from polis.modules.kernel.domain.canonical import canonical_checksum
+
+        return canonical_checksum(self.kernel_policy.model_dump(mode="json"))
+
+
 class RoleCollaborationV1(StrictModel):
     receives_from: list[LocalKeyV1]
     hands_off_to: list[LocalKeyV1]
@@ -948,6 +1022,7 @@ ObjectMapping.model_rebuild()
 ArrayMapping.model_rebuild()
 
 __all__ = [
+    "AuthorityConstraintsV1",
     "ChildDependencyV1",
     "ConditionExprV1",
     "ConditionNode",
@@ -961,6 +1036,7 @@ __all__ = [
     "LocalKeyV1",
     "MappingExprV1",
     "MappingNode",
+    "OrgPolicyV1",
     "PathV1",
     "PlanningProfileV1",
     "PolicyBindingV1",

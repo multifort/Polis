@@ -14,6 +14,8 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Computed,
+    DateTime,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -23,7 +25,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from polis.db.base import Base
@@ -197,6 +199,333 @@ class DefinitionBundleDependency(Base):
     )
 
 
+class Scope(UUIDPkMixin, OrgScopedMixin, TimestampMixin, Base):
+    __tablename__ = "scope"
+
+    domain_package_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("domain_package_version.id", ondelete="RESTRICT")
+    )
+    scope_type: Mapped[str] = mapped_column(Text)
+    parent_scope_id: Mapped[uuid.UUID | None]
+    external_ref: Mapped[str | None] = mapped_column(Text)
+    display_name: Mapped[str] = mapped_column(Text)
+    attributes: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    status: Mapped[str] = mapped_column(Text, server_default="active")
+    version: Mapped[int] = mapped_column(Integer, server_default="1")
+
+    __table_args__ = (
+        UniqueConstraint("org_id", "id", name="uq_scope_org_id_id"),
+        ForeignKeyConstraint(
+            ("org_id", "parent_scope_id"),
+            ("scope.org_id", "scope.id"),
+            ondelete="RESTRICT",
+            name="fk_scope_org_parent",
+        ),
+        CheckConstraint("status IN ('active','archived')", name="status"),
+        CheckConstraint("version >= 1", name="version"),
+        Index("ix_scope_org_type_status", "org_id", "scope_type", "status"),
+        Index("ix_scope_org_parent", "org_id", "parent_scope_id"),
+        Index(
+            "uq_scope_org_external_ref",
+            "org_id",
+            "external_ref",
+            unique=True,
+            postgresql_where=text("external_ref IS NOT NULL"),
+        ),
+        Index(
+            "uq_scope_org_governance",
+            "org_id",
+            unique=True,
+            postgresql_where=text("scope_type = 'org_governance'"),
+        ),
+    )
+
+
+class ScopeRelation(UUIDPkMixin, OrgScopedMixin, Base):
+    __tablename__ = "scope_relation"
+
+    domain_package_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("domain_package_version.id", ondelete="RESTRICT")
+    )
+    relationship_type: Mapped[str] = mapped_column(Text)
+    from_scope_id: Mapped[uuid.UUID]
+    to_scope_id: Mapped[uuid.UUID]
+    attributes: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    status: Mapped[str] = mapped_column(Text, server_default="active")
+    version: Mapped[int] = mapped_column(Integer, server_default="1")
+    created_by_kind: Mapped[str] = mapped_column(Text)
+    created_by_ref: Mapped[uuid.UUID]
+    active_key: Mapped[str | None] = mapped_column(
+        Text,
+        Computed(
+            "CASE WHEN status = 'active' THEN "
+            "relationship_type || ':' || from_scope_id::text || ':' || to_scope_id::text END",
+            persisted=True,
+        ),
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("org_id", "from_scope_id"),
+            ("scope.org_id", "scope.id"),
+            ondelete="RESTRICT",
+            name="fk_scope_relation_org_from",
+        ),
+        ForeignKeyConstraint(
+            ("org_id", "to_scope_id"),
+            ("scope.org_id", "scope.id"),
+            ondelete="RESTRICT",
+            name="fk_scope_relation_org_to",
+        ),
+        UniqueConstraint("org_id", "active_key", name="uq_scope_relation_org_active_key"),
+        CheckConstraint("from_scope_id <> to_scope_id", name="distinct_ends"),
+        CheckConstraint("status IN ('active','ended')", name="status"),
+        CheckConstraint("version >= 1", name="version"),
+        CheckConstraint("created_by_kind IN ('human','agent','service')", name="created_by_kind"),
+        Index("ix_scope_relation_org_from", "org_id", "from_scope_id", "status"),
+        Index("ix_scope_relation_org_to", "org_id", "to_scope_id", "status"),
+    )
+
+
+class ScopeRoleAssignment(UUIDPkMixin, OrgScopedMixin, TimestampMixin, Base):
+    __tablename__ = "scope_role_assignment"
+
+    scope_id: Mapped[uuid.UUID]
+    role_definition_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("role_definition_version.id", ondelete="RESTRICT")
+    )
+    actor_kind: Mapped[str] = mapped_column(Text)
+    actor_ref: Mapped[uuid.UUID]
+    inheritance_mode: Mapped[str] = mapped_column(Text, server_default="none")
+    authority_constraints: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, server_default=text("'{}'::jsonb")
+    )
+    status: Mapped[str] = mapped_column(Text, server_default="pending")
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    assigned_by_kind: Mapped[str] = mapped_column(Text)
+    assigned_by_ref: Mapped[uuid.UUID]
+    version: Mapped[int] = mapped_column(Integer, server_default="1")
+
+    __table_args__ = (
+        UniqueConstraint("org_id", "id", name="uq_scope_role_assignment_org_id_id"),
+        ForeignKeyConstraint(
+            ("org_id", "scope_id"),
+            ("scope.org_id", "scope.id"),
+            ondelete="CASCADE",
+            name="fk_scope_role_assignment_org_scope",
+        ),
+        CheckConstraint("actor_kind IN ('human','agent','service')", name="actor_kind"),
+        CheckConstraint("assigned_by_kind IN ('human','agent','service')", name="assigned_by_kind"),
+        CheckConstraint("inheritance_mode IN ('none','descendants')", name="inheritance_mode"),
+        CheckConstraint("status IN ('pending','active','suspended','ended')", name="status"),
+        CheckConstraint(
+            "valid_until IS NULL OR valid_from IS NULL OR valid_until > valid_from",
+            name="validity",
+        ),
+        CheckConstraint("version >= 1", name="version"),
+        Index(
+            "ix_scope_role_assignment_scope_role_status",
+            "org_id",
+            "scope_id",
+            "role_definition_version_id",
+            "status",
+        ),
+        Index(
+            "ix_scope_role_assignment_actor_status",
+            "org_id",
+            "actor_kind",
+            "actor_ref",
+            "status",
+        ),
+    )
+
+
+class WorkItem(UUIDPkMixin, OrgScopedMixin, TimestampMixin, Base):
+    __tablename__ = "work_item"
+
+    scope_id: Mapped[uuid.UUID]
+    parent_work_item_id: Mapped[uuid.UUID | None]
+    definition_bundle_id: Mapped[uuid.UUID]
+    title: Mapped[str] = mapped_column(Text)
+    lifecycle_state: Mapped[str] = mapped_column(Text)
+    execution_status: Mapped[str] = mapped_column(Text, server_default="idle")
+    inputs: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    priority: Mapped[int] = mapped_column(Integer, server_default="0")
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_kind: Mapped[str] = mapped_column(Text)
+    created_by_ref: Mapped[uuid.UUID]
+    version: Mapped[int] = mapped_column(Integer, server_default="1")
+    input_revision: Mapped[int] = mapped_column(Integer, server_default="1")
+    kernel_mode: Mapped[str] = mapped_column(Text, server_default="native")
+    current_plan_id: Mapped[uuid.UUID | None]
+    active_run_id: Mapped[uuid.UUID | None]
+    latest_evaluation_id: Mapped[uuid.UUID | None]
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("org_id", "id", name="uq_work_item_org_id_id"),
+        ForeignKeyConstraint(
+            ("org_id", "scope_id"),
+            ("scope.org_id", "scope.id"),
+            ondelete="RESTRICT",
+            name="fk_work_item_org_scope",
+        ),
+        ForeignKeyConstraint(
+            ("org_id", "parent_work_item_id"),
+            ("work_item.org_id", "work_item.id"),
+            ondelete="RESTRICT",
+            name="fk_work_item_org_parent",
+        ),
+        ForeignKeyConstraint(
+            ("org_id", "definition_bundle_id"),
+            ("definition_bundle.org_id", "definition_bundle.id"),
+            ondelete="RESTRICT",
+            name="fk_work_item_org_bundle",
+        ),
+        CheckConstraint(
+            "execution_status IN "
+            "('idle','queued','running','waiting','evaluating','succeeded','failed','cancelled')",
+            name="execution_status",
+        ),
+        CheckConstraint("priority BETWEEN 0 AND 100", name="priority"),
+        CheckConstraint("created_by_kind IN ('human','agent','service')", name="created_by_kind"),
+        CheckConstraint("version >= 1", name="version"),
+        CheckConstraint("input_revision >= 1", name="input_revision"),
+        CheckConstraint("kernel_mode IN ('native','legacy_shadow')", name="kernel_mode"),
+        CheckConstraint(
+            "(execution_status IN ('queued','running','waiting','evaluating')) "
+            "OR active_run_id IS NULL",
+            name="active_run_status",
+        ),
+        Index("ix_work_item_scope_lifecycle", "org_id", "scope_id", "lifecycle_state"),
+        Index(
+            "ix_work_item_execution_priority",
+            "org_id",
+            "execution_status",
+            text("priority DESC"),
+            "created_at",
+        ),
+        Index("ix_work_item_parent", "org_id", "parent_work_item_id"),
+        Index("ix_work_item_bundle", "org_id", "definition_bundle_id"),
+    )
+
+
+class WorkRoleBinding(UUIDPkMixin, OrgScopedMixin, TimestampMixin, Base):
+    __tablename__ = "work_role_binding"
+
+    work_item_id: Mapped[uuid.UUID]
+    role_slot_key: Mapped[str] = mapped_column(Text)
+    responsible_assignment_id: Mapped[uuid.UUID]
+    responsibility_kind_snapshot: Mapped[str] = mapped_column(Text)
+    executor_kind: Mapped[str | None] = mapped_column(Text)
+    executor_ref: Mapped[uuid.UUID | None]
+    delegated_by_binding_id: Mapped[uuid.UUID | None]
+    status: Mapped[str] = mapped_column(Text, server_default="active")
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(Integer, server_default="1")
+
+    __table_args__ = (
+        UniqueConstraint("org_id", "id", name="uq_work_role_binding_org_id_id"),
+        ForeignKeyConstraint(
+            ("org_id", "work_item_id"),
+            ("work_item.org_id", "work_item.id"),
+            ondelete="CASCADE",
+            name="fk_work_role_binding_org_work",
+        ),
+        ForeignKeyConstraint(
+            ("org_id", "responsible_assignment_id"),
+            ("scope_role_assignment.org_id", "scope_role_assignment.id"),
+            ondelete="RESTRICT",
+            name="fk_work_role_binding_org_assignment",
+        ),
+        ForeignKeyConstraint(
+            ("org_id", "delegated_by_binding_id"),
+            ("work_role_binding.org_id", "work_role_binding.id"),
+            ondelete="RESTRICT",
+            name="fk_work_role_binding_org_delegated_by",
+        ),
+        CheckConstraint(
+            "responsibility_kind_snapshot IN ('accountable','contributor','reviewer','observer')",
+            name="responsibility_kind",
+        ),
+        CheckConstraint("(executor_kind IS NULL) = (executor_ref IS NULL)", name="executor_pair"),
+        CheckConstraint(
+            "executor_kind IS NULL OR executor_kind IN ('human','agent','service')",
+            name="executor_kind",
+        ),
+        CheckConstraint("status IN ('active','revoked','ended')", name="status"),
+        CheckConstraint(
+            "valid_until IS NULL OR valid_from IS NULL OR valid_until > valid_from",
+            name="validity",
+        ),
+        CheckConstraint("version >= 1", name="version"),
+        Index(
+            "uq_work_role_binding_active",
+            "org_id",
+            "work_item_id",
+            "role_slot_key",
+            "responsible_assignment_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+
+class ServiceIdentity(UUIDPkMixin, OrgScopedMixin, Base):
+    __tablename__ = "service_identity"
+
+    key: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, server_default="active")
+    allowed_command_families: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), server_default=text("'{}'::text[]")
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("org_id", "key", name="uq_service_identity_org_key"),
+        CheckConstraint("status IN ('active','disabled')", name="status"),
+        CheckConstraint(
+            "allowed_command_families <@ ARRAY['definition','scope','work']::text[]",
+            name="allowed_command_families",
+        ),
+    )
+
+
+class OrgKernelSetting(Base):
+    __tablename__ = "org_kernel_setting"
+
+    org_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("org.id", ondelete="CASCADE"), primary_key=True
+    )
+    kernel_mode: Mapped[str] = mapped_column(Text, server_default="legacy")
+    governance_state: Mapped[str] = mapped_column(Text, server_default="uninitialized")
+    governance_scope_id: Mapped[uuid.UUID | None]
+    config_version: Mapped[int] = mapped_column(Integer, server_default="1")
+    changed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("app_user.id"))
+    changed_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("org_id", "governance_scope_id"),
+            ("scope.org_id", "scope.id"),
+            ondelete="RESTRICT",
+            name="fk_org_kernel_setting_org_governance_scope",
+        ),
+        CheckConstraint("kernel_mode IN ('legacy','shadow','kernel')", name="kernel_mode"),
+        CheckConstraint("governance_state IN ('uninitialized','active')", name="governance_state"),
+        CheckConstraint(
+            "(governance_state = 'uninitialized' AND governance_scope_id IS NULL) OR "
+            "(governance_state = 'active' AND governance_scope_id IS NOT NULL)",
+            name="governance_pointer_state",
+        ),
+        CheckConstraint("config_version >= 1", name="config_version"),
+    )
+
+
 class Plan(UUIDPkMixin, OrgScopedMixin, Base):
     __tablename__ = "plan"
 
@@ -310,10 +639,17 @@ __all__ = [
     "DefinitionBundleRole",
     "DefinitionVersionMixin",
     "DomainPackageVersion",
+    "OrgKernelSetting",
     "Plan",
     "ResultEnvelope",
     "RoleDefinitionVersion",
     "RunManifest",
+    "Scope",
+    "ScopeRelation",
+    "ScopeRoleAssignment",
+    "ServiceIdentity",
     "TaskRun",
+    "WorkItem",
     "WorkDefinitionVersion",
+    "WorkRoleBinding",
 ]
