@@ -455,6 +455,18 @@ Starlette 1.3.1 提示当前 `httpx` TestClient 兼容入口将迁移到 `httpx2
 - 偿还：K1 实现新 Kernel API 时统一替换 422 常量，并在单独依赖升级任务验证 TestClient/httpx2 迁移；
 - 约束：不得为消除 warning 直接放宽版本范围或关闭 warning；升级后必须跑当前 API 合同与全量集成测试。
 
+### TD-036
+
+**WorkItem 数据库约束只实现了 active_run 关系的一半。** K2-T1 审计发现
+`ck_work_item_active_run_status` 当前表达式只保证 idle/terminal 时 `active_run_id IS NULL`，但没有保证
+`execution_status in (queued,running,waiting,evaluating)` 时 `active_run_id IS NOT NULL`。
+
+- 影响：K2-T1 纯状态机 `validate_work_state` 已按“双向当且仅当”拒绝非法状态，后续 Kernel Command
+  Handler 复用该入口时不会写入脏数据；但直接 SQL 或尚未禁用的旧旁路仍可能写入 active status + null run；
+- 偿还：K2-T3 引入 durable receipt 与 Work Command 事务迁移时，把 check constraint 改为双向等价，
+  迁移前先扫描并阻断存量脏行；K3-T3 再通过静态依赖检查移除全部旁路写；
+- 约束：在约束修复前，不得把数据库当前单向 check 当作完整状态合法性证明。
+
 ### M3 后技术债清理批次（2026-06-20）
 - **TD-004 已偿还**：docker-compose 固定 litellm `main-stable→v1.89.2`、langfuse `2→2.95.11`
   （`docker manifest inspect` 确认存在）；pgvector:pg18 保留（华为云 retag 无 registry digest）。

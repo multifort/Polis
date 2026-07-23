@@ -15,6 +15,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from polis.modules.kernel.domain.canonical import canonical_checksum
+from polis.modules.kernel.domain.state_machine import validate_state_machine_static
 from polis.modules.kernel.errors import KernelProtocolError
 from polis.modules.kernel.schemas import (
     DEFINITION_V1_ADAPTER,
@@ -591,25 +592,8 @@ class DefinitionCompiler:
         roles: tuple[ResolvedRole, ...],
         path: str,
     ) -> None:
-        reachable = {work.state_machine.initial_state}
-        changed = True
-        while changed:
-            changed = False
-            for transition in work.state_machine.transitions:
-                if (
-                    reachable.intersection(transition.from_states)
-                    and transition.to not in reachable
-                ):
-                    reachable.add(transition.to)
-                    changed = True
-        state_keys = {state.key for state in work.state_machine.states}
-        unreachable = sorted(state_keys - reachable)
-        if unreachable:
-            raise KernelProtocolError(
-                "BUNDLE_INCOMPATIBLE",
-                f"{path}/work_definition_version_id/definition/state_machine",
-                f"state machine contains unreachable states {unreachable}",
-            )
+        state_machine_path = f"{path}/work_definition_version_id/definition/state_machine"
+        validate_state_machine_static(work, path=state_machine_path)
 
         slot_keys = {slot.key for slot in work.role_slots}
         evaluation_keys = {rule.key for rule in work.evaluation_rules}

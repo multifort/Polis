@@ -882,14 +882,16 @@ class WorkDefinitionV1(StrictModel):
     @model_validator(mode="after")
     def validate_definition(self) -> WorkDefinitionV1:
         _require_unique(self.supported_scope_types, "supported_scope_types")
+        transition_commands = [item.command_type for item in self.state_machine.transitions]
+        if len(transition_commands) != len(set(transition_commands)):
+            raise PydanticCustomError(
+                "TRANSITION_COMMAND_DUPLICATE",
+                "command_type must identify exactly one transition in a Work definition",
+            )
         groups: tuple[tuple[str, list[str]], ...] = (
             ("role_slots", [item.key for item in self.role_slots]),
             ("states", [item.key for item in self.state_machine.states]),
             ("transitions", [item.key for item in self.state_machine.transitions]),
-            (
-                "transition command types",
-                [item.command_type for item in self.state_machine.transitions],
-            ),
             ("policy_bindings", [item.key for item in self.policy_bindings]),
             ("evaluation_rules", [item.key for item in self.evaluation_rules]),
             ("child_dependencies", [item.dependency_key for item in self.child_dependencies]),

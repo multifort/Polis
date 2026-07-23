@@ -102,6 +102,43 @@ def test_models_are_registered_with_explicit_physical_tables() -> None:
     }
 
 
+def test_work_publish_rejects_static_state_machine_defects(pg_url: str) -> None:
+    user_id, org_id, _ = _create_tenants(pg_url)
+    source = copy.deepcopy(_fixture()["works"][0])
+    source["state_machine"]["states"].append(
+        {"key": "orphaned", "terminal": False, "category": "open"}
+    )
+
+    async def exercise() -> None:
+        engine = create_async_engine(pg_url)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with factory() as session:
+                row = await create_definition_draft(
+                    session,
+                    kind="work",
+                    owner_org_id=org_id,
+                    key=source["key"],
+                    version="9.0.0",
+                    visibility="private",
+                    definition=source,
+                    created_by=user_id,
+                )
+                with pytest.raises(KernelProtocolError, match="unreachable states"):
+                    await publish_definition(
+                        session,
+                        kind="work",
+                        definition_id=row.id,
+                        owner_org_id=org_id,
+                        expected_revision=1,
+                    )
+                assert row.status == "draft"
+        finally:
+            await engine.dispose()
+
+    asyncio.run(exercise())
+
+
 def test_definition_repository_visibility_lifecycle_and_db_immutability(pg_url: str) -> None:
     user_id, org_a, org_b = _create_tenants(pg_url)
     source = _fixture()["domain_package"]

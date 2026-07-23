@@ -13,6 +13,7 @@ from typing import Any, Literal, cast
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from polis.modules.kernel.domain.state_machine import validate_state_machine_static
 from polis.modules.kernel.errors import KernelProtocolError
 from polis.modules.kernel.models import (
     DefinitionBundle,
@@ -26,6 +27,7 @@ from polis.modules.kernel.models import (
 from polis.modules.kernel.schemas import (
     DEFINITION_V1_ADAPTER,
     DefinitionV1,
+    WorkDefinitionV1,
     definition_checksum,
     validate_semver,
 )
@@ -261,6 +263,16 @@ async def _publish_definition(
             "DEFINITION_REVISION_CONFLICT",
             "/revision",
             f"expected revision {expected_revision}, found {row.revision}",
+        )
+    parsed = _validate_definition(
+        kind=kind,
+        key=row.key,
+        definition=dict(row.definition),
+    )
+    if isinstance(parsed, WorkDefinitionV1):
+        validate_state_machine_static(
+            parsed,
+            path="/definition/state_machine",
         )
     row.status = "published"
     row.published_at = datetime.now(UTC)
