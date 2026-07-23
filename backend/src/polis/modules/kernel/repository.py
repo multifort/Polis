@@ -84,7 +84,7 @@ async def _find_owned[DefinitionRowT: DefinitionVersionMixin](
     return cast(DefinitionRowT | None, await session.scalar(statement))
 
 
-async def create_definition_draft(
+async def _create_definition_draft(
     session: AsyncSession,
     *,
     kind: DefinitionKind,
@@ -160,7 +160,56 @@ async def get_visible_definition(
     )
 
 
-async def update_definition_draft(
+async def _lock_visible_kind[DefinitionRowT: DefinitionVersionMixin](
+    session: AsyncSession,
+    model: type[DefinitionRowT],
+    *,
+    definition_ids: set[uuid.UUID],
+    org_id: uuid.UUID,
+) -> list[DefinitionRowT]:
+    if not definition_ids:
+        return []
+    statement = (
+        select(model)
+        .where(
+            model.id.in_(definition_ids),
+            or_(
+                and_(model.owner_org_id == org_id, model.visibility == "private"),
+                and_(model.owner_org_id.is_(None), model.visibility == "public"),
+            ),
+        )
+        .order_by(model.id)
+        .with_for_update(read=True)
+    )
+    return list((await session.scalars(statement)).all())
+
+
+async def _lock_visible_definition_versions(
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID,
+    version_ids_by_kind: dict[DefinitionKind, set[uuid.UUID]],
+) -> dict[DefinitionKind, list[DefinitionVersion]]:
+    """Lock the complete compile closure in global kind/UUID order."""
+
+    locked: dict[DefinitionKind, list[DefinitionVersion]] = {
+        "domain_package": [],
+        "work": [],
+        "role": [],
+    }
+    for kind in ("domain_package", "work", "role"):
+        model = DEFINITION_MODEL_BY_KIND[kind]
+        rows = await _lock_visible_kind(
+            session,
+            model,
+            definition_ids=version_ids_by_kind[kind],
+            org_id=org_id,
+        )
+        locked[kind] = cast(list[DefinitionVersion], rows)
+    return locked
+
+
+async def _update_definition_draft(
     session: AsyncSession,
     *,
     kind: DefinitionKind,
@@ -191,7 +240,7 @@ async def update_definition_draft(
     return cast(DefinitionVersion, row)
 
 
-async def publish_definition(
+async def _publish_definition(
     session: AsyncSession,
     *,
     kind: DefinitionKind,
@@ -219,7 +268,7 @@ async def publish_definition(
     return cast(DefinitionVersion, row)
 
 
-async def deprecate_definition(
+async def _deprecate_definition(
     session: AsyncSession,
     *,
     kind: DefinitionKind,
@@ -269,7 +318,7 @@ async def get_bundle(
     )
 
 
-async def add_bundle_snapshot(
+async def _add_bundle_snapshot(
     session: AsyncSession,
     *,
     bundle: DefinitionBundle,
@@ -299,12 +348,7 @@ __all__ = [
     "DEFINITION_MODEL_BY_KIND",
     "DefinitionKind",
     "DefinitionVersion",
-    "add_bundle_snapshot",
-    "create_definition_draft",
-    "deprecate_definition",
     "find_bundle_by_checksum",
     "get_bundle",
     "get_visible_definition",
-    "publish_definition",
-    "update_definition_draft",
 ]
