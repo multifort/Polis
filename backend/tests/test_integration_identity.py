@@ -127,7 +127,7 @@ def test_schema_and_rls(pg_url: str) -> None:
                 text("SELECT count(*) FROM pg_class WHERE relrowsecurity AND relkind='r'")
             ).scalar_one()
         assert tables >= 27  # 27 业务表 + alembic_version（+ V2 新增 task 等）
-        # 原 15 张 + V3 K1 的 3 张 Definition 资产表和 3 张 Bundle 表。
-        assert rls == 21
+        # 原 15 张 + K1 Definition/Bundle 6 张 + Scope/WorkItem/治理 7 张。
+        assert rls == 28
     finally:
         engine.dispose()
